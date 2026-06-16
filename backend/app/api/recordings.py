@@ -13,7 +13,7 @@ from sqlmodel import Session, delete, select
 from ..config import settings
 from ..db import get_session
 from ..exporters import export_markdown, export_text
-from ..models import Person, QAMessage, Recording, Segment, Speaker, Summary
+from ..models import Person, QAMessage, Recording, RecordingTag, Segment, Speaker, Summary, Tag
 from ..runtime import runtime
 from ..speakers import display_name
 
@@ -45,6 +45,7 @@ class RecordingListItem(BaseModel):
     duration_s: float | None
     status: str
     segment_count: int
+    tags: list[Tag]
 
 
 class RecordingDetail(BaseModel):
@@ -55,6 +56,7 @@ class RecordingDetail(BaseModel):
     duration_s: float | None
     status: str
     language: str | None
+    tags: list[Tag]
     speakers: list[SpeakerOut]
     segments: list[Segment]
     summaries: list[Summary]
@@ -111,9 +113,32 @@ async def active_recording() -> ActiveInfo | None:
     return ActiveInfo(**info) if info else None
 
 
+def _tags_by_recording(session: Session, recording_ids: list[int]) -> dict[int, list[Tag]]:
+    """Batch-load tags for a set of recordings (avoids N+1)."""
+    if not recording_ids:
+        return {}
+    rows = session.exec(
+        select(RecordingTag.recording_id, Tag)
+        .join(Tag, Tag.id == RecordingTag.tag_id)  # type: ignore[arg-type]
+        .where(RecordingTag.recording_id.in_(recording_ids))  # type: ignore[attr-defined]
+    ).all()
+    out: dict[int, list[Tag]] = {}
+    for rec_id, tag in rows:
+        out.setdefault(rec_id, []).append(tag)
+    return out
+
+
 @router.get("", response_model=list[RecordingListItem])
-def list_recordings(session: Session = Depends(get_session)) -> list[RecordingListItem]:
-    recs = session.exec(select(Recording).order_by(Recording.started_at.desc())).all()  # type: ignore[attr-defined]
+def list_recordings(
+    tag_id: int | None = None, session: Session = Depends(get_session)
+) -> list[RecordingListItem]:
+    stmt = select(Recording)
+    if tag_id is not None:
+        stmt = stmt.join(RecordingTag, RecordingTag.recording_id == Recording.id).where(  # type: ignore[arg-type]
+            RecordingTag.tag_id == tag_id
+        )
+    recs = session.exec(stmt.order_by(Recording.started_at.desc())).all()  # type: ignore[attr-defined]
+    tags_map = _tags_by_recording(session, [r.id for r in recs if r.id is not None])
     out: list[RecordingListItem] = []
     for r in recs:
         count = session.exec(select(Segment.id).where(Segment.recording_id == r.id)).all()  # type: ignore[arg-type]
@@ -126,6 +151,7 @@ def list_recordings(session: Session = Depends(get_session)) -> list[RecordingLi
                 duration_s=r.duration_s,
                 status=r.status,
                 segment_count=len(count),
+                tags=tags_map.get(r.id, []),  # type: ignore[arg-type]
             )
         )
     return out
@@ -153,6 +179,7 @@ def get_recording(recording_id: int, session: Session = Depends(get_session)) ->
         SpeakerOut(id=sp.id, label=sp.label, name=display_name(sp, persons), person_id=sp.person_id, color=sp.color)  # type: ignore[arg-type]
         for sp in speakers
     ]
+    tags = _tags_by_recording(session, [recording_id]).get(recording_id, [])
     return RecordingDetail(
         id=r.id,  # type: ignore[arg-type]
         title=r.title,
@@ -161,6 +188,7 @@ def get_recording(recording_id: int, session: Session = Depends(get_session)) ->
         duration_s=r.duration_s,
         status=r.status,
         language=r.language,
+        tags=tags,
         speakers=speakers_out,
         segments=list(segments),
         summaries=list(summaries),
@@ -179,12 +207,39 @@ def delete_recording(recording_id: int, session: Session = Depends(get_session))
     session.exec(delete(Speaker).where(Speaker.recording_id == recording_id))  # type: ignore[arg-type]
     session.exec(delete(Summary).where(Summary.recording_id == recording_id))  # type: ignore[arg-type]
     session.exec(delete(QAMessage).where(QAMessage.recording_id == recording_id))  # type: ignore[arg-type]
+    session.exec(delete(RecordingTag).where(RecordingTag.recording_id == recording_id))  # type: ignore[arg-type]
     session.delete(r)
     session.commit()
     # best-effort removal of on-disk audio
     rec_dir = Path(settings.db_path).resolve().parent / "recordings" / str(recording_id)
     if rec_dir.exists():
         shutil.rmtree(rec_dir, ignore_errors=True)
+
+
+class TagAssign(BaseModel):
+    tag_id: int
+
+
+@router.post("/{recording_id}/tags", status_code=204)
+def add_tag(recording_id: int, payload: TagAssign, session: Session = Depends(get_session)) -> None:
+    if not session.get(Recording, recording_id):
+        raise HTTPException(404, "recording not found")
+    if not session.get(Tag, payload.tag_id):
+        raise HTTPException(404, "tag not found")
+    exists = session.get(RecordingTag, (recording_id, payload.tag_id))
+    if exists is None:
+        session.add(RecordingTag(recording_id=recording_id, tag_id=payload.tag_id))
+        session.commit()
+
+
+@router.delete("/{recording_id}/tags/{tag_id}", status_code=204)
+def remove_tag(recording_id: int, tag_id: int, session: Session = Depends(get_session)) -> None:
+    session.exec(
+        delete(RecordingTag).where(
+            RecordingTag.recording_id == recording_id, RecordingTag.tag_id == tag_id  # type: ignore[arg-type]
+        )
+    )
+    session.commit()
 
 
 class SummarizeRequest(BaseModel):

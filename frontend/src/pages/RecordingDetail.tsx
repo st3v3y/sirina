@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { api, type RecordingDetail as TR, type Segment, type Speaker, type Summary, type QAMessage } from "../lib/api";
+import { api, type RecordingDetail as TR, type Segment, type Speaker, type Summary, type QAMessage, type Tag } from "../lib/api";
 import TranscriptChat from "../components/TranscriptChat";
 import PromptBar from "../components/PromptBar";
+import { TagChip, AddTagButton, TAG_COLORS } from "../components/TagUI";
 
 const STATUS_LABEL: Record<string, string> = {
   recording: "Recording",
@@ -28,9 +29,27 @@ export default function RecordingDetail() {
     return r;
   }
 
+  const [allTags, setAllTags] = useState<Tag[]>([]);
+
   useEffect(() => {
     api.listPeople().then((p) => setPeopleNames(p.map((x) => x.name))).catch(() => {});
+    api.listTags().then(setAllTags).catch(() => {});
   }, [recordingId]);
+
+  async function addTag(tagId: number) {
+    await api.addTagToRecording(recordingId, tagId);
+    load();
+  }
+  async function removeTag(tagId: number) {
+    await api.removeTagFromRecording(recordingId, tagId);
+    load();
+  }
+  async function createAndAssign(name: string) {
+    const t = await api.createTag(name, TAG_COLORS[allTags.length % TAG_COLORS.length]);
+    await api.addTagToRecording(recordingId, t.id);
+    setAllTags(await api.listTags());
+    load();
+  }
 
   const speakerMap = useMemo(() => {
     const m: Record<number, Speaker> = {};
@@ -118,6 +137,17 @@ export default function RecordingDetail() {
         >
           {STATUS_LABEL[rec.status] ?? rec.status}
         </span>
+        <div className="flex flex-wrap items-center gap-1">
+          {rec.tags.map((t) => (
+            <TagChip key={t.id} tag={t} onRemove={() => removeTag(t.id)} />
+          ))}
+          <AddTagButton
+            allTags={allTags}
+            currentIds={rec.tags.map((t) => t.id)}
+            onAdd={addTag}
+            onCreate={createAndAssign}
+          />
+        </div>
         <div className="ml-auto flex gap-2 text-xs">
           <a href={api.exportUrl(rec.id, "md")} className="px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700">
             Export .md

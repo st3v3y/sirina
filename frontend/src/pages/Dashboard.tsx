@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, type AudioDevice, type Recording, type RecordingStatus } from "../lib/api";
+import { api, type AudioDevice, type Recording, type RecordingStatus, type Tag } from "../lib/api";
+import { TagChip, AddTagButton, TAG_COLORS, tagChipClass } from "../components/TagUI";
 
 const STATUS_BADGE: Record<RecordingStatus, string> = {
   recording: "bg-rose-500/15 text-rose-300 border-rose-500/30",
@@ -25,18 +26,46 @@ export default function Dashboard() {
   const [label, setLabel] = useState("Room");
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [filterTag, setFilterTag] = useState<number | null>(null);
+  const [managing, setManaging] = useState(false);
   const nav = useNavigate();
 
-  async function refresh() {
+  async function refresh(tagId: number | null = filterTag) {
     try {
-      setRecordings(await api.listRecordings());
+      setRecordings(await api.listRecordings(tagId ?? undefined));
     } catch (e) {
       setError(String(e));
     }
   }
 
+  async function loadTags() {
+    setTags(await api.listTags());
+  }
+
+  function applyFilter(tagId: number | null) {
+    setFilterTag(tagId);
+    refresh(tagId);
+  }
+
+  async function addTag(recordingId: number, tagId: number) {
+    await api.addTagToRecording(recordingId, tagId);
+    refresh();
+  }
+  async function removeTag(recordingId: number, tagId: number) {
+    await api.removeTagFromRecording(recordingId, tagId);
+    refresh();
+  }
+  async function createAndAssign(recordingId: number, name: string) {
+    const t = await api.createTag(name, TAG_COLORS[tags.length % TAG_COLORS.length]);
+    await api.addTagToRecording(recordingId, t.id);
+    await loadTags();
+    refresh();
+  }
+
   useEffect(() => {
     refresh();
+    loadTags();
     api
       .listAudioDevices()
       .then((d) => {
@@ -138,9 +167,67 @@ export default function Dashboard() {
       </section>
 
       <section>
-        <h2 className="text-base font-medium mb-3">Recordings</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-base font-medium">Recordings</h2>
+          {tags.length > 0 && (
+            <button
+              onClick={() => setManaging((m) => !m)}
+              className="text-xs text-neutral-400 hover:text-neutral-200"
+            >
+              {managing ? "Done" : "Manage tags"}
+            </button>
+          )}
+        </div>
+
+        {tags.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 mb-3">
+            <button
+              onClick={() => applyFilter(null)}
+              className={`text-[11px] px-2 py-0.5 rounded border ${filterTag == null ? "bg-neutral-700 text-neutral-100 border-neutral-600" : "border-neutral-800 text-neutral-400 hover:text-neutral-200"}`}
+            >
+              All
+            </button>
+            {tags.map((t) => (
+              <button key={t.id} onClick={() => applyFilter(t.id)} className={filterTag === t.id ? "ring-1 ring-neutral-400 rounded" : ""}>
+                <TagChip tag={t} />
+              </button>
+            ))}
+          </div>
+        )}
+
+        {managing && (
+          <div className="mb-3 rounded-lg border border-neutral-800 divide-y divide-neutral-800">
+            {tags.map((t) => (
+              <div key={t.id} className="flex items-center gap-2 px-3 py-2 text-sm">
+                <span className={`text-[11px] px-1.5 py-0.5 rounded border ${tagChipClass(t.color)}`}>{t.name}</span>
+                <input
+                  defaultValue={t.name}
+                  onBlur={async (e) => {
+                    const v = e.target.value.trim();
+                    if (v && v !== t.name) { await api.updateTag(t.id, { name: v }); loadTags(); refresh(); }
+                  }}
+                  className="bg-neutral-950 border border-neutral-800 rounded px-2 py-0.5 text-xs w-32"
+                />
+                <select
+                  value={t.color ?? "neutral"}
+                  onChange={async (e) => { await api.updateTag(t.id, { color: e.target.value }); loadTags(); refresh(); }}
+                  className="bg-neutral-950 border border-neutral-800 rounded px-1 py-0.5 text-xs"
+                >
+                  {TAG_COLORS.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <button
+                  onClick={async () => { if (confirm(`Delete tag "${t.name}"?`)) { await api.deleteTag(t.id); if (filterTag === t.id) setFilterTag(null); loadTags(); refresh(filterTag === t.id ? null : filterTag); } }}
+                  className="ml-auto text-xs text-neutral-400 hover:text-rose-400"
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         {recordings.length === 0 ? (
-          <p className="text-sm text-neutral-500">No recordings yet.</p>
+          <p className="text-sm text-neutral-500">{filterTag != null ? "No recordings with this tag." : "No recordings yet."}</p>
         ) : (
           <ul className="divide-y divide-neutral-800 rounded-lg border border-neutral-800">
             {recordings.map((r) => (
@@ -153,7 +240,18 @@ export default function Dashboard() {
                 >
                   {r.status}
                 </span>
-                <span className="flex-1 truncate">{r.title || `Recording #${r.id}`}</span>
+                <span className="truncate min-w-0">{r.title || `Recording #${r.id}`}</span>
+                <div className="flex flex-wrap items-center gap-1 flex-1">
+                  {r.tags.map((t) => (
+                    <TagChip key={t.id} tag={t} onRemove={() => removeTag(r.id, t.id)} />
+                  ))}
+                  <AddTagButton
+                    allTags={tags}
+                    currentIds={r.tags.map((t) => t.id)}
+                    onAdd={(tagId) => addTag(r.id, tagId)}
+                    onCreate={(name) => createAndAssign(r.id, name)}
+                  />
+                </div>
                 <span className="text-xs text-neutral-500 w-12 text-right">{fmtDuration(r.duration_s)}</span>
                 <Link
                   to={r.status === "recording" ? `/recordings/live/${r.id}` : `/recordings/${r.id}`}

@@ -7,6 +7,12 @@ export type Status = {
 
 export type RecordingStatus = "recording" | "processing" | "ready" | "failed";
 
+export type Tag = {
+  id: number;
+  name: string;
+  color: string | null;
+};
+
 export type Recording = {
   id: number;
   title: string | null;
@@ -15,6 +21,7 @@ export type Recording = {
   duration_s: number | null;
   status: RecordingStatus;
   segment_count?: number;
+  tags: Tag[];
 };
 
 export type AudioDevice = {
@@ -98,6 +105,7 @@ export type QATemplate = {
 
 export type RecordingDetail = Recording & {
   language: string | null;
+  tags: Tag[];
   speakers: Speaker[];
   segments: Segment[];
   summaries: Summary[];
@@ -121,7 +129,8 @@ export const api = {
   status: () => request<Status>("/api/status"),
   listAudioDevices: () => request<AudioDevice[]>("/api/audio/devices"),
 
-  listRecordings: () => request<Recording[]>("/api/recordings"),
+  listRecordings: (tagId?: number) =>
+    request<Recording[]>(`/api/recordings${tagId != null ? `?tag_id=${tagId}` : ""}`),
   getRecording: (id: number) => request<RecordingDetail>(`/api/recordings/${id}`),
   startRecording: (body: StartRecordingRequest) =>
     request<{ id: number }>("/api/recordings/start", {
@@ -155,6 +164,20 @@ export const api = {
   renamePerson: (id: number, name: string) =>
     request<Person>(`/api/people/${id}`, { method: "PUT", body: JSON.stringify({ name }) }),
   deletePerson: (id: number) => request<void>(`/api/people/${id}`, { method: "DELETE" }),
+
+  listTags: () => request<Tag[]>("/api/tags"),
+  createTag: (name: string, color?: string | null) =>
+    request<Tag>("/api/tags", { method: "POST", body: JSON.stringify({ name, color }) }),
+  updateTag: (id: number, body: { name?: string; color?: string | null }) =>
+    request<Tag>(`/api/tags/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteTag: (id: number) => request<void>(`/api/tags/${id}`, { method: "DELETE" }),
+  addTagToRecording: (recordingId: number, tagId: number) =>
+    request<void>(`/api/recordings/${recordingId}/tags`, {
+      method: "POST",
+      body: JSON.stringify({ tag_id: tagId }),
+    }),
+  removeTagFromRecording: (recordingId: number, tagId: number) =>
+    request<void>(`/api/recordings/${recordingId}/tags/${tagId}`, { method: "DELETE" }),
 
   listSummaryTemplates: () => request<SummaryTemplate[]>("/api/summary-templates"),
   createSummaryTemplate: (body: { name: string; sections: TemplateSection[] }) =>
