@@ -7,22 +7,25 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class Meeting(SQLModel, table=True):
+class Recording(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     title: str | None = None
-    guild_id: str
-    channel_id: str
+    created_at: datetime = Field(default_factory=_utcnow)
     started_at: datetime = Field(default_factory=_utcnow)
     ended_at: datetime | None = None
-    status: str = Field(default="recording")  # recording | ended | failed
-    source: str = Field(default="discord")  # discord | local
+    duration_s: float | None = None
+    status: str = Field(default="recording")  # recording | processing | ready | failed
+    language: str | None = None
+    mic_path: str | None = None
+    system_path: str | None = None
+    audio_path: str | None = None  # mixed/primary track used for playback + transcription
+    error: str | None = None
 
 
 class Segment(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    meeting_id: int = Field(foreign_key="meeting.id", index=True)
-    discord_user_id: str
-    username: str
+    recording_id: int = Field(foreign_key="recording.id", index=True)
+    speaker_label: str = "Speaker"  # populated by transcription/diarization later
     start_ts: float
     end_ts: float
     text: str
@@ -30,7 +33,7 @@ class Segment(SQLModel, table=True):
 
 class Summary(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    meeting_id: int = Field(foreign_key="meeting.id", index=True)
+    recording_id: int = Field(foreign_key="recording.id", index=True)
     kind: str  # live_aspect | full | qa_answer
     template_id: int | None = Field(default=None, foreign_key="prompttemplate.id")
     content: str
@@ -47,7 +50,7 @@ class PromptTemplate(SQLModel, table=True):
 
 class QAMessage(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    meeting_id: int = Field(foreign_key="meeting.id", index=True)
+    recording_id: int = Field(foreign_key="recording.id", index=True)
     role: str  # user | assistant
     content: str
     created_at: datetime = Field(default_factory=_utcnow)

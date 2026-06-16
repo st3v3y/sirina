@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type Status } from "../lib/api";
-import { useStatusSocket } from "../lib/useMeetingSocket";
+import { useStatusSocket } from "../lib/useStatusSocket";
 
 export default function ConnectionStatus() {
   const [status, setStatus] = useState<Status | null>(null);

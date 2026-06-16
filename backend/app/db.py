@@ -27,14 +27,9 @@ def _enable_sqlite_wal(dbapi_conn, _):  # type: ignore[no-untyped-def]
 
 
 def init_db() -> None:
+    # v2 schema is created fresh. There is no migration from the v1 `Meeting`-era
+    # database — delete an old `data/transcripts.db` to reset (see README).
     SQLModel.metadata.create_all(engine)
-    # Light, idempotent SQLite migration: add columns introduced after a row was first persisted.
-    with engine.begin() as conn:
-        from sqlalchemy import text
-
-        cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(meeting)").fetchall()}
-        if "source" not in cols:
-            conn.exec_driver_sql("ALTER TABLE meeting ADD COLUMN source TEXT NOT NULL DEFAULT 'discord'")
     with Session(engine) as session:
         existing = session.exec(select(PromptTemplate)).first()
         if existing is None:

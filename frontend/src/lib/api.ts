@@ -4,15 +4,15 @@ export type Status = {
   model: string;
 };
 
-export type Meeting = {
+export type RecordingStatus = "recording" | "processing" | "ready" | "failed";
+
+export type Recording = {
   id: number;
   title: string | null;
-  guild_id: string;
-  channel_id: string;
   started_at: string;
   ended_at: string | null;
-  status: "recording" | "ended" | "failed";
-  source: "discord" | "local";
+  duration_s: number | null;
+  status: RecordingStatus;
   segment_count?: number;
 };
 
@@ -23,17 +23,23 @@ export type AudioDevice = {
   default_samplerate: number;
 };
 
-export type StartMeetingRequest = {
+export type StartRecordingRequest = {
   title?: string;
   device?: string;
+  system_device?: string;
   label?: string;
+};
+
+export type ActiveInfo = {
+  id: number;
+  elapsed_s: number;
+  level: number;
 };
 
 export type Segment = {
   id: number;
-  meeting_id: number;
-  discord_user_id: string;
-  username: string;
+  recording_id: number;
+  speaker_label: string;
   start_ts: number;
   end_ts: number;
   text: string;
@@ -41,7 +47,7 @@ export type Segment = {
 
 export type Summary = {
   id: number;
-  meeting_id: number;
+  recording_id: number;
   kind: "live_aspect" | "full" | "qa_answer";
   template_id: number | null;
   content: string;
@@ -50,7 +56,7 @@ export type Summary = {
 
 export type QAMessage = {
   id: number;
-  meeting_id: number;
+  recording_id: number;
   role: "user" | "assistant";
   content: string;
   created_at: string;
@@ -64,7 +70,8 @@ export type PromptTemplate = {
   is_default: boolean;
 };
 
-export type MeetingDetail = Meeting & {
+export type RecordingDetail = Recording & {
+  language: string | null;
   segments: Segment[];
   summaries: Summary[];
   qa: QAMessage[];
@@ -85,31 +92,32 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   status: () => request<Status>("/api/status"),
-  listMeetings: () => request<Meeting[]>("/api/meetings"),
-  getMeeting: (id: number) => request<MeetingDetail>(`/api/meetings/${id}`),
-  startMeeting: (body: StartMeetingRequest) =>
-    request<{ meeting_id: number }>("/api/meetings/start", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
   listAudioDevices: () => request<AudioDevice[]>("/api/audio/devices"),
-  stopMeeting: (id: number, body: { summary_template_id?: number | null } = {}) =>
-    request<{ ok: true }>(`/api/meetings/${id}/stop`, {
+
+  listRecordings: () => request<Recording[]>("/api/recordings"),
+  getRecording: (id: number) => request<RecordingDetail>(`/api/recordings/${id}`),
+  startRecording: (body: StartRecordingRequest) =>
+    request<{ id: number }>("/api/recordings/start", {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  deleteMeeting: (id: number) =>
-    request<void>(`/api/meetings/${id}`, { method: "DELETE" }),
+  stopRecording: (id: number) =>
+    request<{ ok: true }>(`/api/recordings/${id}/stop`, { method: "POST" }),
+  deleteRecording: (id: number) =>
+    request<void>(`/api/recordings/${id}`, { method: "DELETE" }),
+  activeRecording: () => request<ActiveInfo | null>("/api/recordings/active"),
+
   summarize: (id: number, template_id: number) =>
     request<{ summary_id: number; content: string }>(
-      `/api/meetings/${id}/summarize`,
+      `/api/recordings/${id}/summarize`,
       { method: "POST", body: JSON.stringify({ template_id }) }
     ),
   ask: (id: number, question: string, template_id?: number) =>
-    request<{ answer: string }>(`/api/meetings/${id}/ask`, {
+    request<{ answer: string }>(`/api/recordings/${id}/ask`, {
       method: "POST",
       body: JSON.stringify({ question, template_id }),
     }),
+
   listTemplates: () => request<PromptTemplate[]>("/api/templates"),
   createTemplate: (body: { name: string; kind: string; body: string }) =>
     request<PromptTemplate>("/api/templates", {
@@ -124,5 +132,5 @@ export const api = {
   deleteTemplate: (id: number) =>
     request<void>(`/api/templates/${id}`, { method: "DELETE" }),
   exportUrl: (id: number, format: "md" | "txt") =>
-    `/api/meetings/${id}/export?format=${format}`,
+    `/api/recordings/${id}/export?format=${format}`,
 };

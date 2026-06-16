@@ -1,7 +1,7 @@
 import { BrowserRouter, Link, Route, Routes } from "react-router-dom";
 import Dashboard from "./pages/Dashboard";
-import LiveMeeting from "./pages/LiveMeeting";
-import MeetingDetail from "./pages/MeetingDetail";
+import RecordingScreen from "./pages/RecordingScreen";
+import RecordingDetail from "./pages/RecordingDetail";
 import Templates from "./pages/Templates";
 import ConnectionStatus from "./components/ConnectionStatus";
 
@@ -11,7 +11,7 @@ export default function App() {
       <div className="min-h-screen flex flex-col">
         <header className="border-b border-neutral-800 px-6 py-3 flex items-center gap-6">
           <Link to="/" className="text-lg font-semibold tracking-tight">
-            Live Transcript Bot
+            Meeting Recorder
           </Link>
           <nav className="flex gap-4 text-sm text-neutral-400">
             <Link to="/" className="hover:text-neutral-100">Dashboard</Link>
@@ -24,8 +24,8 @@ export default function App() {
         <main className="flex-1 min-h-0">
           <Routes>
             <Route path="/" element={<Dashboard />} />
-            <Route path="/meetings/live/:id" element={<LiveMeeting />} />
-            <Route path="/meetings/:id" element={<MeetingDetail />} />
+            <Route path="/recordings/live/:id" element={<RecordingScreen />} />
+            <Route path="/recordings/:id" element={<RecordingDetail />} />
             <Route path="/templates" element={<Templates />} />
           </Routes>
         </main>

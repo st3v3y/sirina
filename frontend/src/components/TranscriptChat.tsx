@@ -36,16 +36,16 @@ export default function TranscriptChat({ items }: { items: ChatItem[] }) {
   return (
     <div ref={ref} className="h-full overflow-y-auto p-4 space-y-3">
       {items.length === 0 && (
-        <p className="text-neutral-500 text-sm">Waiting for the first transcribed line…</p>
+        <p className="text-neutral-500 text-sm">No transcript yet.</p>
       )}
       {items.map((it, i) => {
         if (it.kind === "segment") {
           const s = it.segment;
-          const color = colorFor(s.discord_user_id);
+          const color = colorFor(s.speaker_label);
           return (
             <div key={`s-${s.id}-${i}`} className="flex gap-3">
               <span className={`shrink-0 text-xs px-2 py-0.5 h-fit rounded border ${color}`}>
-                {s.username}
+                {s.speaker_label}
               </span>
               <div className="text-sm leading-snug">
                 <span className="text-neutral-500 text-xs mr-2">{ts(s.start_ts)}</span>

@@ -12,7 +12,8 @@ dependencies = [
     "faster-whisper>=1.1.0",
     "numpy>=1.26,<2.3",
     "scipy>=1.13",
-    "silero-vad>=5.1",
+    # torch is retained for the upcoming pyannote diarization (enhanced-diarization);
+    # it is not used during recording.
     "torch>=2.4",
     "ollama>=0.4",
     "httpx>=0.27",

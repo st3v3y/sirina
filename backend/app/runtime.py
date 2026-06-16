@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from .llm.ollama_client import OllamaClient
     from .api.ws import ConnectionManager
     from .pipeline import Pipeline
+    from .recording.recorder import Recorder
 
 
 class Runtime:
@@ -16,6 +17,7 @@ class Runtime:
         self.ollama: OllamaClient | None = None
         self.ws: ConnectionManager | None = None
         self.pipeline: Pipeline | None = None
+        self.recorder: Recorder | None = None
 
     async def ollama_ok(self) -> bool:
         if self.ollama is None:
