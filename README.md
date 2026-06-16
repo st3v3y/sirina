@@ -1,35 +1,33 @@
-# Live Transcript Bot
+# Meeting Recorder
 
-Self-hosted **local meeting transcriber**: captures audio from an input device on your Mac, transcribes it near-real-time with [`faster-whisper`](https://github.com/SYSTRAN/faster-whisper), and offers live + on-demand summaries / Q&A via a local [Ollama](https://ollama.com) model. Operated through a local web app.
+Self-hosted **local meeting recorder**: records audio from an input device on your Mac, then — after you stop — transcribes the whole recording with [`faster-whisper`](https://github.com/SYSTRAN/faster-whisper) and offers summaries / Q&A via a local [Ollama](https://ollama.com) model. Operated through a local web app.
 
 All inference (Whisper + LLM) runs locally. Nothing is sent to a third-party API.
 
-> **Heading toward v2.** This is evolving into a Jamie-style "record now, transcribe after" recorder with speaker detection, structured summaries, tags, and a packaged macOS app. See [docs/V2-LOCAL-REDESIGN.md](docs/V2-LOCAL-REDESIGN.md) and [docs/V2-PRIORITIES.md](docs/V2-PRIORITIES.md). The Discord integration has been removed (Discord's DAVE voice encryption made it unworkable).
+> **Evolving toward v2** (Jamie-style): record now, transcribe after. Speaker detection, structured multi-section summaries, tags, and a packaged macOS app are on the roadmap — see [docs/V2-LOCAL-REDESIGN.md](docs/V2-LOCAL-REDESIGN.md) and [docs/V2-PRIORITIES.md](docs/V2-PRIORITIES.md). The Discord integration has been removed (Discord's DAVE voice encryption made it unworkable).
 
 ## What you get
 
-- **Live chat-style transcript** of the captured audio.
-- **Rolling "aspects" panel** — the AI summarises the discussion as short bullets that refresh every ~60s.
-- **Full summary on stop**, using a configurable prompt template.
-- **Per-meeting Q&A** — ask grounded questions about a past or in-progress meeting.
-- **Past recordings list** with detail view, export to `.md`/`.txt`, delete.
-- **Editable prompt templates** for aspects, summaries, and Q&A.
+- **Record to disk** — recording runs no inference, so it stays light on CPU. Capture your mic and (optionally) system audio as separate tracks.
+- **High-quality transcription after stop** — whole-file faster-whisper with beam search + VAD, processed in the background. The recording goes `processing → ready`.
+- **Full summary** using a configurable prompt template, and **Q&A** grounded in the transcript.
+- **Recordings list** with detail view, export to `.md`/`.txt`, delete.
+- **Editable prompt templates** for summaries and Q&A.
 
 ## Architecture
 
 ```
-Local audio input (mic / BlackHole)  →  sounddevice capture (16 kHz mono)
-                ↓
-              silero-VAD chunker (~3–8s)
-                ↓
-              faster-whisper (local)
-                ↓
-              SQLite + WebSocket → browser
-                ↓
-              Ollama (aspects, summaries, Q&A)
+RECORD                              PROCESS (after stop)
+Local audio (mic + optional system) Recording (processing)
+  → sounddevice capture                → faster-whisper (whole file,
+  → mic.wav / system.wav / mixed.wav     beam + VAD + word timestamps)
+  → Recording (status: recording)      → Segments + language → status: ready
+                                       → Ollama (summaries, Q&A) on demand
+            ↓                                       ↓
+                       SQLite  ←→  FastAPI  ←→  React SPA (Vite)
 ```
 
-One Python process hosts the audio capture, the chunker, the whisper worker, the FastAPI HTTP server, and the WebSocket fan-out. A React SPA on Vite talks to it.
+One Python process hosts the recorder, the background transcription processor (single-flight, restart-safe), the whisper worker, and the FastAPI server. A React SPA on Vite talks to it.
 
 ## Requirements
 
@@ -93,12 +91,10 @@ To capture your own mic *and* the call together, create an **Aggregate Device** 
 ## Using it
 
 1. The status pill in the top-right should go green: **Ready**.
-2. On the dashboard, pick an **input device** and a **label** (shown next to each transcript line, e.g. "Room"), optionally a title.
-3. Click **● Start recording**.
-4. Talk. Within ~6–8 seconds each utterance appears as a labelled bubble in the browser.
-5. After ~60s a bullet list of "aspects" appears in the side panel and refines over time.
-6. Click **■ Stop**. An auto-generated summary appears on the meeting detail page.
-7. Use the prompt bar at the bottom of the detail page to ask questions about the meeting, or download a `.md` / `.txt` export.
+2. On the dashboard, pick a **microphone** (and optionally a **system audio** device like BlackHole), a **label**, and an optional title.
+3. Click **● Start recording**. A timer and input-level meter show it's capturing — no transcript yet (transcription happens after you stop).
+4. Click **■ Stop**. The recording moves to **processing**; the detail view shows a "transcribing…" banner and auto-updates to **ready** when the transcript is in (a few seconds to a few minutes depending on length and model).
+5. On the detail page, generate a summary, ask questions grounded in the transcript, or download a `.md` / `.txt` export.
 
 ## Configuration
 
@@ -106,23 +102,18 @@ All settings live in `backend/.env` (see `.env.example`). The interesting ones:
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `WHISPER_MODEL` | `medium` | `tiny` / `base` / `small` / `medium` / `large-v3` |
+| `WHISPER_MODEL` | `medium` | `tiny` / `base` / `small` / `medium` / `large-v3-turbo` / `large-v3`. Since transcription is offline, **`large-v3-turbo`** is a good quality/speed pick (first use downloads it). |
 | `WHISPER_COMPUTE_TYPE` | `int8` | `int8` or `int8_float16` are fastest on Apple Silicon |
-| `WHISPER_LANGUAGE` | *(auto)* | Set to e.g. `en` / `es` / `de` to skip language detection (more reliable on short chunks) |
+| `WHISPER_LANGUAGE` | *(auto)* | Set to e.g. `en` / `es` / `de` to skip language detection |
 | `WHISPER_INITIAL_PROMPT` | *(empty)* | Comma-separated vocabulary hints (e.g. `EcoHubs, Mediakular`) |
 | `OLLAMA_MODEL` | `llama3.1:8b-instruct` | any local Ollama model |
-| `ASPECTS_INTERVAL_SECONDS` | `60` | how often to regenerate the live bullet list |
-| `CHUNK_MAX_SECONDS` | `8` | hard cap per transcription chunk |
-| `CHUNK_SILENCE_MS` | `600` | trailing silence that ends a chunk |
 
 ## Prompt templates
 
-The **Templates** page in the UI lets you edit the three default prompts (aspects, summary, Q&A) and add your own. Available placeholders:
+The **Templates** page in the UI lets you edit the summary and Q&A prompts and add your own. Available placeholders:
 
-- `{{transcript}}` — full meeting transcript (summary / qa)
-- `{{new_transcript}}` — only newly transcribed lines since the last aspect (aspects)
-- `{{previous_aspects}}` — the most recent aspect bullets (aspects)
-- `{{qa_history}}` — previous Q&A turns for this meeting (qa)
+- `{{transcript}}` — full recording transcript (summary / qa)
+- `{{qa_history}}` — previous Q&A turns for this recording (qa)
 - `{{question}}` — the user's current question (qa)
 
 ## Consent

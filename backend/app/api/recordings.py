@@ -87,6 +87,9 @@ async def stop_recording(recording_id: int) -> dict[str, bool]:
     if runtime.recorder is None:
         raise HTTPException(503, "recorder not running")
     await runtime.recorder.stop(recording_id)
+    # Hand off to the background transcription processor (recording is now `processing`).
+    if runtime.processor is not None:
+        await runtime.processor.enqueue(recording_id)
     return {"ok": True}
 
 

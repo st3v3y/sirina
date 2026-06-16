@@ -7,9 +7,17 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 from faster_whisper import WhisperModel
 
+try:
+    from faster_whisper import BatchedInferencePipeline
+except Exception:  # pragma: no cover - older faster-whisper
+    BatchedInferencePipeline = None  # type: ignore[assignment]
+
 from ..config import settings
 
 log = logging.getLogger(__name__)
+
+# A transcribed line: (start_seconds, end_seconds, text)
+Line = tuple[float, float, str]
 
 
 class FasterWhisperWorker:
@@ -17,6 +25,7 @@ class FasterWhisperWorker:
 
     def __init__(self) -> None:
         self._model: WhisperModel | None = None
+        self._batched = None
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="whisper")
         self._lock = asyncio.Lock()
 
@@ -41,7 +50,55 @@ class FasterWhisperWorker:
             )
 
         self._model = await loop.run_in_executor(self._executor, _load)
+        if BatchedInferencePipeline is not None:
+            try:
+                self._batched = BatchedInferencePipeline(model=self._model)
+            except Exception:
+                log.warning("BatchedInferencePipeline unavailable; using sequential transcribe", exc_info=True)
+                self._batched = None
         log.info("faster-whisper ready")
+
+    async def transcribe_file(self, path: str) -> tuple[list[Line], str | None]:
+        """Transcribe a whole audio file with offline-quality settings.
+
+        Returns (lines, language). Runs in the worker's thread executor.
+        """
+        if self._model is None:
+            raise RuntimeError("whisper model not loaded")
+        loop = asyncio.get_running_loop()
+        async with self._lock:
+            language = settings.whisper_language or None
+            initial_prompt = settings.whisper_initial_prompt or None
+            return await loop.run_in_executor(
+                self._executor, self._run_file, path, language, initial_prompt
+            )
+
+    def _run_file(
+        self, path: str, language: str | None, initial_prompt: str | None
+    ) -> tuple[list[Line], str | None]:
+        assert self._model is not None
+        common = dict(
+            language=language,
+            beam_size=5,
+            vad_filter=True,
+            word_timestamps=True,
+            initial_prompt=initial_prompt,
+        )
+        if self._batched is not None:
+            # Batched mode is much faster on long files. It processes windows
+            # independently, so condition_on_previous_text does not apply.
+            segments, info = self._batched.transcribe(path, batch_size=8, **common)
+        else:
+            segments, info = self._model.transcribe(
+                path, condition_on_previous_text=True, **common
+            )
+        lines: list[Line] = []
+        for seg in segments:
+            text = (seg.text or "").strip()
+            if text:
+                lines.append((float(seg.start), float(seg.end), text))
+        detected = getattr(info, "language", None)
+        return lines, (language or detected)
 
     async def transcribe(self, audio: np.ndarray) -> str:
         """audio: float32 mono 16 kHz numpy array."""

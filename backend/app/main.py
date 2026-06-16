@@ -12,6 +12,7 @@ from .api import ws as ws_api
 from .db import init_db
 from .llm.ollama_client import OllamaClient
 from .pipeline import Pipeline
+from .processing.job import TranscriptionProcessor
 from .recording.recorder import Recorder
 from .runtime import runtime
 from .transcribe.whisper import FasterWhisperWorker
@@ -28,10 +29,15 @@ async def lifespan(app: FastAPI):
     runtime.ollama = OllamaClient()
     runtime.recorder = Recorder()
 
-    # Whisper is loaded in the background for the (later) transcription job; it is
-    # NOT used during recording. Recording itself runs no inference.
+    # Whisper is loaded in the background; it is NOT used during recording. Recording
+    # itself runs no inference — the transcription processor uses whisper after stop.
     load_task = asyncio.create_task(runtime.whisper.load(), name="whisper-load")
     runtime.pipeline = Pipeline(runtime.whisper, runtime.ollama)
+
+    runtime.processor = TranscriptionProcessor(runtime.whisper)
+    runtime.processor.start()
+    # Recover any recordings left mid-processing (e.g. after a crash/restart).
+    await runtime.processor.requeue_pending()
 
     try:
         yield
@@ -41,6 +47,8 @@ async def lifespan(app: FastAPI):
                 await runtime.recorder.stop()
             except Exception:
                 pass
+        if runtime.processor is not None:
+            runtime.processor.stop()
         if runtime.ollama is not None:
             await runtime.ollama.close()
         load_task.cancel()

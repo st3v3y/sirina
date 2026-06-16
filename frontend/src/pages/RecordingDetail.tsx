@@ -24,10 +24,27 @@ export default function RecordingDetail() {
     setRec(r);
     setQa(r.qa);
     setFullSummary(r.summaries.filter((s) => s.kind === "full").slice(-1)[0] ?? null);
+    return r;
   }
 
   useEffect(() => {
-    load();
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      try {
+        const r = await load();
+        if (alive && r.status === "processing") {
+          timer = setTimeout(tick, 3000); // poll until transcription finishes
+        }
+      } catch {
+        if (alive) timer = setTimeout(tick, 3000);
+      }
+    };
+    tick();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
   }, [recordingId]);
 
   const items = useMemo(() => {
@@ -102,8 +119,14 @@ export default function RecordingDetail() {
       </div>
 
       {isProcessing && !hasTranscript && (
-        <div className="px-6 py-2 text-xs text-amber-300 bg-amber-500/5 border-b border-amber-500/20">
-          This recording is captured and awaiting transcription. The transcript and summary will appear once processing runs.
+        <div className="px-6 py-2 text-xs text-amber-300 bg-amber-500/5 border-b border-amber-500/20 flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+          Transcribing… the transcript will appear here automatically when it's ready.
+        </div>
+      )}
+      {rec.status === "failed" && (
+        <div className="px-6 py-2 text-xs text-rose-300 bg-rose-500/5 border-b border-rose-500/20">
+          Transcription failed{rec.segments.length === 0 ? "" : " (partial transcript shown)"}.
         </div>
       )}
 

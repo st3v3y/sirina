@@ -18,10 +18,6 @@ class Settings(BaseSettings):
     ollama_host: str = "http://localhost:11434"
     ollama_model: str = "llama3.1:8b-instruct"
 
-    aspects_interval_seconds: int = 60
-    chunk_max_seconds: int = 8
-    chunk_silence_ms: int = 600
-
     db_path: str = "./data/transcripts.db"
     app_password: str = ""
 
