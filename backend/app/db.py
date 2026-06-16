@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from pathlib import Path
 
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
@@ -26,10 +27,47 @@ def _enable_sqlite_wal(dbapi_conn, _):  # type: ignore[no-untyped-def]
         pass
 
 
+# Tables that changed shape across schema generations, with a column that only
+# exists in the current (v2) schema. `create_all` never alters an existing table,
+# so a table left over from an older schema would silently keep its old columns
+# and 500 at query time — we detect that here and fail fast with a clear message.
+_REQUIRED_COLUMNS = {
+    "segment": "recording_id",
+    "summary": "sections",
+    "qamessage": "recording_id",
+}
+
+
+def _assert_schema_current() -> None:
+    with engine.connect() as conn:
+
+        def columns(table: str) -> set[str]:
+            return {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})").fetchall()}
+
+        stale: list[str] = []
+        # A leftover v1 `meeting` table is a definitive marker of an old database.
+        if columns("meeting"):
+            stale.append("legacy `meeting` table present")
+        for table, required in _REQUIRED_COLUMNS.items():
+            cols = columns(table)
+            if cols and required not in cols:
+                stale.append(f"`{table}` is missing column `{required}`")
+
+    if stale:
+        db_file = Path(settings.db_path).resolve()
+        raise RuntimeError(
+            "Database schema is from an older version and is incompatible with this build "
+            f"({'; '.join(stale)}). v2 uses a clean schema with no migration — delete the old "
+            f"database to reset:\n\n    rm {db_file}*\n    rm -rf {db_file.parent / 'recordings'}\n\n"
+            "Then restart. (See the README 'clean reset' note.)"
+        )
+
+
 def init_db() -> None:
     # v2 schema is created fresh. There is no migration from the v1 `Meeting`-era
     # database — delete an old `data/transcripts.db` to reset (see README).
     SQLModel.metadata.create_all(engine)
+    _assert_schema_current()
     with Session(engine) as session:
         if session.exec(select(SummaryTemplate)).first() is None:
             for t in SUMMARY_TEMPLATES:
