@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from sqlmodel import Session, delete, select
 
@@ -16,12 +17,16 @@ from ..db import engine
 from ..models import Recording, Segment
 from ..transcribe.whisper import FasterWhisperWorker
 
+if TYPE_CHECKING:
+    from ..pipeline import Pipeline
+
 log = logging.getLogger(__name__)
 
 
 class TranscriptionProcessor:
-    def __init__(self, whisper: FasterWhisperWorker) -> None:
+    def __init__(self, whisper: FasterWhisperWorker, pipeline: "Pipeline | None" = None) -> None:
         self._whisper = whisper
+        self._pipeline = pipeline
         self._queue: asyncio.Queue[int] = asyncio.Queue()
         self._task: asyncio.Task | None = None
 
@@ -90,12 +95,31 @@ class TranscriptionProcessor:
                 )
             rec = s.get(Recording, recording_id)
             if rec is not None:
-                rec.language = language
+                rec.language = language  # keep status `processing` until summary is attempted
+                s.add(rec)
+            s.commit()
+        log.info("recording %d transcribed (%d segments, lang=%s)", recording_id, len(lines), language)
+
+        # Auto-generate the default summary BEFORE flipping to `ready`, so that
+        # `ready` means transcript + summary are both present and the UI shows
+        # them together. Best-effort: a summary failure must not fail the recording.
+        if lines and self._pipeline is not None:
+            try:
+                tmpl_id = self._pipeline.default_summary_template_id()
+                if tmpl_id is not None:
+                    await self._pipeline.summarize(recording_id=recording_id, template_id=tmpl_id)
+                    log.info("recording %d auto-summary generated", recording_id)
+            except Exception:
+                log.exception("auto-summary failed for recording %d (transcript intact)", recording_id)
+
+        with Session(engine) as s:
+            rec = s.get(Recording, recording_id)
+            if rec is not None:
                 rec.status = "ready"
                 rec.error = None
                 s.add(rec)
-            s.commit()
-        log.info("recording %d ready (%d segments, lang=%s)", recording_id, len(lines), language)
+                s.commit()
+        log.info("recording %d ready", recording_id)
 
     def _mark_failed(self, recording_id: int, message: str) -> None:
         with Session(engine) as s:

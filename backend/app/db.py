@@ -5,8 +5,8 @@ from sqlalchemy.engine import Engine
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from .config import settings
-from .llm.default_templates import DEFAULT_TEMPLATES
-from .models import PromptTemplate
+from .llm.default_templates import QA_TEMPLATE, SUMMARY_TEMPLATES
+from .models import PromptTemplate, SummaryTemplate
 
 engine = create_engine(
     settings.db_url,
@@ -31,11 +31,12 @@ def init_db() -> None:
     # database — delete an old `data/transcripts.db` to reset (see README).
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
-        existing = session.exec(select(PromptTemplate)).first()
-        if existing is None:
-            for t in DEFAULT_TEMPLATES:
-                session.add(PromptTemplate(**t))
-            session.commit()
+        if session.exec(select(SummaryTemplate)).first() is None:
+            for t in SUMMARY_TEMPLATES:
+                session.add(SummaryTemplate(**t))
+        if session.exec(select(PromptTemplate)).first() is None:
+            session.add(PromptTemplate(**QA_TEMPLATE))
+        session.commit()
 
 
 def get_session() -> Iterator[Session]:

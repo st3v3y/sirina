@@ -45,12 +45,13 @@ export type Segment = {
   text: string;
 };
 
+export type SummarySection = { title: string; content: string };
+
 export type Summary = {
   id: number;
   recording_id: number;
-  kind: "live_aspect" | "full" | "qa_answer";
   template_id: number | null;
-  content: string;
+  sections: SummarySection[];
   created_at: string;
 };
 
@@ -62,10 +63,19 @@ export type QAMessage = {
   created_at: string;
 };
 
-export type PromptTemplate = {
+export type TemplateSection = { title: string; prompt: string };
+
+export type SummaryTemplate = {
   id: number;
   name: string;
-  kind: "summary" | "aspects" | "qa";
+  sections: TemplateSection[];
+  is_default: boolean;
+  builtin: boolean;
+};
+
+export type QATemplate = {
+  id: number;
+  name: string;
   body: string;
   is_default: boolean;
 };
@@ -108,29 +118,36 @@ export const api = {
   activeRecording: () => request<ActiveInfo | null>("/api/recordings/active"),
 
   summarize: (id: number, template_id: number) =>
-    request<{ summary_id: number; content: string }>(
-      `/api/recordings/${id}/summarize`,
-      { method: "POST", body: JSON.stringify({ template_id }) }
-    ),
+    request<Summary>(`/api/recordings/${id}/summarize`, {
+      method: "POST",
+      body: JSON.stringify({ template_id }),
+    }),
   ask: (id: number, question: string, template_id?: number) =>
     request<{ answer: string }>(`/api/recordings/${id}/ask`, {
       method: "POST",
       body: JSON.stringify({ question, template_id }),
     }),
 
-  listTemplates: () => request<PromptTemplate[]>("/api/templates"),
-  createTemplate: (body: { name: string; kind: string; body: string }) =>
-    request<PromptTemplate>("/api/templates", {
+  listSummaryTemplates: () => request<SummaryTemplate[]>("/api/summary-templates"),
+  createSummaryTemplate: (body: { name: string; sections: TemplateSection[] }) =>
+    request<SummaryTemplate>("/api/summary-templates", {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  updateTemplate: (id: number, body: Partial<PromptTemplate>) =>
-    request<PromptTemplate>(`/api/templates/${id}`, {
+  updateSummaryTemplate: (id: number, body: { name?: string; sections?: TemplateSection[] }) =>
+    request<SummaryTemplate>(`/api/summary-templates/${id}`, {
       method: "PUT",
       body: JSON.stringify(body),
     }),
-  deleteTemplate: (id: number) =>
-    request<void>(`/api/templates/${id}`, { method: "DELETE" }),
+  deleteSummaryTemplate: (id: number) =>
+    request<void>(`/api/summary-templates/${id}`, { method: "DELETE" }),
+
+  getQaTemplate: () => request<QATemplate | null>("/api/qa-template"),
+  updateQaTemplate: (body: string) =>
+    request<QATemplate>("/api/qa-template", {
+      method: "PUT",
+      body: JSON.stringify({ body }),
+    }),
   exportUrl: (id: number, format: "md" | "txt") =>
     `/api/recordings/${id}/export?format=${format}`,
 };

@@ -8,12 +8,13 @@ transcription job is built they simply have nothing to work with.
 from __future__ import annotations
 
 import logging
+from datetime import date
 
 from sqlmodel import Session, select
 
 from .db import engine
 from .llm.ollama_client import OllamaClient, render
-from .models import PromptTemplate, QAMessage, Segment, Summary
+from .models import PromptTemplate, QAMessage, Recording, Segment, Summary, SummaryTemplate
 from .transcribe.whisper import FasterWhisperWorker
 
 log = logging.getLogger(__name__)
@@ -30,21 +31,37 @@ class Pipeline:
         ).all()
         return "\n".join(f"{seg.speaker_label}: {seg.text}" for seg in segs)
 
+    def default_summary_template_id(self) -> int | None:
+        with Session(engine) as s:
+            t = s.exec(
+                select(SummaryTemplate).where(SummaryTemplate.is_default == True)  # noqa: E712
+            ).first()
+            return t.id if t else None
+
     async def summarize(self, recording_id: int, template_id: int) -> Summary:
+        """Generate a multi-section summary: one LLM call per template section."""
         with Session(engine) as s:
-            tmpl = s.get(PromptTemplate, template_id)
+            tmpl = s.get(SummaryTemplate, template_id)
             if tmpl is None:
-                raise ValueError(f"template {template_id} not found")
+                raise ValueError(f"summary template {template_id} not found")
+            rec = s.get(Recording, recording_id)
             transcript = self._transcript(s, recording_id)
-        prompt = render(tmpl.body, {"transcript": transcript})
-        response = await self.ollama.generate(prompt)
+            sections_def = list(tmpl.sections or [])
+            meta = {
+                "transcript": transcript,
+                "title": (rec.title if rec else None) or f"Recording {recording_id}",
+                "date": (rec.started_at.date().isoformat() if rec else date.today().isoformat()),
+            }
+
+        produced: list[dict[str, str]] = []
+        for section in sections_def:
+            title = section.get("title", "")
+            prompt = render(section.get("prompt", ""), meta)
+            content = await self.ollama.generate(prompt)
+            produced.append({"title": title, "content": content})
+
         with Session(engine) as s:
-            summary = Summary(
-                recording_id=recording_id,
-                kind="full",
-                template_id=template_id,
-                content=response,
-            )
+            summary = Summary(recording_id=recording_id, template_id=template_id, sections=produced)
             s.add(summary)
             s.commit()
             s.refresh(summary)
@@ -52,7 +69,7 @@ class Pipeline:
 
     async def ask(self, recording_id: int, question: str, template_id: int | None) -> str:
         with Session(engine) as s:
-            tmpl_id = template_id or self._default_template_id("qa")
+            tmpl_id = template_id or self._default_qa_template_id()
             if tmpl_id is None:
                 raise ValueError("no qa template available")
             tmpl = s.get(PromptTemplate, tmpl_id)
@@ -80,11 +97,9 @@ class Pipeline:
             s.commit()
         return response
 
-    def _default_template_id(self, kind: str) -> int | None:
+    def _default_qa_template_id(self) -> int | None:
         with Session(engine) as s:
             t = s.exec(
-                select(PromptTemplate)
-                .where(PromptTemplate.kind == kind)
-                .where(PromptTemplate.is_default == True)  # noqa: E712
+                select(PromptTemplate).where(PromptTemplate.is_default == True)  # noqa: E712
             ).first()
             return t.id if t else None

@@ -17,13 +17,13 @@ export default function RecordingDetail() {
   const nav = useNavigate();
   const [rec, setRec] = useState<TR | null>(null);
   const [qa, setQa] = useState<QAMessage[]>([]);
-  const [fullSummary, setFullSummary] = useState<Summary | null>(null);
+  const [summary, setSummary] = useState<Summary | null>(null);
 
   async function load() {
     const r = await api.getRecording(recordingId);
     setRec(r);
     setQa(r.qa);
-    setFullSummary(r.summaries.filter((s) => s.kind === "full").slice(-1)[0] ?? null);
+    setSummary(r.summaries[0] ?? null); // API returns summaries newest-first
     return r;
   }
 
@@ -55,8 +55,8 @@ export default function RecordingDetail() {
     return merged;
   }, [rec, qa]);
 
-  async function ask(question: string, templateId?: number) {
-    const { answer } = await api.ask(recordingId, question, templateId);
+  async function ask(question: string) {
+    const { answer } = await api.ask(recordingId, question);
     setQa((q) => [
       ...q,
       { id: Date.now(), recording_id: recordingId, role: "user", content: question, created_at: new Date().toISOString() },
@@ -65,15 +65,8 @@ export default function RecordingDetail() {
   }
 
   async function summarize(templateId: number) {
-    const { content } = await api.summarize(recordingId, templateId);
-    setFullSummary({
-      id: Date.now(),
-      recording_id: recordingId,
-      kind: "full",
-      template_id: templateId,
-      content,
-      created_at: new Date().toISOString(),
-    });
+    const s = await api.summarize(recordingId, templateId);
+    setSummary(s);
   }
 
   if (!rec) {
@@ -134,8 +127,15 @@ export default function RecordingDetail() {
         <TranscriptChat items={items} />
         <div className="border-l border-neutral-800 overflow-y-auto p-4 bg-neutral-950/30">
           <h3 className="text-xs uppercase tracking-wide text-neutral-500 mb-3">Summary</h3>
-          {fullSummary ? (
-            <pre className="text-sm whitespace-pre-wrap font-sans">{fullSummary.content}</pre>
+          {summary && summary.sections.length > 0 ? (
+            <div className="space-y-3">
+              {summary.sections.map((sec, i) => (
+                <div key={i} className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-3">
+                  <h4 className="text-xs font-semibold text-neutral-300 mb-1">{sec.title}</h4>
+                  <p className="text-sm whitespace-pre-wrap text-neutral-200">{sec.content}</p>
+                </div>
+              ))}
+            </div>
           ) : (
             <p className="text-sm text-neutral-500">
               {hasTranscript ? "No summary yet. Generate one below." : "No transcript to summarise yet."}

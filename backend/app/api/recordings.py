@@ -130,7 +130,7 @@ def get_recording(recording_id: int, session: Session = Depends(get_session)) ->
         select(Segment).where(Segment.recording_id == recording_id).order_by(Segment.start_ts)  # type: ignore[arg-type]
     ).all()
     summaries = session.exec(
-        select(Summary).where(Summary.recording_id == recording_id).order_by(Summary.created_at)  # type: ignore[arg-type]
+        select(Summary).where(Summary.recording_id == recording_id).order_by(Summary.created_at.desc())  # type: ignore[attr-defined]
     ).all()
     qa = session.exec(
         select(QAMessage).where(QAMessage.recording_id == recording_id).order_by(QAMessage.created_at)  # type: ignore[arg-type]
@@ -171,12 +171,11 @@ class SummarizeRequest(BaseModel):
     template_id: int
 
 
-@router.post("/{recording_id}/summarize")
-async def summarize_recording(recording_id: int, payload: SummarizeRequest) -> dict[str, str | int]:
+@router.post("/{recording_id}/summarize", response_model=Summary)
+async def summarize_recording(recording_id: int, payload: SummarizeRequest) -> Summary:
     if runtime.pipeline is None:
         raise HTTPException(503, "pipeline not running")
-    s = await runtime.pipeline.summarize(recording_id=recording_id, template_id=payload.template_id)
-    return {"summary_id": s.id or 0, "content": s.content}
+    return await runtime.pipeline.summarize(recording_id=recording_id, template_id=payload.template_id)
 
 
 class AskRequest(BaseModel):

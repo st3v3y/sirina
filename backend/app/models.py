@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
+from typing import Any
 
+from sqlalchemy import JSON, Column
 from sqlmodel import Field, SQLModel
 
 
@@ -31,19 +33,29 @@ class Segment(SQLModel, table=True):
     text: str
 
 
+class SummaryTemplate(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    name: str
+    # ordered sections: [{ "title": str, "prompt": str }, ...]
+    sections: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON))
+    is_default: bool = False
+    builtin: bool = False  # seeded in code; not user-deletable
+
+
 class Summary(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     recording_id: int = Field(foreign_key="recording.id", index=True)
-    kind: str  # live_aspect | full | qa_answer
-    template_id: int | None = Field(default=None, foreign_key="prompttemplate.id")
-    content: str
+    template_id: int | None = Field(default=None, foreign_key="summarytemplate.id")
+    # produced sections: [{ "title": str, "content": str }, ...]
+    sections: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=_utcnow)
 
 
 class PromptTemplate(SQLModel, table=True):
+    """The Q&A prompt (single-prompt). Summaries use SummaryTemplate."""
+
     id: int | None = Field(default=None, primary_key=True)
     name: str
-    kind: str  # summary | aspects | qa
     body: str
     is_default: bool = False
 

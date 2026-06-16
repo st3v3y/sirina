@@ -1,66 +1,87 @@
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import PromptTemplate
+from ..models import PromptTemplate, SummaryTemplate
 
-router = APIRouter(prefix="/api/templates", tags=["templates"])
+router = APIRouter(prefix="/api", tags=["templates"])
 
 
-class TemplateCreate(BaseModel):
+# ---------- summary templates (multi-section) ----------
+
+class SummaryTemplateCreate(BaseModel):
     name: str
-    kind: str
-    body: str
+    sections: list[dict[str, Any]]
 
 
-class TemplateUpdate(BaseModel):
+class SummaryTemplateUpdate(BaseModel):
     name: str | None = None
-    kind: str | None = None
-    body: str | None = None
+    sections: list[dict[str, Any]] | None = None
 
 
-@router.get("", response_model=list[PromptTemplate])
-def list_templates(session: Session = Depends(get_session)):
-    return session.exec(select(PromptTemplate).order_by(PromptTemplate.kind, PromptTemplate.id)).all()
+@router.get("/summary-templates", response_model=list[SummaryTemplate])
+def list_summary_templates(session: Session = Depends(get_session)):
+    return session.exec(select(SummaryTemplate).order_by(SummaryTemplate.id)).all()
 
 
-@router.post("", response_model=PromptTemplate)
-def create_template(payload: TemplateCreate, session: Session = Depends(get_session)):
-    if payload.kind not in {"summary", "aspects", "qa"}:
-        raise HTTPException(400, "kind must be summary|aspects|qa")
-    t = PromptTemplate(name=payload.name, kind=payload.kind, body=payload.body)
+@router.post("/summary-templates", response_model=SummaryTemplate)
+def create_summary_template(payload: SummaryTemplateCreate, session: Session = Depends(get_session)):
+    t = SummaryTemplate(name=payload.name, sections=payload.sections, builtin=False)
     session.add(t)
     session.commit()
     session.refresh(t)
     return t
 
 
-@router.put("/{template_id}", response_model=PromptTemplate)
-def update_template(template_id: int, payload: TemplateUpdate, session: Session = Depends(get_session)):
-    t = session.get(PromptTemplate, template_id)
+@router.put("/summary-templates/{template_id}", response_model=SummaryTemplate)
+def update_summary_template(
+    template_id: int, payload: SummaryTemplateUpdate, session: Session = Depends(get_session)
+):
+    t = session.get(SummaryTemplate, template_id)
     if not t:
         raise HTTPException(404)
     if payload.name is not None:
         t.name = payload.name
-    if payload.kind is not None:
-        if payload.kind not in {"summary", "aspects", "qa"}:
-            raise HTTPException(400, "kind must be summary|aspects|qa")
-        t.kind = payload.kind
-    if payload.body is not None:
-        t.body = payload.body
+    if payload.sections is not None:
+        t.sections = payload.sections
     session.add(t)
     session.commit()
     session.refresh(t)
     return t
 
 
-@router.delete("/{template_id}", status_code=204)
-def delete_template(template_id: int, session: Session = Depends(get_session)):
-    t = session.get(PromptTemplate, template_id)
+@router.delete("/summary-templates/{template_id}", status_code=204)
+def delete_summary_template(template_id: int, session: Session = Depends(get_session)):
+    t = session.get(SummaryTemplate, template_id)
     if not t:
         raise HTTPException(404)
-    if t.is_default:
-        raise HTTPException(400, "default templates cannot be deleted")
+    if t.builtin:
+        raise HTTPException(400, "built-in templates cannot be deleted")
     session.delete(t)
     session.commit()
+
+
+# ---------- Q&A prompt ----------
+
+class QATemplateUpdate(BaseModel):
+    body: str
+
+
+@router.get("/qa-template", response_model=PromptTemplate | None)
+def get_qa_template(session: Session = Depends(get_session)):
+    return session.exec(select(PromptTemplate).order_by(PromptTemplate.id)).first()
+
+
+@router.put("/qa-template", response_model=PromptTemplate)
+def update_qa_template(payload: QATemplateUpdate, session: Session = Depends(get_session)):
+    t = session.exec(select(PromptTemplate).order_by(PromptTemplate.id)).first()
+    if t is None:
+        raise HTTPException(404, "no qa template")
+    t.body = payload.body
+    session.add(t)
+    session.commit()
+    session.refresh(t)
+    return t

@@ -32,12 +32,15 @@ def export_markdown(recording_id: int) -> str:
     if r.ended_at:
         lines.append(f"- Ended: {r.ended_at.isoformat()}")
     lines.append("")
-    full = [s for s in sums if s.kind == "full"]
-    if full:
+    if sums:
+        latest = sorted(sums, key=lambda s: s.created_at)[-1]
         lines.append("## Summary")
         lines.append("")
-        lines.append(full[-1].content)
-        lines.append("")
+        for section in latest.sections or []:
+            lines.append(f"### {section.get('title', '')}")
+            lines.append("")
+            lines.append(str(section.get("content", "")).strip())
+            lines.append("")
     lines.append("## Transcript")
     lines.append("")
     for seg in segs:
