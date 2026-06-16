@@ -10,9 +10,8 @@ from datetime import datetime, timezone
 import numpy as np
 from sqlmodel import Session, select
 
+from .audio.chunker import Chunker, PendingChunk
 from .audio.local import LocalAudioSource
-from .bot.chunker import Chunker, PendingChunk
-from .bot.client import TranscriptBot
 from .config import settings
 from .db import engine
 from .llm.ollama_client import OllamaClient, render
@@ -31,7 +30,7 @@ class _ActiveMeeting:
     whisper_task: asyncio.Task
     aspects_task: asyncio.Task
     stop_source: Callable[[], Awaitable[None]]
-    source: str = "discord"
+    source: str = "local"
     last_aspect_segment_id: int = 0
     started_monotonic: float = 0.0
 
@@ -39,42 +38,15 @@ class _ActiveMeeting:
 class Pipeline:
     def __init__(
         self,
-        bot: TranscriptBot | None,
         whisper: FasterWhisperWorker,
         ollama: OllamaClient,
     ) -> None:
-        self.bot = bot
         self.whisper = whisper
         self.ollama = ollama
         self._active: _ActiveMeeting | None = None
         self._lock = asyncio.Lock()
 
     # ---------- meeting lifecycle ----------
-
-    async def start_meeting(self, channel_id: int | None, title: str | None) -> int:
-        if self.bot is None:
-            raise RuntimeError("Discord bot is not configured; use start_local_meeting instead")
-        async with self._lock:
-            self._ensure_idle()
-            await self.whisper.load()
-            t0 = time.monotonic()
-            queue, chunker, on_audio = self._make_chunker(t0)
-            guild_id, channel_id_real = await self.bot.start_recording(channel_id, on_audio)
-
-            async def stop_source() -> None:
-                assert self.bot is not None
-                await self.bot.stop_recording()
-
-            return await self._begin_meeting(
-                title=title,
-                guild_id=str(guild_id),
-                channel_id=str(channel_id_real),
-                source="discord",
-                t0=t0,
-                chunker=chunker,
-                queue=queue,
-                stop_source=stop_source,
-            )
 
     async def start_local_meeting(
         self, device: str | int | None, label: str | None, title: str | None
@@ -170,8 +142,6 @@ class Pipeline:
 
         from .api.ws import manager
         await manager.broadcast_status({
-            "bot_connected": bool(self.bot and self.bot.is_ready()),
-            "voice_channel": self.bot.current_voice_channel_name() if self.bot else None,
             "ollama_ok": await self.ollama.ping(),
             "whisper_loaded": self.whisper.is_loaded(),
             "model": settings.whisper_model,

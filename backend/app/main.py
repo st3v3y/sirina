@@ -9,7 +9,6 @@ from .api import audio as audio_api
 from .api import meetings, status, templates
 from .api import debug as debug_api
 from .api import ws as ws_api
-from .config import settings
 from .db import init_db
 from .llm.ollama_client import OllamaClient
 from .pipeline import Pipeline
@@ -17,8 +16,6 @@ from .runtime import runtime
 from .transcribe.whisper import FasterWhisperWorker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-# The voice-recv extension logs every RTCP sender report at INFO — pure noise, silence it.
-logging.getLogger("discord.ext.voice_recv.reader").setLevel(logging.WARNING)
 log = logging.getLogger(__name__)
 
 
@@ -30,31 +27,11 @@ async def lifespan(app: FastAPI):
     runtime.ollama = OllamaClient()
 
     load_task = asyncio.create_task(runtime.whisper.load(), name="whisper-load")
-
-    bot_task: asyncio.Task | None = None
-    if settings.discord_token:
-        from .bot.client import TranscriptBot, run_bot_in_background
-
-        runtime.bot = TranscriptBot()
-        bot_task = await run_bot_in_background(runtime.bot)
-    else:
-        log.warning("DISCORD_TOKEN missing - bot will not start; local audio source still works")
-    runtime.pipeline = Pipeline(runtime.bot, runtime.whisper, runtime.ollama)
+    runtime.pipeline = Pipeline(runtime.whisper, runtime.ollama)
 
     try:
         yield
     finally:
-        if runtime.bot is not None:
-            try:
-                await runtime.bot.stop_recording()
-            except Exception:
-                pass
-            try:
-                await runtime.bot.close()
-            except Exception:
-                pass
-        if bot_task is not None:
-            bot_task.cancel()
         if runtime.ollama is not None:
             await runtime.ollama.close()
         load_task.cancel()

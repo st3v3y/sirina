@@ -10,9 +10,6 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    discord_token: str = ""
-    discord_guild_id: str = ""
-
     whisper_model: str = "medium"
     whisper_compute_type: str = "int8"
     whisper_language: str = ""

@@ -1,6 +1,4 @@
 export type Status = {
-  bot_connected: boolean;
-  voice_channel: string | null;
   ollama_ok: boolean;
   whisper_loaded: boolean;
   model: string;
@@ -26,8 +24,6 @@ export type AudioDevice = {
 };
 
 export type StartMeetingRequest = {
-  source: "discord" | "local";
-  channel_id?: string;
   title?: string;
   device?: string;
   label?: string;

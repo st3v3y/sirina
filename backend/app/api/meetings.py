@@ -19,10 +19,8 @@ router = APIRouter(prefix="/api/meetings", tags=["meetings"])
 
 
 class StartRequest(BaseModel):
-    source: str = "discord"  # "discord" | "local"
-    channel_id: str | None = None
     title: str | None = None
-    device: str | None = None       # name or numeric index, used when source == "local"
+    device: str | None = None       # input device name or numeric index
     label: str | None = None        # display name for the local "speaker", default "Room"
 
 
@@ -61,33 +59,20 @@ async def start_meeting(payload: StartRequest) -> dict[str, int]:
     if runtime.pipeline is None:
         raise HTTPException(503, "pipeline not running")
 
-    source = (payload.source or "discord").lower()
-    if source == "local":
-        device: str | int | None = None
-        if payload.device:
-            try:
-                device = int(payload.device)
-            except ValueError:
-                device = payload.device
+    device: str | int | None = None
+    if payload.device:
         try:
-            meeting_id = await runtime.pipeline.start_local_meeting(
-                device=device,
-                label=payload.label,
-                title=payload.title,
-            )
-        except Exception as e:
-            raise HTTPException(400, f"could not start local recording: {e}") from e
-        return {"meeting_id": meeting_id}
-
-    # discord (default)
-    if runtime.bot is None:
-        raise HTTPException(503, "Discord bot not configured (set DISCORD_TOKEN)")
-    if not runtime.bot.is_ready():
-        raise HTTPException(503, "Discord bot not ready")
-    meeting_id = await runtime.pipeline.start_meeting(
-        channel_id=int(payload.channel_id) if payload.channel_id else None,
-        title=payload.title,
-    )
+            device = int(payload.device)
+        except ValueError:
+            device = payload.device
+    try:
+        meeting_id = await runtime.pipeline.start_local_meeting(
+            device=device,
+            label=payload.label,
+            title=payload.title,
+        )
+    except Exception as e:
+        raise HTTPException(400, f"could not start local recording: {e}") from e
     return {"meeting_id": meeting_id}
 
 

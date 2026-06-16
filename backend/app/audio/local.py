@@ -1,5 +1,6 @@
-"""Local audio capture via PortAudio (sounddevice). Mirrors PerUserPCMSink's
-contract so the chunker doesn't care where audio comes from."""
+"""Local audio capture via PortAudio (sounddevice). Emits (user_id, username,
+16 kHz mono float32) frames into a callback so the chunker doesn't care where
+audio comes from."""
 from __future__ import annotations
 
 import asyncio
@@ -52,8 +53,7 @@ def find_device(spec: str | int | None) -> int | None:
 
 class LocalAudioSource:
     """Opens an input stream on a PortAudio device and pushes 16 kHz mono float32
-    samples into a callback. Callback signature matches the Discord sink's:
-    `on_audio(user_id, username, samples_16k)`."""
+    samples into a callback with signature `on_audio(user_id, username, samples_16k)`."""
 
     def __init__(
         self,
