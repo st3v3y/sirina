@@ -1,0 +1,39 @@
+[project]
+name = "live-transcript-bot"
+version = "0.1.0"
+description = "Discord bot that transcribes meetings live with faster-whisper and summarises via Ollama"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "sqlmodel>=0.0.22",
+    "pydantic-settings>=2.6",
+    "python-dotenv>=1.0",
+    "discord.py[voice]>=2.5",
+    "discord-ext-voice-recv==0.5.2a179",
+    "audioop-lts; python_version >= '3.13'",
+    "faster-whisper>=1.1.0",
+    "numpy>=1.26,<2.3",
+    "scipy>=1.13",
+    "silero-vad>=5.1",
+    "torch>=2.4",
+    "ollama>=0.4",
+    "httpx>=0.27",
+    "sounddevice>=0.5",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+prerelease = "allow"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+]
