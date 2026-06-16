@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     ollama_host: str = "http://localhost:11434"
     ollama_model: str = "llama3.1:8b-instruct"
 
+    diarization_enabled: bool = False
+    hf_token: str = ""  # HuggingFace read token (gates the one-time pyannote download)
+    diarization_model: str = "pyannote/speaker-diarization-community-1"
+
     db_path: str = "./data/transcripts.db"
     app_password: str = ""
 

@@ -28,7 +28,8 @@ The processor currently does a baseline speaker split: mic → "You", system →
 - [pyannote model download is gated + large] → One-time; documented HF setup. Off by default so users who don't want it pay nothing.
 - [Diarization is slow on CPU] → Runs on MPS where available; it's offline/background; single-flight queue already serializes work.
 - [Diarization API/version drift] → Pin a known-good `pyannote.audio`; guard import and load so absence/failure falls back cleanly.
-- [Diarization and whisper-VAD segment boundaries don't align perfectly] → Overlap assignment tolerates this; segment-level (not word-level) overlap is sufficient for v1. Word-level can refine later.
+- [Diarization and whisper-VAD segment boundaries don't align perfectly] → Resolved during verification: segment-level overlap is NOT sufficient — faster-whisper can emit one segment spanning a speaker change, collapsing it to a single speaker. Diarized assignment therefore operates at WORD level (word timestamps are already captured): each word is assigned to its max-overlap cluster and consecutive same-speaker words are regrouped into segments.
+- [pyannote 4.x uses the gated `speaker-diarization-community-1` model and a `DiarizeOutput` return type] → Verified against pyannote.audio 4.0.4: model id is configurable (`DIARIZATION_MODEL`, default community-1), `from_pretrained(token=...)` with a 3.x `use_auth_token` fallback, and the `DiarizeOutput.exclusive_speaker_diarization` annotation is used for clean alignment.
 
 ## Migration Plan
 

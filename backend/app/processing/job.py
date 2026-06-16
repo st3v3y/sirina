@@ -16,6 +16,7 @@ from sqlmodel import Session, delete, select
 from ..db import engine
 from ..models import Recording, Segment, Speaker
 from ..transcribe.whisper import FasterWhisperWorker
+from .diarize import Diarizer, diarize_lines
 
 if TYPE_CHECKING:
     from ..pipeline import Pipeline
@@ -27,10 +28,20 @@ log = logging.getLogger(__name__)
 _SPEAKER_COLORS = ["sky", "emerald", "violet", "amber", "rose", "teal"]
 
 
+def _color(i: int) -> str:
+    return _SPEAKER_COLORS[i % len(_SPEAKER_COLORS)]
+
+
 class TranscriptionProcessor:
-    def __init__(self, whisper: FasterWhisperWorker, pipeline: "Pipeline | None" = None) -> None:
+    def __init__(
+        self,
+        whisper: FasterWhisperWorker,
+        pipeline: "Pipeline | None" = None,
+        diarizer: Diarizer | None = None,
+    ) -> None:
         self._whisper = whisper
         self._pipeline = pipeline
+        self._diarizer = diarizer
         self._queue: asyncio.Queue[int] = asyncio.Queue()
         self._task: asyncio.Task | None = None
 
@@ -85,19 +96,29 @@ class TranscriptionProcessor:
 
         await self._whisper.load()
         two_track = bool(mic_path and system_path and Path(mic_path).exists() and Path(system_path).exists())
+        use_diar = self._diarizer is not None and self._diarizer.is_available()
 
-        # (speaker_label, color, list of (start, end, text)) per track
+        # (speaker_label, color, list of (start, end, text)) per resulting speaker
         tracks: list[tuple[str, str, list]] = []
         if two_track:
             log.info("transcribing recording %d (two-track: mic + system)", recording_id)
             mic_lines, language = await self._whisper.transcribe_file(mic_path)  # type: ignore[arg-type]
             sys_lines, _ = await self._whisper.transcribe_file(system_path)  # type: ignore[arg-type]
-            tracks.append((label or "You", _SPEAKER_COLORS[0], mic_lines))
-            tracks.append(("Others", _SPEAKER_COLORS[1], sys_lines))
+            # Mic is you; keep it a single "You" speaker. Diarize only the system track.
+            tracks.append((label or "You", _color(0), mic_lines))
+            tracks.extend(
+                await self._speaker_groups(
+                    system_path, sys_lines, base_idx=1, single_label="Others", use_diar=use_diar  # type: ignore[arg-type]
+                )
+            )
         else:
             log.info("transcribing recording %d (single track)", recording_id)
             lines, language = await self._whisper.transcribe_file(audio_path)
-            tracks.append((label or "Speaker 1", _SPEAKER_COLORS[0], lines))
+            tracks.extend(
+                await self._speaker_groups(
+                    audio_path, lines, base_idx=0, single_label=(label or "Speaker 1"), use_diar=use_diar
+                )
+            )
 
         total = 0
         with Session(engine) as s:
@@ -108,14 +129,14 @@ class TranscriptionProcessor:
                 speaker = Speaker(recording_id=recording_id, label=speaker_label, color=color)
                 s.add(speaker)
                 s.flush()  # assign speaker.id
-                for start, end, text in lines:
+                for line in lines:
                     s.add(
                         Segment(
                             recording_id=recording_id,
                             speaker_id=speaker.id,
-                            start_ts=start,
-                            end_ts=end,
-                            text=text,
+                            start_ts=line.start,
+                            end_ts=line.end,
+                            text=line.text,
                         )
                     )
                     total += 1
@@ -147,6 +168,43 @@ class TranscriptionProcessor:
                 s.add(rec)
                 s.commit()
         log.info("recording %d ready", recording_id)
+
+    async def _speaker_groups(
+        self,
+        path: str,
+        lines: list,
+        base_idx: int,
+        single_label: str,
+        use_diar: bool,
+    ) -> list[tuple[str, str, list]]:
+        """Return (label, color, lines) groups for a track. With diarization enabled,
+        split the track into Speaker 1..N by cluster; otherwise a single group.
+        Any diarization failure falls back to the single-group baseline."""
+        if not use_diar or not lines:
+            return [(single_label, _color(base_idx), lines)]
+        try:
+            assert self._diarizer is not None
+            turns = await self._diarizer.diarize(path)
+            if not turns:
+                return [(single_label, _color(base_idx), lines)]
+            # Word-level re-segmentation: a single whisper line can span a speaker
+            # change, so assign at word granularity and regroup by speaker.
+            cluster_lines = diarize_lines(lines, turns)
+            order: list[str] = []
+            by_cluster: dict[str, list] = {}
+            for cluster, tline in cluster_lines:
+                if cluster not in by_cluster:
+                    by_cluster[cluster] = []
+                    order.append(cluster)
+                by_cluster[cluster].append(tline)
+            log.info("diarization split %s into %d speaker(s)", Path(path).name, len(order))
+            return [
+                (f"Speaker {i + 1}", _color(base_idx + i), by_cluster[c])
+                for i, c in enumerate(order)
+            ]
+        except Exception:
+            log.exception("diarization failed for %s; falling back to baseline split", Path(path).name)
+            return [(single_label, _color(base_idx), lines)]
 
     def _mark_failed(self, recording_id: int, message: str) -> None:
         with Session(engine) as s:

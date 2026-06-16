@@ -16,8 +16,21 @@ from ..config import settings
 
 log = logging.getLogger(__name__)
 
-# A transcribed line: (start_seconds, end_seconds, text)
-Line = tuple[float, float, str]
+from dataclasses import dataclass, field
+
+
+# One word with timing: (start_seconds, end_seconds, text)
+Word = tuple[float, float, str]
+
+
+@dataclass
+class TLine:
+    """A transcribed line with optional word-level timestamps (for diarization)."""
+
+    start: float
+    end: float
+    text: str
+    words: list[Word] = field(default_factory=list)
 
 
 class FasterWhisperWorker:
@@ -58,10 +71,11 @@ class FasterWhisperWorker:
                 self._batched = None
         log.info("faster-whisper ready")
 
-    async def transcribe_file(self, path: str) -> tuple[list[Line], str | None]:
+    async def transcribe_file(self, path: str) -> tuple[list[TLine], str | None]:
         """Transcribe a whole audio file with offline-quality settings.
 
-        Returns (lines, language). Runs in the worker's thread executor.
+        Returns (lines, language) where each line carries word-level timestamps.
+        Runs in the worker's thread executor.
         """
         if self._model is None:
             raise RuntimeError("whisper model not loaded")
@@ -75,7 +89,7 @@ class FasterWhisperWorker:
 
     def _run_file(
         self, path: str, language: str | None, initial_prompt: str | None
-    ) -> tuple[list[Line], str | None]:
+    ) -> tuple[list[TLine], str | None]:
         assert self._model is not None
         common = dict(
             language=language,
@@ -92,11 +106,17 @@ class FasterWhisperWorker:
             segments, info = self._model.transcribe(
                 path, condition_on_previous_text=True, **common
             )
-        lines: list[Line] = []
+        lines: list[TLine] = []
         for seg in segments:
             text = (seg.text or "").strip()
-            if text:
-                lines.append((float(seg.start), float(seg.end), text))
+            if not text:
+                continue
+            words: list[Word] = []
+            for w in (getattr(seg, "words", None) or []):
+                wt = (w.word or "").strip()
+                if wt and w.start is not None and w.end is not None:
+                    words.append((float(w.start), float(w.end), wt))
+            lines.append(TLine(float(seg.start), float(seg.end), text, words))
         detected = getattr(info, "language", None)
         return lines, (language or detected)
 

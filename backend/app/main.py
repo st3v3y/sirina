@@ -12,6 +12,7 @@ from .api import ws as ws_api
 from .db import init_db
 from .llm.ollama_client import OllamaClient
 from .pipeline import Pipeline
+from .processing.diarize import Diarizer
 from .processing.job import TranscriptionProcessor
 from .recording.recorder import Recorder
 from .runtime import runtime
@@ -34,7 +35,8 @@ async def lifespan(app: FastAPI):
     load_task = asyncio.create_task(runtime.whisper.load(), name="whisper-load")
     runtime.pipeline = Pipeline(runtime.whisper, runtime.ollama)
 
-    runtime.processor = TranscriptionProcessor(runtime.whisper, runtime.pipeline)
+    runtime.diarizer = Diarizer()
+    runtime.processor = TranscriptionProcessor(runtime.whisper, runtime.pipeline, runtime.diarizer)
     runtime.processor.start()
     # Recover any recordings left mid-processing (e.g. after a crash/restart).
     await runtime.processor.requeue_pending()

@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from .pipeline import Pipeline
     from .recording.recorder import Recorder
     from .processing.job import TranscriptionProcessor
+    from .processing.diarize import Diarizer
 
 
 class Runtime:
@@ -20,6 +21,7 @@ class Runtime:
         self.pipeline: Pipeline | None = None
         self.recorder: Recorder | None = None
         self.processor: TranscriptionProcessor | None = None
+        self.diarizer: Diarizer | None = None
 
     async def ollama_ok(self) -> bool:
         if self.ollama is None:

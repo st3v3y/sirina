@@ -107,6 +107,25 @@ All settings live in `backend/.env` (see `.env.example`). The interesting ones:
 | `WHISPER_LANGUAGE` | *(auto)* | Set to e.g. `en` / `es` / `de` to skip language detection |
 | `WHISPER_INITIAL_PROMPT` | *(empty)* | Comma-separated vocabulary hints (e.g. `EcoHubs, Mediakular`) |
 | `OLLAMA_MODEL` | `llama3.1:8b-instruct` | any local Ollama model |
+| `DIARIZATION_ENABLED` | `false` | Split a track into multiple speakers (see below) |
+| `HF_TOKEN` | *(empty)* | HuggingFace read token, required when diarization is on |
+
+## Speaker diarization (optional)
+
+By default speakers are split by track: your mic is **"You"**, system audio is **"Others"** (and a single mic is one speaker). To break a track into individual people — e.g. several people on a call, or an in-room meeting through one mic — enable **diarization**, which uses [`pyannote.audio`](https://github.com/pyannote/pyannote-audio) locally.
+
+It's **free and runs entirely on your machine** — the model is MIT-licensed; the HuggingFace token only gates the one-time model download. No per-meeting cost, no cap.
+
+One-time setup:
+
+1. Create a free account at [huggingface.co](https://huggingface.co).
+2. Accept the terms on the model page: [`pyannote/speaker-diarization-community-1`](https://huggingface.co/pyannote/speaker-diarization-community-1) (the model used by pyannote.audio 4.x).
+3. Create a **read** token at [hf.co/settings/tokens](https://hf.co/settings/tokens).
+4. In `backend/.env` set `DIARIZATION_ENABLED=true` and `HF_TOKEN=<your token>`, then restart.
+
+(The model is configurable via `DIARIZATION_MODEL` if you prefer a different pyannote pipeline.)
+
+When enabled, the mic track stays "You" and the other track is split into `Speaker 1`, `Speaker 2`, … which you can rename into People in the transcript. If the token is missing or diarization fails, it silently falls back to the track-based split — recordings always complete.
 
 ## Prompt templates
 

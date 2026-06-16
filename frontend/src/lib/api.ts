@@ -2,6 +2,7 @@ export type Status = {
   ollama_ok: boolean;
   whisper_loaded: boolean;
   model: string;
+  diarization: boolean;
 };
 
 export type RecordingStatus = "recording" | "processing" | "ready" | "failed";
