@@ -12,6 +12,7 @@ def _utcnow() -> datetime:
 class Recording(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     title: str | None = None
+    label: str | None = None  # user-entered label captured at start (mic speaker default)
     created_at: datetime = Field(default_factory=_utcnow)
     started_at: datetime = Field(default_factory=_utcnow)
     ended_at: datetime | None = None
@@ -24,10 +25,27 @@ class Recording(SQLModel, table=True):
     error: str | None = None
 
 
+class Person(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    name: str = Field(index=True)
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class Speaker(SQLModel, table=True):
+    """A per-recording speaker. `label` is the default ("You"/"Others"/"Speaker 1");
+    when linked to a Person, the Person's name is the display name."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    recording_id: int = Field(foreign_key="recording.id", index=True)
+    label: str
+    person_id: int | None = Field(default=None, foreign_key="person.id")
+    color: str | None = None
+
+
 class Segment(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     recording_id: int = Field(foreign_key="recording.id", index=True)
-    speaker_label: str = "Speaker"  # populated by transcription/diarization later
+    speaker_id: int | None = Field(default=None, foreign_key="speaker.id", index=True)
     start_ts: float
     end_ts: float
     text: str

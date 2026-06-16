@@ -14,13 +14,17 @@ from typing import TYPE_CHECKING
 from sqlmodel import Session, delete, select
 
 from ..db import engine
-from ..models import Recording, Segment
+from ..models import Recording, Segment, Speaker
 from ..transcribe.whisper import FasterWhisperWorker
 
 if TYPE_CHECKING:
     from ..pipeline import Pipeline
 
 log = logging.getLogger(__name__)
+
+# Stable colour tokens assigned to speakers in creation order; the frontend maps
+# each token to a palette.
+_SPEAKER_COLORS = ["sky", "emerald", "violet", "amber", "rose", "teal"]
 
 
 class TranscriptionProcessor:
@@ -71,39 +75,62 @@ class TranscriptionProcessor:
             if rec is None:
                 return
             audio_path = rec.audio_path
+            mic_path = rec.mic_path
+            system_path = rec.system_path
+            label = rec.label
 
         if not audio_path or not Path(audio_path).exists():
             self._mark_failed(recording_id, "audio file missing")
             return
 
         await self._whisper.load()
-        log.info("transcribing recording %d (%s)", recording_id, Path(audio_path).name)
-        lines, language = await self._whisper.transcribe_file(audio_path)
+        two_track = bool(mic_path and system_path and Path(mic_path).exists() and Path(system_path).exists())
 
+        # (speaker_label, color, list of (start, end, text)) per track
+        tracks: list[tuple[str, str, list]] = []
+        if two_track:
+            log.info("transcribing recording %d (two-track: mic + system)", recording_id)
+            mic_lines, language = await self._whisper.transcribe_file(mic_path)  # type: ignore[arg-type]
+            sys_lines, _ = await self._whisper.transcribe_file(system_path)  # type: ignore[arg-type]
+            tracks.append((label or "You", _SPEAKER_COLORS[0], mic_lines))
+            tracks.append(("Others", _SPEAKER_COLORS[1], sys_lines))
+        else:
+            log.info("transcribing recording %d (single track)", recording_id)
+            lines, language = await self._whisper.transcribe_file(audio_path)
+            tracks.append((label or "Speaker 1", _SPEAKER_COLORS[0], lines))
+
+        total = 0
         with Session(engine) as s:
-            # Idempotent: clear any partial segments from a previous attempt.
+            # Idempotent: clear any prior speakers/segments from a previous attempt.
             s.exec(delete(Segment).where(Segment.recording_id == recording_id))  # type: ignore[arg-type]
-            for start, end, text in lines:
-                s.add(
-                    Segment(
-                        recording_id=recording_id,
-                        speaker_label="Speaker 1",  # real speakers come in speakers-and-people
-                        start_ts=start,
-                        end_ts=end,
-                        text=text,
+            s.exec(delete(Speaker).where(Speaker.recording_id == recording_id))  # type: ignore[arg-type]
+            for speaker_label, color, lines in tracks:
+                speaker = Speaker(recording_id=recording_id, label=speaker_label, color=color)
+                s.add(speaker)
+                s.flush()  # assign speaker.id
+                for start, end, text in lines:
+                    s.add(
+                        Segment(
+                            recording_id=recording_id,
+                            speaker_id=speaker.id,
+                            start_ts=start,
+                            end_ts=end,
+                            text=text,
+                        )
                     )
-                )
+                    total += 1
             rec = s.get(Recording, recording_id)
             if rec is not None:
                 rec.language = language  # keep status `processing` until summary is attempted
                 s.add(rec)
             s.commit()
-        log.info("recording %d transcribed (%d segments, lang=%s)", recording_id, len(lines), language)
+        lines_present = total > 0
+        log.info("recording %d transcribed (%d segments, lang=%s)", recording_id, total, language)
 
         # Auto-generate the default summary BEFORE flipping to `ready`, so that
         # `ready` means transcript + summary are both present and the UI shows
         # them together. Best-effort: a summary failure must not fail the recording.
-        if lines and self._pipeline is not None:
+        if lines_present and self._pipeline is not None:
             try:
                 tmpl_id = self._pipeline.default_summary_template_id()
                 if tmpl_id is not None:

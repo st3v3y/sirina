@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { api, type RecordingDetail as TR, type Segment, type Summary, type QAMessage } from "../lib/api";
+import { api, type RecordingDetail as TR, type Segment, type Speaker, type Summary, type QAMessage } from "../lib/api";
 import TranscriptChat from "../components/TranscriptChat";
 import PromptBar from "../components/PromptBar";
 
@@ -18,6 +18,7 @@ export default function RecordingDetail() {
   const [rec, setRec] = useState<TR | null>(null);
   const [qa, setQa] = useState<QAMessage[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [peopleNames, setPeopleNames] = useState<string[]>([]);
 
   async function load() {
     const r = await api.getRecording(recordingId);
@@ -25,6 +26,22 @@ export default function RecordingDetail() {
     setQa(r.qa);
     setSummary(r.summaries[0] ?? null); // API returns summaries newest-first
     return r;
+  }
+
+  useEffect(() => {
+    api.listPeople().then((p) => setPeopleNames(p.map((x) => x.name))).catch(() => {});
+  }, [recordingId]);
+
+  const speakerMap = useMemo(() => {
+    const m: Record<number, Speaker> = {};
+    for (const sp of rec?.speakers ?? []) m[sp.id] = sp;
+    return m;
+  }, [rec]);
+
+  async function renameSpeaker(speakerId: number, name: string) {
+    await api.renameSpeaker(recordingId, speakerId, name);
+    await load();
+    api.listPeople().then((p) => setPeopleNames(p.map((x) => x.name))).catch(() => {});
   }
 
   useEffect(() => {
@@ -124,7 +141,12 @@ export default function RecordingDetail() {
       )}
 
       <div className="flex-1 grid grid-cols-[1fr_360px] min-h-0">
-        <TranscriptChat items={items} />
+        <TranscriptChat
+          items={items}
+          speakers={speakerMap}
+          peopleNames={peopleNames}
+          onRename={renameSpeaker}
+        />
         <div className="border-l border-neutral-800 overflow-y-auto p-4 bg-neutral-950/30">
           <h3 className="text-xs uppercase tracking-wide text-neutral-500 mb-3">Summary</h3>
           {summary && summary.sections.length > 0 ? (

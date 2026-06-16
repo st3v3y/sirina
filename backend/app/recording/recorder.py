@@ -149,7 +149,7 @@ class Recorder:
 
             # Create the recording row first so we have an id for the directory.
             with Session(engine) as s:
-                rec = Recording(title=title, status="recording")
+                rec = Recording(title=title, label=label, status="recording")
                 s.add(rec)
                 s.commit()
                 s.refresh(rec)

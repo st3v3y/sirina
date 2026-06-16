@@ -4,6 +4,7 @@ from sqlmodel import Session, select
 
 from .db import engine
 from .models import Recording, Segment, Summary
+from .speakers import speaker_names
 
 
 def _format_ts(seconds: float) -> str:
@@ -23,6 +24,7 @@ def export_markdown(recording_id: int) -> str:
         sums = s.exec(
             select(Summary).where(Summary.recording_id == recording_id).order_by(Summary.created_at)
         ).all()
+        names = speaker_names(s, recording_id)
 
     lines: list[str] = []
     title = r.title or f"Recording #{r.id}"
@@ -44,7 +46,8 @@ def export_markdown(recording_id: int) -> str:
     lines.append("## Transcript")
     lines.append("")
     for seg in segs:
-        lines.append(f"**[{_format_ts(seg.start_ts)}] {seg.speaker_label}:** {seg.text}")
+        who = names.get(seg.speaker_id, "Speaker")
+        lines.append(f"**[{_format_ts(seg.start_ts)}] {who}:** {seg.text}")
     return "\n".join(lines) + "\n"
 
 
@@ -56,8 +59,10 @@ def export_text(recording_id: int) -> str:
         segs = s.exec(
             select(Segment).where(Segment.recording_id == recording_id).order_by(Segment.start_ts)
         ).all()
+        names = speaker_names(s, recording_id)
 
     lines = [r.title or f"Recording #{r.id}", ""]
     for seg in segs:
-        lines.append(f"[{_format_ts(seg.start_ts)}] {seg.speaker_label}: {seg.text}")
+        who = names.get(seg.speaker_id, "Speaker")
+        lines.append(f"[{_format_ts(seg.start_ts)}] {who}: {seg.text}")
     return "\n".join(lines) + "\n"

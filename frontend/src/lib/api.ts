@@ -39,10 +39,25 @@ export type ActiveInfo = {
 export type Segment = {
   id: number;
   recording_id: number;
-  speaker_label: string;
+  speaker_id: number | null;
   start_ts: number;
   end_ts: number;
   text: string;
+};
+
+export type Speaker = {
+  id: number;
+  label: string;
+  name: string; // resolved display name (Person name or label)
+  person_id: number | null;
+  color: string | null;
+};
+
+export type Person = {
+  id: number;
+  name: string;
+  recording_count: number;
+  last_recording_at: string | null;
 };
 
 export type SummarySection = { title: string; content: string };
@@ -82,6 +97,7 @@ export type QATemplate = {
 
 export type RecordingDetail = Recording & {
   language: string | null;
+  speakers: Speaker[];
   segments: Segment[];
   summaries: Summary[];
   qa: QAMessage[];
@@ -127,6 +143,17 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ question, template_id }),
     }),
+
+  renameSpeaker: (recordingId: number, speakerId: number, name: string) =>
+    request<Speaker>(`/api/recordings/${recordingId}/speakers/${speakerId}`, {
+      method: "PUT",
+      body: JSON.stringify({ name }),
+    }),
+
+  listPeople: () => request<Person[]>("/api/people"),
+  renamePerson: (id: number, name: string) =>
+    request<Person>(`/api/people/${id}`, { method: "PUT", body: JSON.stringify({ name }) }),
+  deletePerson: (id: number) => request<void>(`/api/people/${id}`, { method: "DELETE" }),
 
   listSummaryTemplates: () => request<SummaryTemplate[]>("/api/summary-templates"),
   createSummaryTemplate: (body: { name: string; sections: TemplateSection[] }) =>

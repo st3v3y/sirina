@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api import audio as audio_api
-from .api import recordings, status, templates
+from .api import people, recordings, status, templates
 from .api import debug as debug_api
 from .api import ws as ws_api
 from .db import init_db
@@ -67,6 +67,7 @@ app.add_middleware(
 app.include_router(templates.router)
 app.include_router(status.router)
 app.include_router(recordings.router)
+app.include_router(people.router)
 app.include_router(audio_api.router)
 app.include_router(debug_api.router)
 app.include_router(ws_api.router)

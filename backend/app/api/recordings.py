@@ -13,12 +13,21 @@ from sqlmodel import Session, delete, select
 from ..config import settings
 from ..db import get_session
 from ..exporters import export_markdown, export_text
-from ..models import QAMessage, Recording, Segment, Summary
+from ..models import Person, QAMessage, Recording, Segment, Speaker, Summary
 from ..runtime import runtime
+from ..speakers import display_name
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/recordings", tags=["recordings"])
+
+
+class SpeakerOut(BaseModel):
+    id: int
+    label: str
+    name: str  # resolved display name (Person name or label)
+    person_id: int | None
+    color: str | None
 
 
 class StartRequest(BaseModel):
@@ -46,6 +55,7 @@ class RecordingDetail(BaseModel):
     duration_s: float | None
     status: str
     language: str | None
+    speakers: list[SpeakerOut]
     segments: list[Segment]
     summaries: list[Summary]
     qa: list[QAMessage]
@@ -135,6 +145,14 @@ def get_recording(recording_id: int, session: Session = Depends(get_session)) ->
     qa = session.exec(
         select(QAMessage).where(QAMessage.recording_id == recording_id).order_by(QAMessage.created_at)  # type: ignore[arg-type]
     ).all()
+    speakers = session.exec(
+        select(Speaker).where(Speaker.recording_id == recording_id).order_by(Speaker.id)  # type: ignore[arg-type]
+    ).all()
+    persons = {p.id: p.name for p in session.exec(select(Person)).all() if p.id is not None}
+    speakers_out = [
+        SpeakerOut(id=sp.id, label=sp.label, name=display_name(sp, persons), person_id=sp.person_id, color=sp.color)  # type: ignore[arg-type]
+        for sp in speakers
+    ]
     return RecordingDetail(
         id=r.id,  # type: ignore[arg-type]
         title=r.title,
@@ -143,6 +161,7 @@ def get_recording(recording_id: int, session: Session = Depends(get_session)) ->
         duration_s=r.duration_s,
         status=r.status,
         language=r.language,
+        speakers=speakers_out,
         segments=list(segments),
         summaries=list(summaries),
         qa=list(qa),
@@ -157,6 +176,7 @@ def delete_recording(recording_id: int, session: Session = Depends(get_session))
     if r.status == "recording":
         raise HTTPException(400, "stop the recording before deleting")
     session.exec(delete(Segment).where(Segment.recording_id == recording_id))  # type: ignore[arg-type]
+    session.exec(delete(Speaker).where(Speaker.recording_id == recording_id))  # type: ignore[arg-type]
     session.exec(delete(Summary).where(Summary.recording_id == recording_id))  # type: ignore[arg-type]
     session.exec(delete(QAMessage).where(QAMessage.recording_id == recording_id))  # type: ignore[arg-type]
     session.delete(r)
@@ -191,6 +211,39 @@ async def ask_recording(recording_id: int, payload: AskRequest) -> dict[str, str
         recording_id=recording_id, question=payload.question, template_id=payload.template_id
     )
     return {"answer": answer}
+
+
+class SpeakerRenameRequest(BaseModel):
+    name: str
+
+
+@router.put("/{recording_id}/speakers/{speaker_id}", response_model=SpeakerOut)
+def rename_speaker(
+    recording_id: int,
+    speaker_id: int,
+    payload: SpeakerRenameRequest,
+    session: Session = Depends(get_session),
+) -> SpeakerOut:
+    sp = session.get(Speaker, speaker_id)
+    if not sp or sp.recording_id != recording_id:
+        raise HTTPException(404)
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(400, "name required")
+    # Find-or-create the Person (case-insensitive match on existing names).
+    person = session.exec(select(Person).where(Person.name == name)).first()
+    if person is None:
+        existing = session.exec(select(Person)).all()
+        person = next((p for p in existing if p.name.lower() == name.lower()), None)
+    if person is None:
+        person = Person(name=name)
+        session.add(person)
+        session.flush()
+    sp.person_id = person.id
+    session.add(sp)
+    session.commit()
+    session.refresh(sp)
+    return SpeakerOut(id=sp.id, label=sp.label, name=name, person_id=sp.person_id, color=sp.color)  # type: ignore[arg-type]
 
 
 @router.get("/{recording_id}/export")

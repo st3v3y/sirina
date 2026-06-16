@@ -15,6 +15,7 @@ from sqlmodel import Session, select
 from .db import engine
 from .llm.ollama_client import OllamaClient, render
 from .models import PromptTemplate, QAMessage, Recording, Segment, Summary, SummaryTemplate
+from .speakers import speaker_names
 from .transcribe.whisper import FasterWhisperWorker
 
 log = logging.getLogger(__name__)
@@ -29,7 +30,8 @@ class Pipeline:
         segs = session.exec(
             select(Segment).where(Segment.recording_id == recording_id).order_by(Segment.start_ts)
         ).all()
-        return "\n".join(f"{seg.speaker_label}: {seg.text}" for seg in segs)
+        names = speaker_names(session, recording_id)
+        return "\n".join(f"{names.get(seg.speaker_id, 'Speaker')}: {seg.text}" for seg in segs)
 
     def default_summary_template_id(self) -> int | None:
         with Session(engine) as s:
