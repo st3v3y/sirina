@@ -3,11 +3,13 @@ __pycache__/
 *.pyc
 *.pyo
 
-# data
-/data/
+# data (matches data/ at any depth, e.g. backend/data/)
+data/
 *.db
 *.db-shm
 *.db-wal
+*.db.bak-*
+*.bak
 
 # env
 .env
