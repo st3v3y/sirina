@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .transcribe.whisper import FasterWhisperWorker
+    from .transcribe.engine import TranscriptionEngine
     from .llm.ollama_client import OllamaClient
     from .api.ws import ConnectionManager
     from .pipeline import Pipeline
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 class Runtime:
     def __init__(self) -> None:
-        self.whisper: FasterWhisperWorker | None = None
+        self.whisper: TranscriptionEngine | None = None
         self.ollama: OllamaClient | None = None
         self.ws: ConnectionManager | None = None
         self.pipeline: Pipeline | None = None

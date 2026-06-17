@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -19,8 +20,13 @@ log = logging.getLogger(__name__)
 from dataclasses import dataclass, field
 
 
+from collections.abc import Callable
+
 # One word with timing: (start_seconds, end_seconds, text)
 Word = tuple[float, float, str]
+
+# Progress callback: (done_seconds, total_seconds). Called as transcription advances.
+ProgressCb = Callable[[float, float], None]
 
 
 @dataclass
@@ -35,6 +41,9 @@ class TLine:
 
 class FasterWhisperWorker:
     """Wraps faster-whisper with a single thread executor so inference doesn't block the event loop."""
+
+    name = "faster-whisper"
+    streams_progress = True  # reports a real per-segment fraction via progress_cb
 
     def __init__(self) -> None:
         self._model: WhisperModel | None = None
@@ -51,15 +60,18 @@ class FasterWhisperWorker:
         loop = asyncio.get_running_loop()
 
         def _load() -> WhisperModel:
+            cpu_threads = settings.whisper_cpu_threads or (os.cpu_count() or 0)
             log.info(
-                "loading faster-whisper model=%s compute_type=%s",
+                "loading faster-whisper model=%s compute_type=%s cpu_threads=%s",
                 settings.whisper_model,
                 settings.whisper_compute_type,
+                cpu_threads,
             )
             return WhisperModel(
                 settings.whisper_model,
                 device="cpu",
                 compute_type=settings.whisper_compute_type,
+                cpu_threads=cpu_threads,
             )
 
         self._model = await loop.run_in_executor(self._executor, _load)
@@ -71,11 +83,18 @@ class FasterWhisperWorker:
                 self._batched = None
         log.info("faster-whisper ready")
 
-    async def transcribe_file(self, path: str) -> tuple[list[TLine], str | None]:
+    async def transcribe_file(
+        self,
+        path: str,
+        *,
+        word_timestamps: bool = True,
+        progress_cb: ProgressCb | None = None,
+    ) -> tuple[list[TLine], str | None]:
         """Transcribe a whole audio file with offline-quality settings.
 
-        Returns (lines, language) where each line carries word-level timestamps.
-        Runs in the worker's thread executor.
+        `word_timestamps` is only needed for diarization; skipping it is faster.
+        `progress_cb(done_seconds, total_seconds)` is called as segments arrive.
+        Returns (lines, language). Runs in the worker's thread executor.
         """
         if self._model is None:
             raise RuntimeError("whisper model not loaded")
@@ -84,18 +103,23 @@ class FasterWhisperWorker:
             language = settings.whisper_language or None
             initial_prompt = settings.whisper_initial_prompt or None
             return await loop.run_in_executor(
-                self._executor, self._run_file, path, language, initial_prompt
+                self._executor, self._run_file, path, language, initial_prompt, word_timestamps, progress_cb
             )
 
     def _run_file(
-        self, path: str, language: str | None, initial_prompt: str | None
+        self,
+        path: str,
+        language: str | None,
+        initial_prompt: str | None,
+        word_timestamps: bool,
+        progress_cb: ProgressCb | None = None,
     ) -> tuple[list[TLine], str | None]:
         assert self._model is not None
         common = dict(
             language=language,
-            beam_size=5,
+            beam_size=settings.whisper_beam_size,
             vad_filter=True,
-            word_timestamps=True,
+            word_timestamps=word_timestamps,
             initial_prompt=initial_prompt,
         )
         if self._batched is not None:
@@ -106,8 +130,11 @@ class FasterWhisperWorker:
             segments, info = self._model.transcribe(
                 path, condition_on_previous_text=True, **common
             )
+        total = float(getattr(info, "duration", 0.0) or 0.0)
         lines: list[TLine] = []
         for seg in segments:
+            if progress_cb and total > 0:
+                progress_cb(float(seg.end), total)
             text = (seg.text or "").strip()
             if not text:
                 continue
@@ -117,6 +144,8 @@ class FasterWhisperWorker:
                 if wt and w.start is not None and w.end is not None:
                     words.append((float(w.start), float(w.end), wt))
             lines.append(TLine(float(seg.start), float(seg.end), text, words))
+        if progress_cb and total > 0:
+            progress_cb(total, total)  # ensure we end at 100%
         detected = getattr(info, "language", None)
         return lines, (language or detected)
 
