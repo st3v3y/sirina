@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import subprocess
+import threading
 import time
 import wave
 from datetime import datetime, timezone
@@ -17,6 +19,7 @@ import numpy as np
 import sounddevice as sd
 from sqlmodel import Session
 
+from ..audio import system_capture
 from ..audio.local import find_device
 from ..config import settings
 from ..db import engine
@@ -28,7 +31,7 @@ CAPTURE_SR = 48_000  # capture both tracks at a common rate so they mix cleanly
 
 
 def _recordings_dir() -> Path:
-    base = Path(settings.db_path).resolve().parent / "recordings"
+    base = settings.recordings_dir
     base.mkdir(parents=True, exist_ok=True)
     return base
 
@@ -102,6 +105,85 @@ class _Track:
             self._wav = None
 
 
+class _SidecarTrack:
+    """System-audio track fed by the native ScreenCaptureKit sidecar, which emits
+    48 kHz mono s16le PCM on stdout — written straight to the WAV. Same interface as
+    `_Track` (name/path/level/start/stop) so the recorder treats them alike."""
+
+    def __init__(self, name: str, path: Path) -> None:
+        self.name = name
+        self.path = path
+        self.level = 0.0
+        self.frames = 0
+        self._wav: wave.Wave_write | None = None
+        self._proc: subprocess.Popen | None = None
+        self._thread: threading.Thread | None = None
+        self._stop = threading.Event()
+
+    def start(self) -> None:
+        wav = wave.open(str(self.path), "wb")
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(CAPTURE_SR)
+        self._wav = wav
+        self._proc = system_capture.spawn()
+        self._thread = threading.Thread(target=self._pump, name=f"sidecar-{self.name}", daemon=True)
+        self._thread.start()
+        # Surface the sidecar's stderr (capture status / errors) to the log.
+        threading.Thread(target=self._drain_stderr, name=f"sidecar-{self.name}-err", daemon=True).start()
+        log.info("track '%s' capturing native system audio -> %s", self.name, self.path.name)
+
+    def _drain_stderr(self) -> None:
+        proc = self._proc
+        if proc is None or proc.stderr is None:
+            return
+        for raw in iter(proc.stderr.readline, b""):
+            line = raw.decode(errors="replace").strip()
+            if line:
+                log.info("system-audio sidecar: %s", line)
+
+    def _pump(self) -> None:
+        proc = self._proc
+        if proc is None or proc.stdout is None:
+            return
+        chunk = (CAPTURE_SR // 50) * 2  # ~20 ms of mono s16le bytes
+        try:
+            while not self._stop.is_set():
+                data = proc.stdout.read(chunk)
+                if not data:
+                    break  # sidecar exited (e.g. permission lost) → leaves a silent/short track
+                arr = np.frombuffer(data, dtype=np.int16)
+                if arr.size:
+                    self.level = float(np.abs(arr).max()) / 32768.0
+                if self._wav is not None:
+                    self._wav.writeframes(data)
+                    self.frames += arr.size
+        except Exception:
+            log.exception("sidecar pump failed for %s", self.name)
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._proc is not None:
+            try:
+                self._proc.terminate()
+                self._proc.wait(timeout=3)
+            except Exception:
+                try:
+                    self._proc.kill()
+                except Exception:
+                    pass
+            self._proc = None
+        if self._thread is not None:
+            self._thread.join(timeout=2)
+            self._thread = None
+        if self._wav is not None:
+            try:
+                self._wav.close()
+            except Exception:
+                log.exception("sidecar %s wav close failed", self.name)
+            self._wav = None
+
+
 class _Active:
     def __init__(self, recording_id: int, dir_path: Path, started_monotonic: float) -> None:
         self.recording_id = recording_id
@@ -136,6 +218,7 @@ class Recorder:
         device: str | int | None,
         system_device: str | int | None,
         title: str | None,
+        system_source: str = "device",
     ) -> int:
         async with self._lock:
             if self._active is not None:
@@ -144,7 +227,6 @@ class Recorder:
                 )
 
             mic_dev = find_device(device)
-            sys_dev = find_device(system_device) if system_device else None
 
             # Create the recording row first so we have an id for the directory.
             with Session(engine) as s:
@@ -161,10 +243,17 @@ class Recorder:
             active = _Active(recording_id, dir_path, time.monotonic())
             mic = _Track("mic", mic_dev, dir_path / "mic.wav")
             active.tracks.append(mic)
-            sys_track: _Track | None = None
-            if sys_dev is not None:
-                sys_track = _Track("system", sys_dev, dir_path / "system.wav")
+            # System source: native (ScreenCaptureKit sidecar), a loopback input
+            # device (e.g. BlackHole), or none.
+            sys_track: _Track | _SidecarTrack | None = None
+            if system_source == "native":
+                sys_track = _SidecarTrack("system", dir_path / "system.wav")
                 active.tracks.append(sys_track)
+            elif system_source == "device" and system_device:
+                sys_dev = find_device(system_device)
+                if sys_dev is not None:
+                    sys_track = _Track("system", sys_dev, dir_path / "system.wav")
+                    active.tracks.append(sys_track)
 
             try:
                 for t in active.tracks:

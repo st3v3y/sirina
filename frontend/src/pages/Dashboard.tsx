@@ -41,6 +41,7 @@ export default function Dashboard() {
   const [devices, setDevices] = useState<AudioDevice[]>([]);
   const [device, setDevice] = useState<string>("");
   const [systemDevice, setSystemDevice] = useState<string>("");
+  const [nativeAudio, setNativeAudio] = useState(false);
   const [picking, setPicking] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,6 +101,9 @@ export default function Dashboard() {
         setSystemDevice(savedSys && names.has(savedSys) ? savedSys : "");
       })
       .catch(() => setDevices([]));
+    // Native system-audio capture (ScreenCaptureKit) is available in the desktop app;
+    // when present we don't ask for a system-audio device at all.
+    api.getAudioCapabilities().then((c) => setNativeAudio(c.native_system_audio)).catch(() => {});
   }, []);
 
   // Keep the list fresh (and the progress % advancing) while anything is processing.
@@ -117,19 +121,22 @@ export default function Dashboard() {
   }
 
   async function confirmStart() {
-    if (!device && !systemDevice) {
-      setError("Select a microphone or a system-audio source.");
+    // With native capture, the far-end is grabbed automatically — only a mic is needed.
+    const systemSource = nativeAudio ? "native" : systemDevice ? "device" : "none";
+    if (!device && systemSource !== "native") {
+      setError("Select a microphone (or, in the desktop app, system audio is automatic).");
       return;
     }
     setStarting(true);
     setError(null);
     try {
       lsSet(LS_MIC, device);
-      lsSet(LS_SYSTEM, systemDevice);
+      if (!nativeAudio) lsSet(LS_SYSTEM, systemDevice);
       const { id } = await api.startRecording({
         title: title || undefined,
         device: device || undefined,
-        system_device: systemDevice || undefined,
+        system_device: nativeAudio ? undefined : systemDevice || undefined,
+        system_source: systemSource,
       });
       nav(`/recordings/live/${id}`);
     } catch (e) {
@@ -207,26 +214,33 @@ export default function Dashboard() {
               </select>
             </div>
 
-            <div>
-              <label className="block text-xs text-neutral-500 mb-1">System audio</label>
-              <select
-                className="w-full bg-neutral-950 border border-neutral-800 rounded px-2 py-1.5 text-sm"
-                value={systemDevice}
-                onChange={(e) => setSystemDevice(e.target.value)}
-              >
-                <option value="">None</option>
-                {devices.map((d) => (
-                  <option key={`s-${d.index}`} value={d.name}>
-                    {d.name} ({d.channels}ch · {Math.round(d.default_samplerate)} Hz)
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <p className="text-xs text-neutral-500">
-              Pick at least one. Use a system-audio device (e.g. BlackHole) to capture a call as a
-              second track.
-            </p>
+            {nativeAudio ? (
+              <p className="text-xs text-emerald-300/90 bg-emerald-500/10 border border-emerald-500/20 rounded px-2 py-1.5">
+                System audio (other participants) is captured automatically — no extra device needed.
+              </p>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-xs text-neutral-500 mb-1">System audio</label>
+                  <select
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded px-2 py-1.5 text-sm"
+                    value={systemDevice}
+                    onChange={(e) => setSystemDevice(e.target.value)}
+                  >
+                    <option value="">None</option>
+                    {devices.map((d) => (
+                      <option key={`s-${d.index}`} value={d.name}>
+                        {d.name} ({d.channels}ch · {Math.round(d.default_samplerate)} Hz)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <p className="text-xs text-neutral-500">
+                  Use a system-audio device (e.g. BlackHole) to capture a call's other participants
+                  as a second track.
+                </p>
+              </>
+            )}
             {error && <p className="text-rose-400 text-xs">{error}</p>}
 
             <div className="flex justify-end gap-2 pt-1">
@@ -239,7 +253,7 @@ export default function Dashboard() {
               </button>
               <button
                 onClick={confirmStart}
-                disabled={starting || (!device && !systemDevice)}
+                disabled={starting || (!device && !nativeAudio && !systemDevice)}
                 className="text-sm px-3 py-1.5 rounded bg-rose-600 hover:bg-rose-500 disabled:opacity-50 font-medium"
               >
                 {starting ? "Starting…" : "● Start"}

@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sqlmodel import Session, delete, select
 
+from ..audio import system_capture
 from ..config import settings
 from ..db import get_session
 from ..exporters import export_markdown, export_text
@@ -32,8 +33,9 @@ class SpeakerOut(BaseModel):
 
 class StartRequest(BaseModel):
     title: str | None = None
-    device: str | None = None         # primary (mic) input device name or index
-    system_device: str | None = None  # optional system-audio device (e.g. BlackHole)
+    device: str | None = None          # primary (mic) input device name or index
+    system_device: str | None = None   # loopback system-audio device (e.g. BlackHole)
+    system_source: str | None = None   # "native" | "device" | "none" (default inferred)
 
 
 class ProgressOut(BaseModel):
@@ -98,11 +100,27 @@ async def start_recording(payload: StartRequest) -> dict[str, int]:
         except ValueError:
             return v
 
+    # Resolve the system-audio source. Backwards-compatible default: a system_device
+    # implies the device (loopback) path, otherwise no system track.
+    source = (payload.system_source or ("device" if payload.system_device else "none")).lower()
+    if source not in {"native", "device", "none"}:
+        raise HTTPException(400, "system_source must be native, device, or none")
+    if source == "native" and not system_capture.native_available():
+        raise HTTPException(
+            400,
+            "Native system-audio capture is unavailable. Grant Screen Recording permission "
+            "(System Settings → Privacy & Security → Screen Recording), or pick a loopback "
+            "device (e.g. BlackHole) instead.",
+        )
+    if source == "device" and not payload.system_device:
+        raise HTTPException(400, "system_source 'device' requires a system_device")
+
     try:
         recording_id = await runtime.recorder.start(
             device=_coerce(payload.device),
             system_device=_coerce(payload.system_device),
             title=payload.title,
+            system_source=source,
         )
     except Exception as e:
         raise HTTPException(400, f"could not start recording: {e}") from e
@@ -300,7 +318,7 @@ def delete_recording(recording_id: int, session: Session = Depends(get_session))
     session.delete(r)
     session.commit()
     # best-effort removal of on-disk audio
-    rec_dir = Path(settings.db_path).resolve().parent / "recordings" / str(recording_id)
+    rec_dir = settings.recordings_dir / str(recording_id)
     if rec_dir.exists():
         shutil.rmtree(rec_dir, ignore_errors=True)
 
