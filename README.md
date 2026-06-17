@@ -68,6 +68,21 @@ The first run will download the chosen Whisper model (small ≈ 480 MB, medium �
 
 Then open [http://localhost:5173](http://localhost:5173).
 
+### Capturing the other participants
+
+To record a call's far-end (everyone else), the system audio has to be captured too:
+
+- **Packaged desktop app** → captures system audio **natively** (ScreenCaptureKit). Just grant
+  **Screen Recording** when prompted; pick only your microphone. No extra setup.
+- **Browser / dev** → install **BlackHole** and route your call's output through a Multi-Output
+  device, then pick **BlackHole** as the "System audio" device in the start modal. Without it,
+  only your microphone is recorded.
+
+### Packaged macOS app (optional)
+
+To build a double-click `.app` (Tauri shell + bundled backend + native capture, no terminal),
+see [docs/PACKAGING.md](docs/PACKAGING.md). The dev flow above is unaffected.
+
 #### Or run them separately
 
 ```bash

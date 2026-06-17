@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Merged into the bundle's Info.plist by Tauri. These usage descriptions make
+     macOS show the first-run permission prompts. Screen Recording (used by the
+     native system-audio capture in the `native-system-audio-capture` change) has
+     no Info.plist key — it is requested at runtime via TCC when capture starts —
+     but the microphone needs this string. -->
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Meeting Recorder records your microphone to transcribe meetings locally on your Mac.</string>
+  <!-- The UI (WKWebView) talks to the bundled backend over http://127.0.0.1:<port>.
+       App Transport Security blocks cleartext HTTP by default; allow local networking
+       so the webview can reach the local backend. -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+  </dict>
+</dict>
+</plist>
