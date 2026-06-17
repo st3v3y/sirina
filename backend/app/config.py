@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -48,11 +49,52 @@ class Settings(BaseSettings):
     db_path: str = "./data/transcripts.db"
     app_password: str = ""
 
+    # Path to the native macOS system-audio capture sidecar (set by the Tauri app).
+    # Empty → fall back to a dev build path; absent → native capture unavailable.
+    system_audio_sidecar: str = ""
+
+    # Base directory for the DB, per-recording audio, and model caches. When set
+    # (e.g. the packaged desktop app points it at ~/Library/Application Support/<app>),
+    # the DB and recordings live under it. Empty → the dev default (./data).
+    app_data_dir: str = ""
+
+    @property
+    def data_dir(self) -> Path:
+        if self.app_data_dir:
+            return Path(self.app_data_dir).expanduser().resolve()
+        return Path(self.db_path).resolve().parent
+
+    @property
+    def recordings_dir(self) -> Path:
+        return self.data_dir / "recordings"
+
+    @property
+    def db_file(self) -> Path:
+        # A custom DB_PATH wins; otherwise the DB lives in the data dir (so setting
+        # APP_DATA_DIR alone relocates everything together).
+        if self.app_data_dir and self.db_path == "./data/transcripts.db":
+            return self.data_dir / "transcripts.db"
+        return Path(self.db_path).resolve()
+
     @property
     def db_url(self) -> str:
-        path = Path(self.db_path).resolve()
+        path = self.db_file
         path.parent.mkdir(parents=True, exist_ok=True)
         return f"sqlite:///{path}"
 
 
 settings = Settings()
+
+
+def configure_model_caches() -> None:
+    """Point HuggingFace model caches (used by faster-whisper, mlx-whisper, pyannote)
+    at the app data dir so the packaged app caches models outside its bundle. Respects
+    an already-set HF_HOME. Safe to call once at startup, before any model import."""
+    if not settings.app_data_dir:
+        return
+    hf = settings.data_dir / "models" / "hf"
+    hf.mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault("HF_HOME", str(hf))
+
+
+configure_model_caches()

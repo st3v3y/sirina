@@ -54,11 +54,11 @@ def _assert_schema_current() -> None:
                 stale.append(f"`{table}` is missing column `{required}`")
 
     if stale:
-        db_file = Path(settings.db_path).resolve()
+        db_file = settings.db_file
         raise RuntimeError(
             "Database schema is from an older version and is incompatible with this build "
             f"({'; '.join(stale)}). v2 uses a clean schema with no migration — delete the old "
-            f"database to reset:\n\n    rm {db_file}*\n    rm -rf {db_file.parent / 'recordings'}\n\n"
+            f"database to reset:\n\n    rm {db_file}*\n    rm -rf {settings.recordings_dir}\n\n"
             "Then restart. (See the README 'clean reset' note.)"
         )
 

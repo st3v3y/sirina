@@ -47,6 +47,11 @@ export type StartRecordingRequest = {
   title?: string;
   device?: string;
   system_device?: string;
+  system_source?: "native" | "device" | "none";
+};
+
+export type AudioCapabilities = {
+  native_system_audio: boolean;
 };
 
 export type ActiveInfo = {
@@ -140,8 +145,18 @@ export type RecordingDetail = Recording & {
   qa: QAMessage[];
 };
 
+// In the packaged Tauri app the backend runs on a chosen localhost port; the shell
+// injects `window.__BACKEND_URL__`. In dev this is unset → relative paths go through
+// the Vite proxy (unchanged).
+const API_BASE: string =
+  (typeof window !== "undefined" && (window as unknown as { __BACKEND_URL__?: string }).__BACKEND_URL__) || "";
+
+export function apiUrl(path: string): string {
+  return API_BASE + path;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     headers: { "Content-Type": "application/json" },
     ...init,
   });
@@ -156,6 +171,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   status: () => request<Status>("/api/status"),
   listAudioDevices: () => request<AudioDevice[]>("/api/audio/devices"),
+  getAudioCapabilities: () => request<AudioCapabilities>("/api/audio/capabilities"),
 
   listRecordings: (tagId?: number) =>
     request<Recording[]>(`/api/recordings${tagId != null ? `?tag_id=${tagId}` : ""}`),
@@ -244,11 +260,11 @@ export const api = {
       body: JSON.stringify({ body }),
     }),
   exportUrl: (id: number, format: "md" | "txt") =>
-    `/api/recordings/${id}/export?format=${format}`,
+    apiUrl(`/api/recordings/${id}/export?format=${format}`),
   audioUrl: (id: number, track: "mixed" | "mic" | "system") =>
-    `/api/recordings/${id}/audio?track=${track}`,
+    apiUrl(`/api/recordings/${id}/audio?track=${track}`),
   getExportText: async (id: number, format: "md" | "txt") => {
-    const res = await fetch(`/api/recordings/${id}/export?format=${format}`);
+    const res = await fetch(apiUrl(`/api/recordings/${id}/export?format=${format}`));
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     return res.text();
   },

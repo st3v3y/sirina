@@ -1,9 +1,12 @@
 import asyncio
 import logging
+import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from .api import audio as audio_api
 from .api import chat, people, recordings, status, tags, templates
@@ -36,6 +39,9 @@ if settings.dev:
 async def lifespan(app: FastAPI):
     init_db()
 
+    from .audio import system_capture
+
+    system_capture.kill_stale()  # clean up any orphaned native-capture sidecar
     runtime.whisper = select_engine()
     runtime.ollama = OllamaClient()
     runtime.recorder = Recorder()
@@ -90,3 +96,28 @@ app.include_router(ws_api.router)
 @app.get("/api/hello")
 async def hello() -> dict[str, str]:
     return {"message": "hello from live-transcript-bot"}
+
+
+def _frontend_dir() -> Path | None:
+    """The built frontend, served same-origin so the packaged desktop app (Tauri)
+    can load the UI over http://127.0.0.1:<port> — avoiding the webview's mixed-content
+    block on a tauri:// page fetching http://. Bundled into the PyInstaller binary as
+    `frontend_dist`; in a source checkout it's `frontend/dist` (only if built)."""
+    if getattr(sys, "frozen", False):
+        cand = Path(getattr(sys, "_MEIPASS", ".")) / "frontend_dist"
+    else:
+        cand = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+    return cand if cand.is_dir() else None
+
+
+_frontend = _frontend_dir()
+if _frontend is not None:
+    # SPA fallback: serve index.html for any non-API path so client-side routes work.
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def _spa(full_path: str) -> FileResponse:
+        candidate = _frontend / full_path
+        if full_path and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(_frontend / "index.html")
+
+    log.info("serving frontend from %s", _frontend)
