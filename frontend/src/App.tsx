@@ -4,6 +4,7 @@ import RecordingScreen from "./pages/RecordingScreen";
 import RecordingDetail from "./pages/RecordingDetail";
 import Templates from "./pages/Templates";
 import People from "./pages/People";
+import Ask from "./pages/Ask";
 import ConnectionStatus from "./components/ConnectionStatus";
 
 export default function App() {
@@ -16,6 +17,7 @@ export default function App() {
           </Link>
           <nav className="flex gap-4 text-sm text-neutral-400">
             <Link to="/" className="hover:text-neutral-100">Dashboard</Link>
+            <Link to="/ask" className="hover:text-neutral-100">Ask</Link>
             <Link to="/people" className="hover:text-neutral-100">People</Link>
             <Link to="/templates" className="hover:text-neutral-100">Templates</Link>
           </nav>
@@ -28,6 +30,7 @@ export default function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/recordings/live/:id" element={<RecordingScreen />} />
             <Route path="/recordings/:id" element={<RecordingDetail />} />
+            <Route path="/ask" element={<Ask />} />
             <Route path="/people" element={<People />} />
             <Route path="/templates" element={<Templates />} />
           </Routes>

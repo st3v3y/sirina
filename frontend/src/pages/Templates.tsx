@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { api, type SummaryTemplate, type TemplateSection } from "../lib/api";
 
-type Draft = { id: number; name: string; sections: TemplateSection[] };
+type Draft = { id: number; name: string; general_context: string; sections: TemplateSection[] };
 
 export default function Templates() {
   const [items, setItems] = useState<SummaryTemplate[]>([]);
   const [editing, setEditing] = useState<Draft | null>(null);
   const [qaBody, setQaBody] = useState<string>("");
   const [qaSaved, setQaSaved] = useState(false);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
 
   async function refresh() {
     setItems(await api.listSummaryTemplates());
@@ -19,21 +20,22 @@ export default function Templates() {
   }, []);
 
   function startNew() {
-    setEditing({ id: 0, name: "Untitled", sections: [{ title: "Summary", prompt: "Summarise:\n{{transcript}}" }] });
+    setEditing({ id: 0, name: "Untitled", general_context: "", sections: [{ title: "Summary", prompt: "Summarise the meeting." }] });
   }
   function edit(t: SummaryTemplate) {
-    setEditing({ id: t.id, name: t.name, sections: t.sections });
+    setEditing({ id: t.id, name: t.name, general_context: t.general_context ?? "", sections: t.sections });
   }
   function clone(t: SummaryTemplate) {
-    setEditing({ id: 0, name: `${t.name} (copy)`, sections: t.sections });
+    setEditing({ id: 0, name: `${t.name} (copy)`, general_context: t.general_context ?? "", sections: t.sections });
   }
 
   async function save() {
     if (!editing) return;
+    const general_context = editing.general_context.trim() || null;
     if (editing.id === 0) {
-      await api.createSummaryTemplate({ name: editing.name, sections: editing.sections });
+      await api.createSummaryTemplate({ name: editing.name, sections: editing.sections, general_context });
     } else {
-      await api.updateSummaryTemplate(editing.id, { name: editing.name, sections: editing.sections });
+      await api.updateSummaryTemplate(editing.id, { name: editing.name, sections: editing.sections, general_context });
     }
     setEditing(null);
     refresh();
@@ -58,11 +60,18 @@ export default function Templates() {
   }
   function addSection() {
     if (!editing) return;
-    setEditing({ ...editing, sections: [...editing.sections, { title: "", prompt: "{{transcript}}" }] });
+    setEditing({ ...editing, sections: [...editing.sections, { title: "", prompt: "" }] });
   }
   function removeSection(i: number) {
     if (!editing) return;
     setEditing({ ...editing, sections: editing.sections.filter((_, j) => j !== i) });
+  }
+  function moveSection(from: number, to: number) {
+    if (!editing || from === to) return;
+    const sections = [...editing.sections];
+    const [moved] = sections.splice(from, 1);
+    sections.splice(to, 0, moved);
+    setEditing({ ...editing, sections });
   }
 
   return (
@@ -128,12 +137,40 @@ export default function Templates() {
               onChange={(e) => setEditing({ ...editing, name: e.target.value })}
               placeholder="Template name"
             />
+            <div>
+              <label className="block text-xs text-neutral-500 mb-1">General context (optional)</label>
+              <textarea
+                className="w-full h-20 bg-neutral-950 border border-neutral-800 rounded p-2 text-xs"
+                value={editing.general_context}
+                onChange={(e) => setEditing({ ...editing, general_context: e.target.value })}
+                placeholder="Describes the template's purpose / audience. Added before every section."
+              />
+            </div>
             <p className="text-xs text-neutral-500">
-              Each section is a separate prompt. Use <code>{"{{transcript}}"}</code>, <code>{"{{title}}"}</code>, <code>{"{{date}}"}</code>.
+              Each section is a separate prompt. The transcript is added automatically — just describe
+              what you want. Drag a section to reorder.
             </p>
             {editing.sections.map((sec, i) => (
-              <div key={i} className="rounded border border-neutral-800 p-3 space-y-2">
+              <div
+                key={i}
+                className={`rounded border p-3 space-y-2 ${dragIndex === i ? "border-fuchsia-500" : "border-neutral-800"}`}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (dragIndex !== null) moveSection(dragIndex, i);
+                  setDragIndex(null);
+                }}
+              >
                 <div className="flex items-center gap-2">
+                  <span
+                    draggable
+                    onDragStart={() => setDragIndex(i)}
+                    onDragEnd={() => setDragIndex(null)}
+                    title="Drag to reorder"
+                    className="cursor-grab text-neutral-500 hover:text-neutral-300 select-none px-1"
+                  >
+                    ⠿
+                  </span>
                   <input
                     className="flex-1 bg-neutral-950 border border-neutral-800 rounded px-2 py-1 text-sm"
                     value={sec.title}
@@ -151,7 +188,7 @@ export default function Templates() {
                   className="w-full h-24 bg-neutral-950 border border-neutral-800 rounded p-2 text-xs font-mono"
                   value={sec.prompt}
                   onChange={(e) => setSection(i, { prompt: e.target.value })}
-                  placeholder="Section prompt"
+                  placeholder="What should this section produce? (e.g. List the decisions made.)"
                 />
               </div>
             ))}

@@ -38,19 +38,38 @@ export default function TranscriptChat({ items, speakers = {}, peopleNames = [],
     ref.current.scrollTop = ref.current.scrollHeight;
   }, [items]);
 
-  async function commit(speakerId: number) {
-    const name = draft.trim();
+  function currentName(speakerId: number): string {
+    const sp = speakers[speakerId];
+    return sp?.name ?? sp?.label ?? "Speaker";
+  }
+
+  async function commit(speakerId: number, value?: string) {
+    const name = (value ?? draft).trim();
     setEditing(null);
-    if (name && onRename) await onRename(speakerId, name);
+    if (!onRename) return;
+    const cur = currentName(speakerId);
+    // No-op when nothing changed (prevents committing the pre-filled default
+    // label, which used to create junk "Speaker 1"/"You" People).
+    if (name === cur) return;
+    // Empty only acts as a clear when the speaker is actually linked to a Person.
+    if (!name && speakers[speakerId]?.person_id == null) return;
+    await onRename(speakerId, name);
+  }
+
+  // People not already equal to the current draft, filtered by what's typed.
+  function suggestions(): string[] {
+    const q = draft.trim().toLowerCase();
+    const seen = new Set<string>();
+    return peopleNames.filter((n) => {
+      const key = n.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return !q || key.includes(q);
+    });
   }
 
   return (
     <div ref={ref} className="h-full overflow-y-auto p-4 space-y-3">
-      <datalist id="people-names">
-        {peopleNames.map((n) => (
-          <option key={n} value={n} />
-        ))}
-      </datalist>
       {items.length === 0 && <p className="text-neutral-500 text-sm">No transcript yet.</p>}
       {items.map((it, i) => {
         if (it.kind === "segment") {
@@ -60,24 +79,47 @@ export default function TranscriptChat({ items, speakers = {}, peopleNames = [],
           const name = sp?.name ?? "Speaker";
           return (
             <div key={`s-${seg.id}-${i}`} className="flex gap-3">
-              {editing === seg.speaker_id ? (
-                <input
-                  autoFocus
-                  list="people-names"
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") commit(seg.speaker_id!);
-                    if (e.key === "Escape") setEditing(null);
-                  }}
-                  onBlur={() => commit(seg.speaker_id!)}
-                  className="shrink-0 w-28 text-xs px-2 py-0.5 rounded border border-neutral-600 bg-neutral-950"
-                />
+              {editing === seg.id && seg.speaker_id != null ? (
+                <div className="relative shrink-0 w-40">
+                  <input
+                    autoFocus
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commit(seg.speaker_id!);
+                      if (e.key === "Escape") setEditing(null);
+                    }}
+                    onBlur={() => commit(seg.speaker_id!)}
+                    placeholder="Name or pick…"
+                    className="w-full text-xs px-2 py-0.5 rounded border border-neutral-600 bg-neutral-950"
+                  />
+                  {suggestions().length > 0 && (
+                    <div className="absolute z-10 mt-1 w-44 max-h-44 overflow-y-auto bg-neutral-900 border border-neutral-800 rounded shadow-lg p-1">
+                      <p className="text-[10px] uppercase tracking-wide text-neutral-500 px-2 py-0.5">
+                        Existing people
+                      </p>
+                      {suggestions().map((n) => (
+                        <button
+                          key={n}
+                          // onMouseDown fires before the input's onBlur, so the pick wins.
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            commit(seg.speaker_id!, n);
+                          }}
+                          className="block w-full text-left text-xs px-2 py-1 rounded hover:bg-neutral-800"
+                        >
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               ) : (
                 <button
+                  type="button"
                   onClick={() => {
                     if (onRename && seg.speaker_id != null) {
-                      setEditing(seg.speaker_id);
+                      setEditing(seg.id);
                       setDraft(name);
                     }
                   }}

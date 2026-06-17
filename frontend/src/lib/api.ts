@@ -2,7 +2,17 @@ export type Status = {
   ollama_ok: boolean;
   whisper_loaded: boolean;
   model: string;
+  engine: string;
   diarization: boolean;
+};
+
+export type ProcessingStage = "queued" | "transcribing" | "diarizing" | "summarizing" | "done";
+
+export type Progress = {
+  stage: ProcessingStage;
+  fraction: number | null;
+  elapsed_s?: number | null;
+  estimated?: boolean;
 };
 
 export type RecordingStatus = "recording" | "processing" | "ready" | "failed";
@@ -20,6 +30,8 @@ export type Recording = {
   ended_at: string | null;
   duration_s: number | null;
   status: RecordingStatus;
+  error?: string | null;
+  progress?: Progress | null;
   segment_count?: number;
   tags: Tag[];
 };
@@ -35,7 +47,6 @@ export type StartRecordingRequest = {
   title?: string;
   device?: string;
   system_device?: string;
-  label?: string;
 };
 
 export type ActiveInfo = {
@@ -92,8 +103,24 @@ export type SummaryTemplate = {
   id: number;
   name: string;
   sections: TemplateSection[];
+  general_context: string | null;
   is_default: boolean;
   builtin: boolean;
+};
+
+export type ChatMessage = {
+  id: number;
+  session_id: number;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+};
+
+export type ChatSession = {
+  id: number;
+  title: string | null;
+  created_at: string;
+  messages: ChatMessage[];
 };
 
 export type QATemplate = {
@@ -106,6 +133,7 @@ export type QATemplate = {
 export type RecordingDetail = Recording & {
   language: string | null;
   tags: Tag[];
+  tracks: string[]; // available audio tracks: mixed | mic | system
   speakers: Speaker[];
   segments: Segment[];
   summaries: Summary[];
@@ -139,6 +167,15 @@ export const api = {
     }),
   stopRecording: (id: number) =>
     request<{ ok: true }>(`/api/recordings/${id}/stop`, { method: "POST" }),
+  renameRecording: (id: number, title: string) =>
+    request<Recording>(`/api/recordings/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    }),
+  reprocessRecording: (id: number) =>
+    request<{ ok: true }>(`/api/recordings/${id}/reprocess`, { method: "POST" }),
+  cancelDiarization: (id: number) =>
+    request<{ ok: true }>(`/api/recordings/${id}/cancel-diarization`, { method: "POST" }),
   deleteRecording: (id: number) =>
     request<void>(`/api/recordings/${id}`, { method: "DELETE" }),
   activeRecording: () => request<ActiveInfo | null>("/api/recordings/active"),
@@ -180,12 +217,19 @@ export const api = {
     request<void>(`/api/recordings/${recordingId}/tags/${tagId}`, { method: "DELETE" }),
 
   listSummaryTemplates: () => request<SummaryTemplate[]>("/api/summary-templates"),
-  createSummaryTemplate: (body: { name: string; sections: TemplateSection[] }) =>
+  createSummaryTemplate: (body: {
+    name: string;
+    sections: TemplateSection[];
+    general_context?: string | null;
+  }) =>
     request<SummaryTemplate>("/api/summary-templates", {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  updateSummaryTemplate: (id: number, body: { name?: string; sections?: TemplateSection[] }) =>
+  updateSummaryTemplate: (
+    id: number,
+    body: { name?: string; sections?: TemplateSection[]; general_context?: string | null }
+  ) =>
     request<SummaryTemplate>(`/api/summary-templates/${id}`, {
       method: "PUT",
       body: JSON.stringify(body),
@@ -201,4 +245,25 @@ export const api = {
     }),
   exportUrl: (id: number, format: "md" | "txt") =>
     `/api/recordings/${id}/export?format=${format}`,
+  audioUrl: (id: number, track: "mixed" | "mic" | "system") =>
+    `/api/recordings/${id}/audio?track=${track}`,
+  getExportText: async (id: number, format: "md" | "txt") => {
+    const res = await fetch(`/api/recordings/${id}/export?format=${format}`);
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.text();
+  },
+
+  listChatSessions: () => request<ChatSession[]>("/api/chat/sessions"),
+  createChatSession: (title?: string) =>
+    request<ChatSession>("/api/chat/sessions", {
+      method: "POST",
+      body: JSON.stringify({ title }),
+    }),
+  askChatSession: (id: number, question: string) =>
+    request<{ answer: string }>(`/api/chat/sessions/${id}/ask`, {
+      method: "POST",
+      body: JSON.stringify({ question }),
+    }),
+  deleteChatSession: (id: number) =>
+    request<void>(`/api/chat/sessions/${id}`, { method: "DELETE" }),
 };
