@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sqlmodel import Session, delete, select
 
@@ -34,7 +34,18 @@ class StartRequest(BaseModel):
     title: str | None = None
     device: str | None = None         # primary (mic) input device name or index
     system_device: str | None = None  # optional system-audio device (e.g. BlackHole)
-    label: str | None = None          # display label, default "Room"
+
+
+class ProgressOut(BaseModel):
+    stage: str  # queued | transcribing | diarizing | summarizing | done
+    fraction: float | None = None  # 0..1 when available, else null (indeterminate)
+    elapsed_s: float | None = None  # seconds since processing started
+    estimated: bool = False  # True if fraction is a time-based estimate (MLX)
+
+
+def _progress_for(recording_id: int) -> "ProgressOut | None":
+    p = runtime.processor.progress_for(recording_id) if runtime.processor else None
+    return ProgressOut(**p) if p else None
 
 
 class RecordingListItem(BaseModel):
@@ -44,6 +55,8 @@ class RecordingListItem(BaseModel):
     ended_at: datetime | None
     duration_s: float | None
     status: str
+    error: str | None = None
+    progress: ProgressOut | None = None
     segment_count: int
     tags: list[Tag]
 
@@ -55,8 +68,11 @@ class RecordingDetail(BaseModel):
     ended_at: datetime | None
     duration_s: float | None
     status: str
+    error: str | None
+    progress: ProgressOut | None = None
     language: str | None
     tags: list[Tag]
+    tracks: list[str]  # which audio tracks exist on disk: mixed | mic | system
     speakers: list[SpeakerOut]
     segments: list[Segment]
     summaries: list[Summary]
@@ -86,7 +102,6 @@ async def start_recording(payload: StartRequest) -> dict[str, int]:
         recording_id = await runtime.recorder.start(
             device=_coerce(payload.device),
             system_device=_coerce(payload.system_device),
-            label=payload.label,
             title=payload.title,
         )
     except Exception as e:
@@ -102,6 +117,37 @@ async def stop_recording(recording_id: int) -> dict[str, bool]:
     # Hand off to the background transcription processor (recording is now `processing`).
     if runtime.processor is not None:
         await runtime.processor.enqueue(recording_id)
+    return {"ok": True}
+
+
+@router.post("/{recording_id}/reprocess")
+async def reprocess_recording(
+    recording_id: int, session: Session = Depends(get_session)
+) -> dict[str, bool]:
+    """Re-run transcription for a recording (e.g. after a failure). The job is
+    idempotent — it clears prior segments/speakers and rebuilds them."""
+    r = session.get(Recording, recording_id)
+    if not r:
+        raise HTTPException(404)
+    if r.status == "recording":
+        raise HTTPException(400, "recording is still in progress")
+    if runtime.processor is None:
+        raise HTTPException(503, "processor not running")
+    r.status = "processing"
+    r.error = None
+    session.add(r)
+    session.commit()
+    await runtime.processor.enqueue(recording_id)
+    return {"ok": True}
+
+
+@router.post("/{recording_id}/cancel-diarization")
+async def cancel_diarization(recording_id: int) -> dict[str, bool]:
+    """Ask the processor to skip diarization for this recording (keep the baseline
+    speaker split) and proceed to the summary. No-op if it is not diarizing."""
+    if runtime.processor is None:
+        raise HTTPException(503, "processor not running")
+    runtime.processor.cancel_diarization(recording_id)
     return {"ok": True}
 
 
@@ -150,6 +196,8 @@ def list_recordings(
                 ended_at=r.ended_at,
                 duration_s=r.duration_s,
                 status=r.status,
+                error=r.error,
+                progress=_progress_for(r.id),
                 segment_count=len(count),
                 tags=tags_map.get(r.id, []),  # type: ignore[arg-type]
             )
@@ -180,6 +228,11 @@ def get_recording(recording_id: int, session: Session = Depends(get_session)) ->
         for sp in speakers
     ]
     tags = _tags_by_recording(session, [recording_id]).get(recording_id, [])
+    tracks = [
+        name
+        for name, p in (("mixed", r.audio_path), ("mic", r.mic_path), ("system", r.system_path))
+        if p and Path(p).exists()
+    ]
     return RecordingDetail(
         id=r.id,  # type: ignore[arg-type]
         title=r.title,
@@ -187,12 +240,48 @@ def get_recording(recording_id: int, session: Session = Depends(get_session)) ->
         ended_at=r.ended_at,
         duration_s=r.duration_s,
         status=r.status,
+        error=r.error,
+        progress=_progress_for(r.id),
         language=r.language,
         tags=tags,
+        tracks=tracks,
         speakers=speakers_out,
         segments=list(segments),
         summaries=list(summaries),
         qa=list(qa),
+    )
+
+
+class RecordingUpdate(BaseModel):
+    title: str | None = None
+
+
+@router.patch("/{recording_id}", response_model=RecordingListItem)
+def update_recording(
+    recording_id: int, payload: RecordingUpdate, session: Session = Depends(get_session)
+) -> RecordingListItem:
+    r = session.get(Recording, recording_id)
+    if not r:
+        raise HTTPException(404)
+    # Empty string clears the title (UI falls back to "Recording #<id>").
+    title = (payload.title or "").strip()
+    r.title = title or None
+    session.add(r)
+    session.commit()
+    session.refresh(r)
+    count = session.exec(select(Segment.id).where(Segment.recording_id == recording_id)).all()  # type: ignore[arg-type]
+    tags = _tags_by_recording(session, [recording_id]).get(recording_id, [])
+    return RecordingListItem(
+        id=r.id,  # type: ignore[arg-type]
+        title=r.title,
+        started_at=r.started_at,
+        ended_at=r.ended_at,
+        duration_s=r.duration_s,
+        status=r.status,
+        error=r.error,
+        progress=_progress_for(r.id),
+        segment_count=len(count),
+        tags=tags,
     )
 
 
@@ -283,8 +372,18 @@ def rename_speaker(
     if not sp or sp.recording_id != recording_id:
         raise HTTPException(404)
     name = payload.name.strip()
-    if not name:
-        raise HTTPException(400, "name required")
+    # Empty or the speaker's own default label means "no real name": never create
+    # a Person from a default label (that produced junk "Speaker 1"/"You" People).
+    # Treat it as clearing any existing link, reverting to the default label.
+    if not name or name == sp.label:
+        sp.person_id = None
+        session.add(sp)
+        session.commit()
+        session.refresh(sp)
+        persons = {p.id: p.name for p in session.exec(select(Person)).all() if p.id is not None}
+        return SpeakerOut(
+            id=sp.id, label=sp.label, name=display_name(sp, persons), person_id=None, color=sp.color  # type: ignore[arg-type]
+        )
     # Find-or-create the Person (case-insensitive match on existing names).
     person = session.exec(select(Person).where(Person.name == name)).first()
     if person is None:
@@ -299,6 +398,21 @@ def rename_speaker(
     session.commit()
     session.refresh(sp)
     return SpeakerOut(id=sp.id, label=sp.label, name=name, person_id=sp.person_id, color=sp.color)  # type: ignore[arg-type]
+
+
+@router.get("/{recording_id}/audio")
+def get_audio(recording_id: int, track: str = "mixed", session: Session = Depends(get_session)) -> FileResponse:
+    """Serve a recording's audio track for playback (mixed | mic | system).
+    FileResponse handles HTTP range requests, so the browser can seek."""
+    if track not in {"mixed", "mic", "system"}:
+        raise HTTPException(400, "track must be mixed, mic, or system")
+    r = session.get(Recording, recording_id)
+    if not r:
+        raise HTTPException(404)
+    path = {"mixed": r.audio_path, "mic": r.mic_path, "system": r.system_path}.get(track)
+    if not path or not Path(path).exists():
+        raise HTTPException(404, f"no {track} track for this recording")
+    return FileResponse(path, media_type="audio/wav", filename=f"recording-{recording_id}-{track}.wav")
 
 
 @router.get("/{recording_id}/export")

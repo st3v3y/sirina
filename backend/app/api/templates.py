@@ -15,11 +15,13 @@ router = APIRouter(prefix="/api", tags=["templates"])
 class SummaryTemplateCreate(BaseModel):
     name: str
     sections: list[dict[str, Any]]
+    general_context: str | None = None
 
 
 class SummaryTemplateUpdate(BaseModel):
     name: str | None = None
     sections: list[dict[str, Any]] | None = None
+    general_context: str | None = None
 
 
 @router.get("/summary-templates", response_model=list[SummaryTemplate])
@@ -29,7 +31,12 @@ def list_summary_templates(session: Session = Depends(get_session)):
 
 @router.post("/summary-templates", response_model=SummaryTemplate)
 def create_summary_template(payload: SummaryTemplateCreate, session: Session = Depends(get_session)):
-    t = SummaryTemplate(name=payload.name, sections=payload.sections, builtin=False)
+    t = SummaryTemplate(
+        name=payload.name,
+        sections=payload.sections,
+        general_context=payload.general_context,
+        builtin=False,
+    )
     session.add(t)
     session.commit()
     session.refresh(t)
@@ -47,6 +54,9 @@ def update_summary_template(
         t.name = payload.name
     if payload.sections is not None:
         t.sections = payload.sections
+    # Allow explicitly clearing general_context (present-but-null vs omitted).
+    if "general_context" in payload.model_fields_set:
+        t.general_context = payload.general_context
     session.add(t)
     session.commit()
     session.refresh(t)

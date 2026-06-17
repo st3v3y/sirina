@@ -6,9 +6,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api import audio as audio_api
-from .api import people, recordings, status, tags, templates
+from .api import chat, people, recordings, status, tags, templates
 from .api import debug as debug_api
 from .api import ws as ws_api
+from .config import settings
 from .db import init_db
 from .llm.ollama_client import OllamaClient
 from .pipeline import Pipeline
@@ -16,17 +17,26 @@ from .processing.diarize import Diarizer
 from .processing.job import TranscriptionProcessor
 from .recording.recorder import Recorder
 from .runtime import runtime
-from .transcribe.whisper import FasterWhisperWorker
+from .transcribe.engine import select_engine
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logging.basicConfig(
+    level=logging.DEBUG if settings.dev else logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 log = logging.getLogger(__name__)
+if settings.dev:
+    # DEBUG our own code, but keep chatty third-party libs (HTTP/TLS frames,
+    # downloads) at INFO so the app's debug logs stay readable.
+    for noisy in ("httpcore", "httpx", "urllib3", "huggingface_hub", "filelock", "asyncio"):
+        logging.getLogger(noisy).setLevel(logging.INFO)
+    log.info("DEV mode: verbose DEBUG logging enabled")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
 
-    runtime.whisper = FasterWhisperWorker()
+    runtime.whisper = select_engine()
     runtime.ollama = OllamaClient()
     runtime.recorder = Recorder()
 
@@ -70,6 +80,7 @@ app.include_router(templates.router)
 app.include_router(status.router)
 app.include_router(recordings.router)
 app.include_router(people.router)
+app.include_router(chat.router)
 app.include_router(tags.router)
 app.include_router(audio_api.router)
 app.include_router(debug_api.router)

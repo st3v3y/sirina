@@ -63,10 +63,31 @@ def _assert_schema_current() -> None:
         )
 
 
+def _add_missing_columns() -> None:
+    """Apply small additive column migrations that `create_all` won't do for an
+    existing table. SQLite `ADD COLUMN` is cheap and safe; we guard on presence
+    so this is idempotent."""
+    additive = {
+        "summarytemplate": [("general_context", "TEXT")],
+    }
+    with engine.connect() as conn:
+        for table, columns in additive.items():
+            existing = {
+                row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})").fetchall()
+            }
+            if not existing:
+                continue  # table not created yet; create_all handles fresh schemas
+            for name, decl in columns:
+                if name not in existing:
+                    conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+        conn.commit()
+
+
 def init_db() -> None:
     # v2 schema is created fresh. There is no migration from the v1 `Meeting`-era
     # database — delete an old `data/transcripts.db` to reset (see README).
     SQLModel.metadata.create_all(engine)
+    _add_missing_columns()
     _assert_schema_current()
     with Session(engine) as session:
         if session.exec(select(SummaryTemplate)).first() is None:

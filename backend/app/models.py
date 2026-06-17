@@ -12,7 +12,6 @@ def _utcnow() -> datetime:
 class Recording(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     title: str | None = None
-    label: str | None = None  # user-entered label captured at start (mic speaker default)
     created_at: datetime = Field(default_factory=_utcnow)
     started_at: datetime = Field(default_factory=_utcnow)
     ended_at: datetime | None = None
@@ -54,6 +53,8 @@ class Segment(SQLModel, table=True):
 class SummaryTemplate(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str
+    # Optional free-text framing prepended to every section prompt at summarize time.
+    general_context: str | None = None
     # ordered sections: [{ "title": str, "prompt": str }, ...]
     sections: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON))
     is_default: bool = False
@@ -95,3 +96,19 @@ class Tag(SQLModel, table=True):
 class RecordingTag(SQLModel, table=True):
     recording_id: int = Field(foreign_key="recording.id", primary_key=True, index=True)
     tag_id: int = Field(foreign_key="tag.id", primary_key=True, index=True)
+
+
+class ChatSession(SQLModel, table=True):
+    """A cross-recording AI chat session: questions answered over all transcripts."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    title: str | None = None
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class ChatMessage(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    session_id: int = Field(foreign_key="chatsession.id", index=True)
+    role: str  # user | assistant
+    content: str
+    created_at: datetime = Field(default_factory=_utcnow)
