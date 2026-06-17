@@ -4,9 +4,20 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _env_files() -> list[str]:
+    """Read .env from the cwd (dev) and from APP_DATA_DIR (the packaged app, which has
+    no project .env) — the latter wins, so a user can drop a .env in
+    ~/Library/Application Support/<app>/ to set OLLAMA_MODEL, HF_TOKEN, etc."""
+    files = [".env"]
+    app_data = os.environ.get("APP_DATA_DIR", "")
+    if app_data:
+        files.append(str(Path(app_data).expanduser() / ".env"))
+    return files
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_env_files(),
         env_file_encoding="utf-8",
         extra="ignore",
     )
