@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type Person } from "../lib/api";
+import { confirmDialog } from "../lib/confirm";
 
 export default function People() {
   const [people, setPeople] = useState<Person[]>([]);
@@ -23,7 +24,7 @@ export default function People() {
   }
 
   async function del(id: number) {
-    if (!confirm("Delete this person? Their speakers revert to default labels; recordings are kept.")) return;
+    if (!(await confirmDialog("Delete this person? Their speakers revert to default labels; recordings are kept."))) return;
     await api.deletePerson(id);
     refresh();
   }

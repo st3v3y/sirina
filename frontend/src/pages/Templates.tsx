@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type SummaryTemplate, type TemplateSection } from "../lib/api";
+import { confirmDialog } from "../lib/confirm";
 
 type Draft = { id: number; name: string; general_context: string; sections: TemplateSection[] };
 
@@ -42,7 +43,7 @@ export default function Templates() {
   }
 
   async function del(id: number) {
-    if (!confirm("Delete this template?")) return;
+    if (!(await confirmDialog("Delete this template?"))) return;
     await api.deleteSummaryTemplate(id);
     refresh();
   }

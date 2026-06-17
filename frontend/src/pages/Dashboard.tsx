@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, type AudioDevice, type Recording, type RecordingStatus, type Tag } from "../lib/api";
 import { TagChip, AddTagButton, TAG_COLORS, tagChipClass } from "../components/TagUI";
+import { confirmDialog } from "../lib/confirm";
 
 const STATUS_BADGE: Record<RecordingStatus, string> = {
   recording: "bg-rose-500/15 text-rose-300 border-rose-500/30",
@@ -146,7 +147,7 @@ export default function Dashboard() {
   }
 
   async function del(id: number) {
-    if (!confirm("Delete this recording and all its data?")) return;
+    if (!(await confirmDialog("Delete this recording and all its data?"))) return;
     await api.deleteRecording(id);
     refresh();
   }
@@ -313,7 +314,7 @@ export default function Dashboard() {
                   {TAG_COLORS.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
                 <button
-                  onClick={async () => { if (confirm(`Delete tag "${t.name}"?`)) { await api.deleteTag(t.id); if (filterTag === t.id) setFilterTag(null); loadTags(); refresh(filterTag === t.id ? null : filterTag); } }}
+                  onClick={async () => { if (await confirmDialog(`Delete tag "${t.name}"?`)) { await api.deleteTag(t.id); if (filterTag === t.id) setFilterTag(null); loadTags(); refresh(filterTag === t.id ? null : filterTag); } }}
                   className="ml-auto text-xs text-neutral-400 hover:text-rose-400"
                 >
                   Delete

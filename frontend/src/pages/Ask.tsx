@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type ChatSession } from "../lib/api";
+import { confirmDialog } from "../lib/confirm";
 
 export default function Ask() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -29,7 +30,7 @@ export default function Ask() {
   }
 
   async function deleteSession(id: number) {
-    if (!confirm("Delete this chat session?")) return;
+    if (!(await confirmDialog("Delete this chat session?"))) return;
     await api.deleteChatSession(id);
     if (activeId === id) setActiveId(null);
     refresh();
