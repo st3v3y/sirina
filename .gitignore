@@ -28,3 +28,12 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Tauri / PyInstaller build artifacts (sidecar binary + native build output)
+frontend/src-tauri/target/
+frontend/src-tauri/gen/
+frontend/src-tauri/binaries/
+frontend/src-tauri/resources/
+backend/build/
+backend/dist/
+native/**/build/
