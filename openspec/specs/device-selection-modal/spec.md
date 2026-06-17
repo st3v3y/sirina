@@ -5,12 +5,23 @@ TBD - created by archiving change speaker-rename-and-ux-improvements. Update Pur
 ## Requirements
 ### Requirement: Device selection happens in a modal on start
 
-The system SHALL present microphone and system-audio selection in a modal shown when the user initiates a recording, rather than as a permanently visible form. Starting the recording SHALL require at least one audio source to be selected.
+The system SHALL present audio-source selection in a modal shown when the user initiates a recording, rather than as a permanently visible form. When native system-audio capture is available, the modal SHALL ask only for the microphone and indicate that system audio (other participants) is captured automatically. When native capture is unavailable, the modal SHALL offer both a microphone and a system-audio (loopback) device selector. Starting the recording SHALL require at least one audio source.
 
 #### Scenario: Modal appears on start
 
 - **WHEN** the user clicks "Start recording"
-- **THEN** a modal is shown offering microphone and system-audio selection
+- **THEN** a modal is shown for audio-source selection
+
+#### Scenario: Native available hides the system-audio device picker
+
+- **WHEN** native system-audio capture is available
+- **THEN** the modal asks only for the microphone
+- **AND** it indicates that system audio is captured automatically
+
+#### Scenario: Native unavailable offers the device picker
+
+- **WHEN** native system-audio capture is not available
+- **THEN** the modal offers both microphone and system-audio device selection
 
 #### Scenario: One source is sufficient
 
@@ -19,7 +30,7 @@ The system SHALL present microphone and system-audio selection in a modal shown 
 
 #### Scenario: No source blocks start
 
-- **WHEN** the user confirms with neither source selected
+- **WHEN** the user confirms with no audio source available
 - **THEN** the recording does not start
 - **AND** the user is prompted to choose a source
 

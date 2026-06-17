@@ -34,9 +34,9 @@
 
 ## 6. Verification
 
-- [ ] 6.1 In the desktop app, a 2-person call records You (mic) + the other participant (native system) as separate tracks; the system track contains the far-end, not the mic
-- [ ] 6.2 `GET /api/audio/capabilities` reports `true` in the desktop app and `false` in browser/dev
+- [x] 6.1 In the desktop app, a 2-person call records You (mic) + the other participant (native system) as separate tracks; the system track contains the far-end, not the mic
+- [x] 6.2 `GET /api/audio/capabilities` reports `true` in the desktop app and `false` in browser/dev
 - [x] 6.3 Browser/dev with BlackHole selected still works exactly as before (device path unchanged)
 - [x] 6.4 Requesting native when unavailable returns a 400; denying Screen Recording yields a clear error and no silent system track
-- [ ] 6.5 No orphaned sidecar process remains after stop or backend shutdown
-- [ ] 6.6 Sidecar PCM plays back correctly (right sample rate/endianness) via the audio player; mixed track has both voices, no feedback of our own playback
+- [x] 6.5 No orphaned sidecar process remains after stop or backend shutdown
+- [x] 6.6 Sidecar PCM plays back correctly (right sample rate/endianness) via the audio player; mixed track has both voices, no feedback of our own playback
