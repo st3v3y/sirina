@@ -74,9 +74,13 @@ APP="$ROOT/frontend/src-tauri/target/release/bundle/macos/Meeting Recorder.app"
 # (Keychain Access → Certificate Assistant → Create a Certificate). We deliberately do
 # NOT auto-pick an "Apple Development" identity — that may be a company/work cert.
 IDENTITY="${CODESIGN_IDENTITY:--}"
+BUNDLE_ID="$(sed -n 's/.*"identifier"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT/frontend/src-tauri/tauri.conf.json" | head -1)"
 echo "==> Codesigning $APP with: $IDENTITY"
 # inside-out: nested binaries first, then the bundle (no hardened runtime — PyInstaller libs).
-codesign --force --timestamp=none --sign "$IDENTITY" "$APP/Contents/Resources/resources/system-audio-capture"
+# The capture sidecar is signed with the APP's bundle identifier so macOS TCC treats its
+# ScreenCaptureKit call as the same client as the app — otherwise the Screen Recording
+# grant doesn't cover it and native capture never becomes available.
+codesign --force --timestamp=none --identifier "$BUNDLE_ID" --sign "$IDENTITY" "$APP/Contents/Resources/resources/system-audio-capture"
 codesign --force --timestamp=none --sign "$IDENTITY" "$APP/Contents/MacOS/backend"
 codesign --force --timestamp=none --sign "$IDENTITY" "$APP"
 
