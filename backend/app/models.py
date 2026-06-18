@@ -112,3 +112,12 @@ class ChatMessage(SQLModel, table=True):
     role: str  # user | assistant
     content: str
     created_at: datetime = Field(default_factory=_utcnow)
+
+
+class Setting(SQLModel, table=True):
+    """A persisted user override for a single config key. Layered on top of the
+    built-in defaults and `.env` at startup (defaults → .env → these rows). Values
+    are stored as text and coerced to the field's type by the settings registry."""
+
+    key: str = Field(primary_key=True)
+    value: str = ""

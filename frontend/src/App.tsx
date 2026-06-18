@@ -7,6 +7,7 @@ import RecordingDetail from "./pages/RecordingDetail";
 import Templates from "./pages/Templates";
 import People from "./pages/People";
 import Ask from "./pages/Ask";
+import Settings from "./pages/Settings";
 import ConnectionStatus from "./components/ConnectionStatus";
 
 /** Wait for the backend before rendering the app. In the packaged desktop app the
@@ -63,6 +64,7 @@ export default function App() {
               <Link to="/ask" className="hover:text-neutral-100">Ask</Link>
               <Link to="/people" className="hover:text-neutral-100">People</Link>
               <Link to="/templates" className="hover:text-neutral-100">Templates</Link>
+              <Link to="/settings" className="hover:text-neutral-100">Settings</Link>
             </nav>
             <div className="ml-auto">
               <ConnectionStatus />
@@ -76,6 +78,7 @@ export default function App() {
               <Route path="/ask" element={<Ask />} />
               <Route path="/people" element={<People />} />
               <Route path="/templates" element={<Templates />} />
+              <Route path="/settings" element={<Settings />} />
             </Routes>
           </main>
         </div>

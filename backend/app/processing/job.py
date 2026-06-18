@@ -109,8 +109,20 @@ class TranscriptionProcessor:
         # In-memory, ephemeral per-recording progress and start time (monotonic).
         self._progress: dict[int, dict] = {}
         self._started: dict[int, float] = {}
+        # The recording currently being processed (None when idle). Used to gate a
+        # transcription-engine reload — swapping the model mid-job would corrupt it.
+        self._current_id: int | None = None
         # Recordings whose diarization the user asked to cancel (fall back to baseline).
         self._cancel_diar: set[int] = set()
+
+    def is_busy(self) -> bool:
+        """True while a recording is actively being processed."""
+        return self._current_id is not None
+
+    def set_engine(self, whisper: FasterWhisperWorker) -> None:
+        """Swap the transcription engine (used by the Settings reload action). Only safe
+        when idle — the caller checks `is_busy()` first."""
+        self._whisper = whisper
 
     def progress_for(self, recording_id: int) -> dict | None:
         e = self._progress.get(recording_id)
@@ -181,6 +193,7 @@ class TranscriptionProcessor:
     async def _run(self) -> None:
         while True:
             recording_id = await self._queue.get()
+            self._current_id = recording_id
             try:
                 await self._process(recording_id)
             except asyncio.CancelledError:
@@ -189,6 +202,7 @@ class TranscriptionProcessor:
                 log.exception("transcription job failed for recording %d", recording_id)
                 self._mark_failed(recording_id, f"{type(e).__name__}: {e}"[:500])
             finally:
+                self._current_id = None
                 # Progress is ephemeral: drop it once the job ends (ready/failed).
                 self._progress.pop(recording_id, None)
                 self._started.pop(recording_id, None)

@@ -31,5 +31,17 @@ class Runtime:
     def whisper_loaded(self) -> bool:
         return bool(self.whisper and self.whisper.is_loaded())
 
+    async def rebuild_llm(self) -> None:
+        """Rebuild the LLM client after an AI setting (host/model) changed, so the next
+        summary/answer uses the new config without a restart. The old client is closed."""
+        from .llm.ollama_client import OllamaClient
+
+        old = self.ollama
+        self.ollama = OllamaClient()
+        if self.pipeline is not None:
+            self.pipeline.ollama = self.ollama
+        if old is not None:
+            await old.close()
+
 
 runtime = Runtime()

@@ -28,6 +28,15 @@ class OllamaClient:
         except Exception:
             return False
 
+    async def list_models(self) -> list[str]:
+        """Names of locally installed Ollama models (for the Settings model dropdown).
+        Empty if Ollama is unreachable."""
+        try:
+            r = await self._client.get("/api/tags", timeout=5.0)
+            return [m.get("name", "") for m in r.json().get("models", []) if m.get("name")]
+        except Exception:
+            return []
+
     async def _resolve_model(self) -> str:
         """Use the configured model if installed; otherwise fall back to an installed one
         (preferring the same family) so AI works even when OLLAMA_MODEL isn't pulled —

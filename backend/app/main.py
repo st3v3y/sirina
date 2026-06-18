@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from .api import audio as audio_api
-from .api import chat, people, recordings, status, tags, templates
+from .api import chat, people, recordings, settings as settings_api, status, tags, templates
 from .api import debug as debug_api
 from .api import ws as ws_api
 from .config import settings
@@ -20,6 +20,7 @@ from .processing.diarize import Diarizer
 from .processing.job import TranscriptionProcessor
 from .recording.recorder import Recorder
 from .runtime import runtime
+from .settings_store import load_overrides
 from .transcribe.engine import select_engine
 
 logging.basicConfig(
@@ -38,6 +39,9 @@ if settings.dev:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    # Layer persisted user overrides onto the Settings singleton BEFORE the engine and
+    # LLM client are built, so they pick up the stored config.
+    load_overrides()
 
     from .audio import system_capture
 
@@ -84,6 +88,7 @@ app.add_middleware(
 
 app.include_router(templates.router)
 app.include_router(status.router)
+app.include_router(settings_api.router)
 app.include_router(recordings.router)
 app.include_router(people.router)
 app.include_router(chat.router)

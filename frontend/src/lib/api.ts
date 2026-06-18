@@ -135,6 +135,38 @@ export type QATemplate = {
   is_default: boolean;
 };
 
+export type SettingSection = "ai" | "transcription" | "diarization" | "advanced";
+export type SettingType = "string" | "text" | "int" | "float" | "bool" | "enum";
+export type SettingRestart = "none" | "reload_engine" | "restart_app";
+
+export type SettingField = {
+  key: string;
+  label: string;
+  section: SettingSection;
+  type: SettingType;
+  options: string[] | null;
+  options_source: string | null;
+  secret: boolean;
+  restart: SettingRestart;
+  help: string | null;
+  value?: unknown; // omitted for secrets
+  is_set?: boolean | null; // secrets only
+};
+
+export type SettingsResponse = {
+  fields: SettingField[];
+  data_dir: string;
+  diarization_supported: boolean;
+  reload_required: boolean;
+};
+
+export type ReloadEngineResult = {
+  ok: boolean;
+  busy?: boolean;
+  detail?: string;
+  engine?: string;
+};
+
 export type RecordingDetail = Recording & {
   language: string | null;
   tags: Tag[];
@@ -268,6 +300,18 @@ export const api = {
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     return res.text();
   },
+
+  getSettings: () => request<SettingsResponse>("/api/settings"),
+  updateSettings: (updates: Record<string, unknown>) =>
+    request<SettingsResponse>("/api/settings", {
+      method: "PATCH",
+      body: JSON.stringify({ updates }),
+    }),
+  reloadEngine: () =>
+    request<ReloadEngineResult>("/api/settings/reload-engine", { method: "POST" }),
+  listOllamaModels: () => request<{ models: string[] }>("/api/settings/ollama-models"),
+  revealDataDir: () =>
+    request<{ ok: boolean }>("/api/settings/reveal-data-dir", { method: "POST" }),
 
   listChatSessions: () => request<ChatSession[]>("/api/chat/sessions"),
   createChatSession: (title?: string) =>
