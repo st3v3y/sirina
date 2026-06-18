@@ -1,9 +1,31 @@
 export type Status = {
-  ollama_ok: boolean;
+  llm_ok: boolean;
   whisper_loaded: boolean;
-  model: string;
   engine: string;
+  llm_provider: string;
+  llm_model: string;
   diarization: boolean;
+};
+
+export type LlmProvider = {
+  key: string;
+  label: string;
+  base_url: string;
+  requires_key: boolean;
+  is_cloud: boolean;
+};
+
+export type LlmProbe = {
+  provider: string;
+  base_url?: string;
+  api_key?: string;
+  model?: string;
+};
+
+export type LlmTestResult = {
+  ok: boolean;
+  detail?: string;
+  models?: string[];
 };
 
 export type ProcessingStage = "queued" | "transcribing" | "diarizing" | "summarizing" | "done";
@@ -309,9 +331,17 @@ export const api = {
     }),
   reloadEngine: () =>
     request<ReloadEngineResult>("/api/settings/reload-engine", { method: "POST" }),
-  listOllamaModels: () => request<{ models: string[] }>("/api/settings/ollama-models"),
   revealDataDir: () =>
     request<{ ok: boolean }>("/api/settings/reveal-data-dir", { method: "POST" }),
+
+  getLlmProviders: () => request<LlmProvider[]>("/api/llm/providers"),
+  listLlmModels: (cfg: LlmProbe) =>
+    request<{ models: string[] }>("/api/llm/models", {
+      method: "POST",
+      body: JSON.stringify(cfg),
+    }),
+  testLlm: (cfg: LlmProbe) =>
+    request<LlmTestResult>("/api/llm/test", { method: "POST", body: JSON.stringify(cfg) }),
 
   listChatSessions: () => request<ChatSession[]>("/api/chat/sessions"),
   createChatSession: (title?: string) =>

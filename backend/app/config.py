@@ -50,8 +50,12 @@ class Settings(BaseSettings):
     # DEV mode: verbose DEBUG logging (set DEV=1).
     dev: bool = False
 
-    ollama_host: str = "http://localhost:11434"
-    ollama_model: str = "llama3.1:8b-instruct"
+    # Pluggable LLM provider (see app/llm/provider.py). The default is the local Ollama
+    # preset, so an out-of-the-box install talks to a local Ollama exactly as before.
+    llm_provider: str = "ollama"  # ollama | lmstudio | openai | google | groq | custom
+    llm_model: str = "llama3.1:8b-instruct"
+    llm_base_url: str = ""  # overrides the preset base URL (required for `custom`)
+    llm_api_key: str = ""  # required for cloud providers
 
     diarization_enabled: bool = False
     hf_token: str = ""  # HuggingFace read token (gates the one-time pyannote download)

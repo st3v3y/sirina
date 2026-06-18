@@ -10,13 +10,13 @@ export default function ConnectionStatus() {
   }, []);
   useStatusSocket(setStatus);
 
-  const ready = status?.ollama_ok && status?.whisper_loaded;
+  const ready = status?.llm_ok && status?.whisper_loaded;
   const color = ready ? "bg-emerald-500" : status ? "bg-amber-500" : "bg-neutral-600";
   const label = !status
     ? "Backend unreachable"
     : ready
     ? "Ready"
-    : `${status.ollama_ok ? "" : "no Ollama · "}${status.whisper_loaded ? "" : "no Whisper"}`.replace(/ · $/, "");
+    : `${status.llm_ok ? "" : "no LLM · "}${status.whisper_loaded ? "" : "no Whisper"}`.replace(/ · $/, "");
 
   return (
     <div className="flex items-center gap-2 text-xs">

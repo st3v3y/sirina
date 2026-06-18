@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .transcribe.engine import TranscriptionEngine
-    from .llm.ollama_client import OllamaClient
+    from .llm.provider import OpenAICompatProvider
     from .api.ws import ConnectionManager
     from .pipeline import Pipeline
     from .recording.recorder import Recorder
@@ -16,30 +16,30 @@ if TYPE_CHECKING:
 class Runtime:
     def __init__(self) -> None:
         self.whisper: TranscriptionEngine | None = None
-        self.ollama: OllamaClient | None = None
+        self.llm: OpenAICompatProvider | None = None
         self.ws: ConnectionManager | None = None
         self.pipeline: Pipeline | None = None
         self.recorder: Recorder | None = None
         self.processor: TranscriptionProcessor | None = None
         self.diarizer: Diarizer | None = None
 
-    async def ollama_ok(self) -> bool:
-        if self.ollama is None:
+    async def llm_ok(self) -> bool:
+        if self.llm is None:
             return False
-        return await self.ollama.ping()
+        return await self.llm.ping()
 
     def whisper_loaded(self) -> bool:
         return bool(self.whisper and self.whisper.is_loaded())
 
     async def rebuild_llm(self) -> None:
-        """Rebuild the LLM client after an AI setting (host/model) changed, so the next
-        summary/answer uses the new config without a restart. The old client is closed."""
-        from .llm.ollama_client import OllamaClient
+        """Rebuild the LLM provider after an AI setting (provider/model/base_url/key)
+        changed, so the next summary/answer uses it without a restart. Old client closed."""
+        from .llm.provider import build_llm
 
-        old = self.ollama
-        self.ollama = OllamaClient()
+        old = self.llm
+        self.llm = build_llm()
         if self.pipeline is not None:
-            self.pipeline.ollama = self.ollama
+            self.pipeline.llm = self.llm
         if old is not None:
             await old.close()
 

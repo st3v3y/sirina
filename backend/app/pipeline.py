@@ -13,7 +13,7 @@ from datetime import date
 from sqlmodel import Session, select
 
 from .db import engine
-from .llm.ollama_client import OllamaClient, render
+from .llm.provider import OpenAICompatProvider, render
 from .models import (
     ChatMessage,
     ChatSession,
@@ -34,9 +34,9 @@ CROSS_CONTEXT_CHAR_BUDGET = 24000
 
 
 class Pipeline:
-    def __init__(self, whisper: FasterWhisperWorker, ollama: OllamaClient) -> None:
+    def __init__(self, whisper: FasterWhisperWorker, llm: OpenAICompatProvider) -> None:
         self.whisper = whisper
-        self.ollama = ollama
+        self.llm = llm
 
     def _transcript(self, session: Session, recording_id: int) -> str:
         segs = session.exec(
@@ -80,7 +80,7 @@ class Pipeline:
             # Prepend the template's general context (framing) to every section.
             if general_context:
                 prompt = f"{general_context}\n\n{prompt}"
-            content = await self.ollama.generate(prompt)
+            content = await self.llm.generate(prompt)
             produced.append({"title": title, "content": content})
 
         with Session(engine) as s:
@@ -113,7 +113,7 @@ class Pipeline:
                 "question": question,
             },
         )
-        response = await self.ollama.generate(prompt)
+        response = await self.llm.generate(prompt)
         with Session(engine) as s:
             s.add(QAMessage(recording_id=recording_id, role="user", content=question))
             s.add(QAMessage(recording_id=recording_id, role="assistant", content=response or "(no answer)"))
@@ -167,7 +167,7 @@ class Pipeline:
             f"PRIOR Q&A:\n{hist_text or '(none)'}\n\n"
             f"QUESTION:\n{question}\n\nANSWER:"
         )
-        response = await self.ollama.generate(prompt)
+        response = await self.llm.generate(prompt)
         answer = response or "(no answer)"
         if omitted:
             answer += f"\n\n_(Note: {omitted} older recording(s) were omitted to fit the context window.)_"

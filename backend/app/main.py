@@ -9,12 +9,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from .api import audio as audio_api
-from .api import chat, people, recordings, settings as settings_api, status, tags, templates
+from .api import chat, llm as llm_api, people, recordings, settings as settings_api, status, tags, templates
 from .api import debug as debug_api
 from .api import ws as ws_api
 from .config import settings
 from .db import init_db
-from .llm.ollama_client import OllamaClient
+from .llm.provider import build_llm
 from .pipeline import Pipeline
 from .processing.diarize import Diarizer
 from .processing.job import TranscriptionProcessor
@@ -47,13 +47,13 @@ async def lifespan(app: FastAPI):
 
     system_capture.kill_stale()  # clean up any orphaned native-capture sidecar
     runtime.whisper = select_engine()
-    runtime.ollama = OllamaClient()
+    runtime.llm = build_llm()
     runtime.recorder = Recorder()
 
     # Whisper is loaded in the background; it is NOT used during recording. Recording
     # itself runs no inference — the transcription processor uses whisper after stop.
     load_task = asyncio.create_task(runtime.whisper.load(), name="whisper-load")
-    runtime.pipeline = Pipeline(runtime.whisper, runtime.ollama)
+    runtime.pipeline = Pipeline(runtime.whisper, runtime.llm)
 
     runtime.diarizer = Diarizer()
     runtime.processor = TranscriptionProcessor(runtime.whisper, runtime.pipeline, runtime.diarizer)
@@ -71,8 +71,8 @@ async def lifespan(app: FastAPI):
                 pass
         if runtime.processor is not None:
             runtime.processor.stop()
-        if runtime.ollama is not None:
-            await runtime.ollama.close()
+        if runtime.llm is not None:
+            await runtime.llm.close()
         load_task.cancel()
 
 
@@ -89,6 +89,7 @@ app.add_middleware(
 app.include_router(templates.router)
 app.include_router(status.router)
 app.include_router(settings_api.router)
+app.include_router(llm_api.router)
 app.include_router(recordings.router)
 app.include_router(people.router)
 app.include_router(chat.router)

@@ -46,12 +46,20 @@ class FieldSpec:
 # The single source of truth for the Settings UI. Adding a field here is all that's
 # needed for it to appear on the page and be writable via the API.
 FIELDS: list[FieldSpec] = [
-    # --- AI model (the full provider picker comes in `dynamic-llm-provider`) ---
-    FieldSpec("ollama_host", "Ollama host", "ai", "string", help="Base URL of the Ollama server."),
+    # --- AI model (pluggable provider; the Settings page renders this section with a
+    # provider/model/key/test UI driven by /api/llm/*, but the values persist here) ---
     FieldSpec(
-        "ollama_model", "Model", "ai", "string", options_source="ollama_models",
-        help="The chat model used for summaries and Q&A.",
+        "llm_provider", "Provider", "ai", "enum",
+        options=["ollama", "lmstudio", "openai", "google", "groq", "custom"],
+        help="Local (Ollama/LM Studio) or cloud (OpenAI/Google/Groq/custom).",
     ),
+    FieldSpec("llm_model", "Model", "ai", "string", help="The chat model for summaries and Q&A."),
+    FieldSpec(
+        "llm_base_url", "Base URL", "ai", "string",
+        help="Override the provider's API base URL (required for custom).",
+    ),
+    FieldSpec("llm_api_key", "API key", "ai", "string", secret=True,
+              help="Required for cloud providers."),
     # --- Transcription ---
     FieldSpec(
         "transcription_engine", "Engine", "transcription", "enum",

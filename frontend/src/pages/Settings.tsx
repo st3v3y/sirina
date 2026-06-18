@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   api,
+  type LlmProvider,
   type SettingField,
   type SettingSection,
   type SettingsResponse,
@@ -22,7 +23,6 @@ const RESTART_LABEL: Record<string, string> = {
 export default function Settings() {
   const [data, setData] = useState<SettingsResponse | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
-  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   // Edited non-secret values, mirrored from the response; secrets edited separately.
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [secrets, setSecrets] = useState<Record<string, string>>({});
@@ -51,7 +51,6 @@ export default function Settings() {
   useEffect(() => {
     api.getSettings().then(hydrate).catch((e) => setError(String(e)));
     refreshStatus();
-    api.listOllamaModels().then((r) => setOllamaModels(r.models)).catch(() => setOllamaModels([]));
   }, []);
 
   const dirty = useMemo(() => {
@@ -65,9 +64,6 @@ export default function Settings() {
 
   function optionsFor(f: SettingField): string[] | null {
     let opts = f.options ?? null;
-    if (f.options_source === "ollama_models") {
-      opts = ollamaModels.length ? ollamaModels : f.options ?? null;
-    }
     if (opts) {
       const cur = String(values[f.key] ?? "");
       if (cur && !opts.includes(cur)) opts = [cur, ...opts];
@@ -243,10 +239,16 @@ export default function Settings() {
             </span>
           </span>
           <span>
-            Ollama:{" "}
-            <span className={status?.ollama_ok ? "text-emerald-400" : "text-rose-400"}>
-              {status?.ollama_ok ? "reachable" : "unreachable"}
+            LLM:{" "}
+            <span className={status?.llm_ok ? "text-emerald-400" : "text-rose-400"}>
+              {status?.llm_ok ? "reachable" : "unreachable"}
             </span>
+          </span>
+          <span>
+            Provider: <span className="text-neutral-100">{status?.llm_provider ?? "—"}</span>
+            {status?.llm_model ? (
+              <span className="text-neutral-500"> · {status.llm_model}</span>
+            ) : null}
           </span>
         </div>
       </section>
@@ -269,6 +271,15 @@ export default function Settings() {
                 these settings are saved but won't take effect.
               </p>
             )}
+            {id === "ai" ? (
+              <AiSection
+                values={values}
+                setValue={(k, v) => setValues((s) => ({ ...s, [k]: v }))}
+                secrets={secrets}
+                setSecret={(k, v) => setSecrets((s) => ({ ...s, [k]: v }))}
+                apiKeyIsSet={Boolean(data.fields.find((f) => f.key === "llm_api_key")?.is_set)}
+              />
+            ) : (
             <div className="rounded-lg border border-neutral-800 divide-y divide-neutral-800">
               {fields.map((f) => (
                 <div key={f.key} className="flex items-start gap-4 px-4 py-3">
@@ -301,6 +312,7 @@ export default function Settings() {
                 </div>
               )}
             </div>
+            )}
 
             {id === "transcription" && (
               <div className="mt-3 flex items-center gap-3">
@@ -327,5 +339,215 @@ export default function Settings() {
         );
       })}
     </div>
+  );
+}
+
+const AI_INPUT =
+  "bg-neutral-950 border border-neutral-800 rounded px-2 py-1 text-sm focus:outline-none focus:border-neutral-600";
+
+// Module-level so it isn't recreated each render (which would remount inputs and drop focus).
+function SettingRow({ label, help, children }: { label: string; help?: string; children: ReactNode }) {
+  return (
+    <div className="flex items-start gap-4 px-4 py-3">
+      <div className="flex-1 min-w-0">
+        <div className="text-sm">{label}</div>
+        {help && <p className="text-xs text-neutral-500 mt-0.5">{help}</p>}
+      </div>
+      <div className="shrink-0 pt-0.5">{children}</div>
+    </div>
+  );
+}
+
+/** The AI-model section: provider/model/key/base_url + dynamic discovery, test, and the
+ *  cloud disclosure. Values live in the parent's shared `values`/`secrets` state so the
+ *  page's Save button picks them up via the normal settings PATCH. */
+function AiSection({
+  values,
+  setValue,
+  secrets,
+  setSecret,
+  apiKeyIsSet,
+}: {
+  values: Record<string, unknown>;
+  setValue: (k: string, v: unknown) => void;
+  secrets: Record<string, string>;
+  setSecret: (k: string, v: string) => void;
+  apiKeyIsSet: boolean;
+}) {
+  const [providers, setProviders] = useState<LlmProvider[]>([]);
+  const [models, setModels] = useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [customModel, setCustomModel] = useState(false); // free-text entry escape hatch
+  const [testing, setTesting] = useState(false);
+  const [testMsg, setTestMsg] = useState<string | null>(null);
+
+  const provider = String(values.llm_provider ?? "ollama");
+  const baseUrl = String(values.llm_base_url ?? "");
+  const model = String(values.llm_model ?? "");
+  const apiKey = secrets.llm_api_key ?? "";
+
+  const preset = providers.find((p) => p.key === provider);
+  const effBase = baseUrl || preset?.base_url || "";
+  const isCustom = provider === "custom";
+  const requiresKey = preset?.requires_key ?? false;
+  const loopback = /\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:|\/|$)/i.test(effBase);
+  // Custom pointing at a loopback URL is treated as local (no cloud warning).
+  const isCloud = (preset?.is_cloud ?? false) && !(isCustom && loopback);
+  const showKey = requiresKey || isCloud;
+
+  useEffect(() => {
+    api.getLlmProviders().then(setProviders).catch(() => setProviders([]));
+  }, []);
+
+  async function loadModels() {
+    setLoadingModels(true);
+    try {
+      const r = await api.listLlmModels({
+        provider,
+        base_url: baseUrl || undefined,
+        api_key: apiKey || undefined,
+      });
+      setModels(r.models);
+    } catch {
+      setModels([]);
+    } finally {
+      setLoadingModels(false);
+    }
+  }
+
+  // Refresh the model list when the provider or its effective base URL changes.
+  useEffect(() => {
+    if (providers.length) loadModels();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [provider, effBase, providers.length]);
+
+  async function test() {
+    setTesting(true);
+    setTestMsg(null);
+    try {
+      const r = await api.testLlm({
+        provider,
+        base_url: baseUrl || undefined,
+        api_key: apiKey || undefined,
+        model: model || undefined,
+      });
+      setTestMsg(r.detail ?? (r.ok ? "Reachable." : "Not reachable."));
+      if (r.models?.length) setModels(r.models);
+    } catch (e) {
+      setTestMsg(String(e));
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  function onProviderChange(next: string) {
+    setValue("llm_provider", next);
+    setValue("llm_base_url", ""); // fall back to the new preset's base URL
+    setCustomModel(false); // re-show the dropdown for the new provider's models
+    setTestMsg(null);
+  }
+
+  const CUSTOM_MODEL = "__custom__";
+  // Keep the configured model selectable even if discovery didn't return it.
+  const modelOptions = model && !models.includes(model) ? [model, ...models] : models;
+  const useModelText = customModel || (!loadingModels && modelOptions.length === 0);
+
+  return (
+    <>
+      <div className="rounded-lg border border-neutral-800 divide-y divide-neutral-800">
+        <SettingRow label="Provider" help="Local (Ollama/LM Studio) or cloud (OpenAI/Google/Groq/custom).">
+          <select className={`${AI_INPUT} w-64`} value={provider} onChange={(e) => onProviderChange(e.target.value)}>
+            {providers.map((p) => (
+              <option key={p.key} value={p.key}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </SettingRow>
+
+        {isCustom && (
+          <SettingRow label="Base URL" help="OpenAI-compatible endpoint, e.g. http://localhost:1234/v1">
+            <input
+              type="text"
+              className={`${AI_INPUT} w-64`}
+              value={baseUrl}
+              placeholder={preset?.base_url || "https://…/v1"}
+              onChange={(e) => setValue("llm_base_url", e.target.value)}
+            />
+          </SettingRow>
+        )}
+
+        {showKey && (
+          <SettingRow label="API key" help="Required for cloud providers.">
+            <input
+              type="password"
+              className={`${AI_INPUT} w-64`}
+              value={apiKey}
+              placeholder={apiKeyIsSet ? "•••••••• (set — blank keeps it)" : "not set"}
+              onChange={(e) => setSecret("llm_api_key", e.target.value)}
+            />
+          </SettingRow>
+        )}
+
+        <SettingRow label="Model" help="Discovered from the provider; updates when you switch providers.">
+          <div className="flex flex-col items-end gap-1.5">
+            {loadingModels && modelOptions.length === 0 ? (
+              <select className={`${AI_INPUT} w-64`} disabled>
+                <option>loading…</option>
+              </select>
+            ) : modelOptions.length > 0 ? (
+              <select
+                className={`${AI_INPUT} w-64`}
+                value={customModel ? CUSTOM_MODEL : model}
+                onChange={(e) => {
+                  if (e.target.value === CUSTOM_MODEL) {
+                    setCustomModel(true);
+                  } else {
+                    setCustomModel(false);
+                    setValue("llm_model", e.target.value);
+                  }
+                }}
+              >
+                {!model && <option value="">Select a model…</option>}
+                {modelOptions.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+                <option value={CUSTOM_MODEL}>Custom…</option>
+              </select>
+            ) : null}
+            {useModelText && (
+              <input
+                type="text"
+                className={`${AI_INPUT} w-64`}
+                value={model}
+                placeholder="model id"
+                onChange={(e) => setValue("llm_model", e.target.value)}
+              />
+            )}
+          </div>
+        </SettingRow>
+      </div>
+
+      <div className="mt-3 flex items-center gap-3">
+        <button
+          onClick={test}
+          disabled={testing}
+          className="text-sm px-3 py-1.5 rounded bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40"
+        >
+          {testing ? "Testing…" : "Test connection"}
+        </button>
+        {testMsg && <span className="text-xs text-neutral-400">{testMsg}</span>}
+      </div>
+
+      {isCloud && (
+        <p className="mt-3 rounded border border-amber-700/60 bg-amber-950/30 px-3 py-2 text-xs text-amber-300">
+          Heads up: with <span className="font-medium">{preset?.label ?? provider}</span> selected,
+          summaries and chat send your meeting transcripts to this cloud provider. Choose a local
+          provider (Ollama / LM Studio) to keep everything on your device.
+        </p>
+      )}
+    </>
   );
 }

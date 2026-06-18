@@ -100,13 +100,6 @@ async def update_settings(payload: SettingsPatch) -> SettingsResponse:
     return _render(reload_required=result.reload_required)
 
 
-@router.get("/ollama-models")
-async def ollama_models() -> dict[str, list[str]]:
-    """Installed Ollama models, for the AI-section model dropdown."""
-    models = await runtime.ollama.list_models() if runtime.ollama is not None else []
-    return {"models": models}
-
-
 @router.post("/reload-engine")
 async def reload_engine() -> dict[str, Any]:
     """Re-select and reload the transcription engine with the current settings. Refused
