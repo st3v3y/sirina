@@ -50,7 +50,7 @@ cd "$ROOT/frontend" && npm run build
 
 echo "==> Freezing backend with PyInstaller"
 cd "$ROOT/backend"
-uv run pyinstaller packaging/backend.spec --noconfirm --distpath dist --workpath build
+uv run python -m PyInstaller packaging/backend.spec --noconfirm --distpath dist --workpath build
 
 echo "==> Placing backend sidecar as backend-$TRIPLE"
 mkdir -p "$SIDECAR_DIR"
