@@ -1,5 +1,5 @@
 [project]
-name = "live-transcript-bot"
+name = "sirina"
 version = "0.1.0"
 description = "Local meeting transcriber with faster-whisper and Ollama summaries"
 requires-python = ">=3.12,<3.13"

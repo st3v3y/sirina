@@ -1,12 +1,12 @@
 [package]
-name = "meeting-recorder"
+name = "sirina"
 version = "0.1.0"
-description = "Local meeting recorder — Tauri shell around the FastAPI backend"
+description = "Sirina — Tauri shell around the FastAPI backend"
 edition = "2021"
 rust-version = "1.77.2"
 
 [lib]
-name = "meeting_recorder_lib"
+name = "sirina_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

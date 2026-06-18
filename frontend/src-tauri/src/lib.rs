@@ -75,7 +75,7 @@ pub fn run() {
             // backend can. `__BACKEND_URL__` keeps api.ts working in both phases.
             let init = format!("window.__BACKEND_URL__ = 'http://127.0.0.1:{port}';");
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
-                .title("Meeting Recorder")
+                .title("Sirina")
                 .inner_size(1200.0, 800.0)
                 .min_inner_size(800.0, 600.0)
                 .initialization_script(&init)

@@ -1,4 +1,4 @@
-# Meeting Recorder
+# Sirina
 
 Self-hosted **local meeting recorder**: records audio from an input device on your Mac, then — after you stop — transcribes the whole recording with [`faster-whisper`](https://github.com/SYSTRAN/faster-whisper) and offers summaries / Q&A via a local [Ollama](https://ollama.com) model. Operated through a local web app.
 

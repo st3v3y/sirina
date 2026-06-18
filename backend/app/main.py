@@ -72,7 +72,7 @@ async def lifespan(app: FastAPI):
         load_task.cancel()
 
 
-app = FastAPI(title="Live Transcript Bot", lifespan=lifespan)
+app = FastAPI(title="Sirina", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -95,7 +95,7 @@ app.include_router(ws_api.router)
 
 @app.get("/api/hello")
 async def hello() -> dict[str, str]:
-    return {"message": "hello from live-transcript-bot"}
+    return {"message": "hello from sirina"}
 
 
 def _frontend_dir() -> Path | None:

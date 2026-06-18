@@ -7,7 +7,7 @@
 <plist version="1.0">
 <dict>
   <key>NSMicrophoneUsageDescription</key>
-  <string>Meeting Recorder records your microphone to transcribe meetings locally on your Mac.</string>
+  <string>Sirina records your microphone to transcribe meetings locally on your Mac.</string>
   <!-- The UI (WKWebView) talks to the bundled backend over http://127.0.0.1:<port>.
        App Transport Security blocks cleartext HTTP by default; allow local networking
        so the webview can reach the local backend. -->

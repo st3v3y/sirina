@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the Meeting Recorder macOS app: freeze the Python backend, embed it as a
+# Build the Sirina macOS app: freeze the Python backend, embed it as a
 # Tauri sidecar, build the .app/.dmg, and ad-hoc sign so it launches unsigned.
 #
 # Prereqs (one-time, on your Mac):
@@ -67,7 +67,7 @@ chmod +x "$RES_DIR/system-audio-capture"
 echo "==> Building the Tauri app"
 cd "$ROOT/frontend" && cargo tauri build
 
-APP="$ROOT/frontend/src-tauri/target/release/bundle/macos/Meeting Recorder.app"
+APP="$ROOT/frontend/src-tauri/target/release/bundle/macos/Sirina.app"
 # Sign with a stable identity so macOS persists the Screen Recording (TCC) grant across
 # launches and rebuilds. Ad-hoc ("-") works to launch but TCC re-prompts every time.
 # Set CODESIGN_IDENTITY to a *personal self-signed* "Code Signing" certificate

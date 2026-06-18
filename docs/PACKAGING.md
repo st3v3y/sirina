@@ -8,8 +8,8 @@ Recording permission it will consume.)
 
 > **Status:** the pipeline is **verified end-to-end** — `./scripts/build-macos-app.sh`
 > freezes the backend (boots + serves `/api/status`), embeds it as the sidecar
-> (`Meeting Recorder.app/Contents/MacOS/backend`), compiles the Tauri shell, and produces
-> `Meeting Recorder.app` + a `.dmg`, ad-hoc signed. The only unverified steps are GUI-only:
+> (`Sirina.app/Contents/MacOS/backend`), compiles the Tauri shell, and produces
+> `Sirina.app` + a `.dmg`, ad-hoc signed. The only unverified steps are GUI-only:
 > launching the app, the first-run permission prompts, and the Gatekeeper bypass.
 
 ## Layout
@@ -32,7 +32,7 @@ Recording permission it will consume.)
   http://127.0.0.1:<free-port>` before the UI loads, so every call targets the sidecar.
 - The backend honors **`APP_DATA_DIR`**: the SQLite DB, per-recording audio, and the
   HuggingFace/whisper/pyannote model caches all live under it (the app sets it to
-  `~/Library/Application Support/com.mediakular.meetingrecorder`). In dev, `APP_DATA_DIR`
+  `~/Library/Application Support/com.sirina.app`). In dev, `APP_DATA_DIR`
   is unset → everything stays in `backend/data/`.
 
 ## Prerequisites (one-time)
@@ -62,7 +62,7 @@ ad-hoc signs the app. Outputs land in `frontend/src-tauri/target/release/bundle/
 There's no paid Apple Developer signing, so Gatekeeper blocks the app the first time:
 
 - **Right-click the app → Open** (once), **or**
-- `xattr -dr com.apple.quarantine "/path/to/Meeting Recorder.app"`
+- `xattr -dr com.apple.quarantine "/path/to/Sirina.app"`
 
 Grant the **Microphone** prompt on first record. The app also expects a local **Ollama**
 (`http://localhost:11434`) for summaries/chat.

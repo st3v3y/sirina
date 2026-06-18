@@ -56,7 +56,7 @@ export default function App() {
         <div className="min-h-screen flex flex-col">
           <header className="border-b border-neutral-800 px-6 py-3 flex items-center gap-6">
             <Link to="/" className="text-lg font-semibold tracking-tight">
-              Meeting Recorder
+              Sirina
             </Link>
             <nav className="flex gap-4 text-sm text-neutral-400">
               <Link to="/" className="hover:text-neutral-100">Dashboard</Link>
