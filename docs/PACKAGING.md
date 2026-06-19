@@ -112,6 +112,32 @@ and bundles it as an app resource. The Tauri shell passes its path to the backen
 - **In the browser/dev** (`./dev.sh`), the sidecar isn't present → `native_system_audio` is
   `false` and the start modal shows the system-audio **device** picker (BlackHole) as before.
 
+## Stable signing (so permissions persist)
+
+macOS ties a permission grant (Screen Recording, Microphone) to the app's **code signature**.
+With **ad-hoc** signing (`-`, the default here) every rebuild — and often every launch — looks
+like a different app, so macOS re-prompts each time. Signing with a **stable identity** makes the
+grant stick.
+
+You don't need a paid Apple Developer account — a **self-signed "Code Signing" certificate** is enough:
+
+1. **Keychain Access → Certificate Assistant → Create a Certificate…**
+   - Name: e.g. `Sirina Dev`
+   - Identity Type: **Self-Signed Root**
+   - Certificate Type: **Code Signing**
+2. Build with it:
+   ```bash
+   CODESIGN_IDENTITY="Sirina Dev" ./scripts/build-macos-app.sh
+   ```
+   (If exactly one self-signed code-signing identity exists, the script auto-selects it and prints
+   which one — Apple Development/Distribution/Developer ID certs are skipped so a work cert isn't
+   used by accident. Override anytime with `CODESIGN_IDENTITY`.)
+3. Grant Screen Recording once on first launch; subsequent launches/rebuilds with the **same**
+   identity keep the grant. Ad-hoc builds print a warning that permissions will re-prompt.
+
+This is still not Gatekeeper/notarization (that needs the paid program) — first launch may still
+require right-click → Open or clearing the quarantine attribute (see "First launch" above).
+
 ## Dev is unchanged
 
 `./dev.sh` still runs the two-server flow (FastAPI `:8000` + Vite `:5173`). The Tauri

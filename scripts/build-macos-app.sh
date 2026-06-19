@@ -73,7 +73,25 @@ APP="$ROOT/frontend/src-tauri/target/release/bundle/macos/Sirina.app"
 # Set CODESIGN_IDENTITY to a *personal self-signed* "Code Signing" certificate
 # (Keychain Access → Certificate Assistant → Create a Certificate). We deliberately do
 # NOT auto-pick an "Apple Development" identity — that may be a company/work cert.
-IDENTITY="${CODESIGN_IDENTITY:--}"
+# Resolve the identity: explicit CODESIGN_IDENTITY → a single local self-signed
+# code-signing cert (Apple Development/Distribution/Developer ID are skipped — they may be
+# a company/work cert) → ad-hoc "-". Ad-hoc launches fine but re-prompts for permissions.
+IDENTITY="${CODESIGN_IDENTITY:-}"
+if [ -z "$IDENTITY" ]; then
+  CANDIDATES="$(security find-identity -v -p codesigning 2>/dev/null \
+    | grep -oE '"[^"]+"' | tr -d '"' \
+    | grep -viE 'Apple Development|Apple Distribution|Developer ID|3rd Party' || true)"
+  if [ "$(printf '%s\n' "$CANDIDATES" | sed '/^$/d' | wc -l | tr -d ' ')" = "1" ]; then
+    IDENTITY="$(printf '%s\n' "$CANDIDATES" | sed '/^$/d')"
+    echo "  Using code-signing identity: $IDENTITY (override with CODESIGN_IDENTITY)"
+  fi
+fi
+IDENTITY="${IDENTITY:--}"
+if [ "$IDENTITY" = "-" ]; then
+  echo "  ⚠  Ad-hoc signing — macOS will RE-PROMPT for Screen Recording on every launch."
+  echo "     Create a self-signed 'Code Signing' cert and set CODESIGN_IDENTITY so the grant"
+  echo "     persists. See docs/PACKAGING.md."
+fi
 BUNDLE_ID="$(sed -n 's/.*"identifier"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT/frontend/src-tauri/tauri.conf.json" | head -1)"
 echo "==> Codesigning $APP with: $IDENTITY"
 # inside-out: nested binaries first, then the bundle (no hardened runtime — PyInstaller libs).
