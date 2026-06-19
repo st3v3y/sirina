@@ -42,7 +42,7 @@
 
 - [ ] 6.1 Switch `backend/packaging/backend.spec` from onefile to **onedir** (`EXE(exclude_binaries=True)` + `COLLECT(...)`)
 - [ ] 6.2 Bundle the onedir `_internal` folder alongside the Tauri sidecar binary so the packaged backend starts (adjust the copy step in `build-macos-app.sh` + Tauri resource bundling); fall back to onefile if onedir proves too fiddly
-- [ ] 6.3 Defer heavy engine imports out of backend startup so `/api/status` answers in a few seconds and the model loads in the background (sidebar already shows `whisper_state`)
+- [x] 6.3 Defer heavy engine imports out of backend startup so `/api/status` answers in a few seconds and the model loads in the background (sidebar already shows `whisper_state`)
 
 ## 7. Verification
 

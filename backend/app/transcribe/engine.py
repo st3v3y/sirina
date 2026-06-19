@@ -40,11 +40,11 @@ def _apple_silicon() -> bool:
 def _mlx_available() -> bool:
     if not _apple_silicon():
         return False
-    try:
-        import mlx_whisper  # noqa: F401
-    except Exception:
-        return False
-    return True
+    # find_spec checks importability WITHOUT importing mlx_whisper (heavy) — the actual
+    # import is deferred to MlxWhisperWorker.load() so it stays off the startup path.
+    import importlib.util
+
+    return importlib.util.find_spec("mlx_whisper") is not None
 
 
 def select_engine() -> TranscriptionEngine:

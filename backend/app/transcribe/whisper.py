@@ -6,12 +6,6 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
-from faster_whisper import WhisperModel
-
-try:
-    from faster_whisper import BatchedInferencePipeline
-except Exception:  # pragma: no cover - older faster-whisper
-    BatchedInferencePipeline = None  # type: ignore[assignment]
 
 from ..config import settings
 
@@ -57,9 +51,18 @@ class FasterWhisperWorker:
     async def load(self) -> None:
         if self._model is not None:
             return
+        # Lazy import: keep faster-whisper/ctranslate2 off the app's startup path so the
+        # backend answers /api/status quickly; the heavy import happens here, in the
+        # background load task.
+        from faster_whisper import WhisperModel
+
+        try:
+            from faster_whisper import BatchedInferencePipeline
+        except Exception:  # older faster-whisper
+            BatchedInferencePipeline = None
         loop = asyncio.get_running_loop()
 
-        def _load() -> WhisperModel:
+        def _load() -> "WhisperModel":
             cpu_threads = settings.whisper_cpu_threads or (os.cpu_count() or 0)
             log.info(
                 "loading faster-whisper model=%s compute_type=%s cpu_threads=%s",
