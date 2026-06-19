@@ -1,7 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { api, type Status, type Tag } from "../lib/api";
-import { useStatusSocket } from "../lib/useStatusSocket";
 import { useRecorder } from "../lib/useRecorder";
 import { confirmDialog } from "../lib/confirm";
 import { TAG_COLORS, catColor } from "./TagUI";
@@ -262,11 +261,44 @@ export default function Shell({ children }: { children: ReactNode }) {
 
 function StatusFooter() {
   const [status, setStatus] = useState<Status | null>(null);
+  const [nonce, setNonce] = useState(0);
+
   useEffect(() => {
-    api.status().then(setStatus).catch(() => setStatus(null));
-  }, []);
-  useStatusSocket(setStatus);
-  const ready = status?.whisper_loaded;
+    let alive = true;
+    const tick = async () => {
+      try {
+        const s = await api.status();
+        if (!alive) return;
+        setStatus(s);
+        if (s.whisper_state === "loading") setTimeout(tick, 3000); // poll until ready/failed
+      } catch {
+        if (alive) setTimeout(tick, 3000);
+      }
+    };
+    tick();
+    return () => {
+      alive = false;
+    };
+  }, [nonce]);
+
+  if (status?.whisper_state === "failed") {
+    return (
+      <span className="flex items-center gap-2 text-xs text-signal" title={status.whisper_error ?? undefined}>
+        <span className="w-[7px] h-[7px] rounded-full bg-signal" />
+        Whisper failed
+        <button
+          onClick={async () => {
+            await api.reloadEngine().catch(() => {});
+            setNonce((n) => n + 1);
+          }}
+          className="underline hover:text-ink-2"
+        >
+          retry
+        </button>
+      </span>
+    );
+  }
+  const ready = status?.whisper_state === "ready";
   return (
     <span className="flex items-center gap-2 text-xs text-muted">
       <span

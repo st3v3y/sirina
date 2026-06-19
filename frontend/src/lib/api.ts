@@ -1,6 +1,8 @@
 export type Status = {
   llm_ok: boolean;
   whisper_loaded: boolean;
+  whisper_state: "loading" | "ready" | "failed";
+  whisper_error?: string | null;
   engine: string;
   llm_provider: string;
   llm_model: string;
