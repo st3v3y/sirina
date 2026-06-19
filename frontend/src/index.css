@@ -1,15 +1,131 @@
 @import "tailwindcss";
 
-:root {
-  color-scheme: dark;
+/* ---------------------------------------------------------------------------
+   Design tokens (paper & ink). Light values live on :root via @theme; the dark
+   theme overrides the SAME CSS variables under [data-theme="dark"], so every
+   Tailwind utility (which resolves var(--color-…)) re-themes with no per-component
+   dark: classes. The vermilion signal is shared across both themes.
+--------------------------------------------------------------------------- */
+@theme {
+  /* fonts */
+  --font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-serif: "Newsreader", ui-serif, Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* radii */
+  --radius-field: 9px;
+  --radius-card: 14px;
+
+  /* shadows (light) */
+  --shadow-card: 0 1px 3px rgba(40, 33, 24, 0.06);
+  --shadow-pop: 0 14px 36px -8px rgba(40, 33, 24, 0.28);
+  --shadow-rec: 0 6px 16px -2px rgba(200, 63, 37, 0.42);
+
+  /* surfaces / ink / borders (light) */
+  --color-paper: #fcfbf8;
+  --color-outer: #e7e5df;
+  --color-surface: #ffffff;
+  --color-surface-2: #faf8f3;
+  --color-sidebar-from: #f4f0e8;
+  --color-sidebar-to: #efe8dc;
+  --color-ink: #24211d;
+  --color-ink-2: #6d675d;
+  --color-muted: #9a9183;
+  --color-label: #aaa090;
+  --color-line: #e6dfd1;
+  --color-line-2: #efe8db;
+  --color-line-3: #e3dccd;
+
+  /* signal (vermilion — shared both themes) */
+  --color-signal: #c83f25;
+  --color-signal-bright: #d6492f;
+  --color-signal-from: #e0563b;
+  --color-signal-to: #c83f25;
+
+  /* semantic */
+  --color-ok: #4a8c5f;
+  --color-ok-deep: #3f7a54;
+  --color-warn: #c98a2b;
+  --color-warn-deep: #a87423;
+  --color-ink-on-signal: #ffffff;
 }
+
+/* Category / speaker hues — token names match values stored in the DB
+   (sky/emerald/violet/amber/rose/teal/neutral), remapped to the warm palette.
+   These live in a plain :root rule (NOT @theme) because they're referenced only via
+   var() in inline styles; Tailwind would otherwise tree-shake the unused light values. */
+:root {
+  --color-cat-sky: #5f7a8c;
+  --color-cat-emerald: #5e7d63;
+  --color-cat-violet: #6b5b7e;
+  --color-cat-amber: #8a6d3b;
+  --color-cat-rose: #c0603a;
+  --color-cat-teal: #2f5d50;
+  --color-cat-neutral: #9a9183;
+}
+
+/* dark theme — override the same variables */
+:root[data-theme="dark"] {
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.45);
+  --shadow-pop: 0 16px 40px -10px rgba(0, 0, 0, 0.65);
+  --shadow-rec: 0 6px 16px -2px rgba(200, 63, 37, 0.5);
+
+  --color-paper: #141210;
+  --color-outer: #0d0b09;
+  --color-surface: #221f19;
+  --color-surface-2: #2a251e;
+  --color-sidebar-from: #1b1814;
+  --color-sidebar-to: #141210;
+  --color-ink: #f1ece1;
+  --color-ink-2: #b4ac9d;
+  --color-muted: #8d8474;
+  --color-label: #7c7466;
+  --color-line: #332e26;
+  --color-line-2: #2a251e;
+  --color-line-3: #39332a;
+
+  --color-ok: #74c08d;
+  --color-ok-deep: #5fa48f;
+  --color-warn: #d89a3b;
+  --color-warn-deep: #c9a25e;
+
+  --color-cat-sky: #93a6c4;
+  --color-cat-emerald: #74c08d;
+  --color-cat-violet: #a394b8;
+  --color-cat-amber: #c9a25e;
+  --color-cat-rose: #e3936b;
+  --color-cat-teal: #5fa48f;
+  --color-cat-neutral: #8d8474;
+}
+
+:root { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
 
 html,
 body,
 #root {
   height: 100%;
   margin: 0;
-  background: #0b0d10;
-  color: #e8eaed;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Theme-aware gradients (used by the sidebar and the record/signal buttons). */
+.bg-sidebar {
+  background-image: linear-gradient(168deg, var(--color-sidebar-from), var(--color-sidebar-to));
+}
+.bg-signal-grad {
+  background-image: linear-gradient(180deg, var(--color-signal-from), var(--color-signal-to));
+}
+
+/* The live-recording pulse (from the comp). */
+@keyframes recpulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 4px rgba(214, 73, 47, 0.22); }
+  50% { opacity: 0.55; box-shadow: 0 0 0 7px rgba(214, 73, 47, 0.06); }
+}
+.animate-recpulse { animation: recpulse 1.6s ease-in-out infinite; }

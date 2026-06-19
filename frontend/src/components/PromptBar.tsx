@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type SummaryTemplate } from "../lib/api";
+import { Icon } from "./Icon";
 
 type Props = {
   onAsk: (question: string) => Promise<void>;
@@ -42,31 +43,32 @@ export default function PromptBar({ onAsk, onSummarize, disabled }: Props) {
   }
 
   return (
-    <div className="border-t border-neutral-800 bg-neutral-950/40 p-3 space-y-2">
-      <div className="flex items-center gap-2">
+    <div className="border-t border-line-2 p-4 space-y-2 shrink-0">
+      <div className="flex items-center gap-2 h-[50px] border border-line rounded-card bg-surface pl-4 pr-2 shadow-card">
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), submit())}
-          placeholder="Ask a question about this recording…"
+          placeholder="Ask about this meeting…"
           disabled={disabled || busy}
-          className="flex-1 bg-neutral-900 border border-neutral-800 rounded px-3 py-1.5 text-sm disabled:opacity-50"
+          className="flex-1 bg-transparent text-[13.5px] text-ink placeholder:text-muted focus:outline-none disabled:opacity-50"
         />
         <button
           onClick={submit}
           disabled={disabled || busy || !text.trim()}
-          className="bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-50 px-3 py-1.5 rounded text-sm"
+          className="w-9 h-9 rounded-field bg-ink text-paper flex items-center justify-center disabled:opacity-40"
+          title="Ask"
         >
-          Ask
+          <Icon name="arrow-up" size={15} />
         </button>
       </div>
       {onSummarize && (
         <div className="flex items-center gap-2 text-xs">
-          <span className="text-neutral-500">Generate summary using:</span>
+          <span className="text-muted">Generate summary using:</span>
           <select
             value={summaryTemplate ?? ""}
             onChange={(e) => setSummaryTemplate(e.target.value ? Number(e.target.value) : null)}
-            className="bg-neutral-900 border border-neutral-800 rounded px-2 py-1 text-xs"
+            className="bg-surface border border-line rounded-field px-2 py-1 text-xs"
           >
             {summaryTemplates.map((t) => (
               <option key={t.id} value={t.id}>{t.name}</option>
@@ -75,7 +77,7 @@ export default function PromptBar({ onAsk, onSummarize, disabled }: Props) {
           <button
             onClick={summarize}
             disabled={disabled || busy || !summaryTemplate}
-            className="bg-neutral-800 hover:bg-neutral-700 disabled:opacity-50 px-2 py-1 rounded"
+            className="border border-line text-ink-2 hover:bg-surface-2 disabled:opacity-50 px-2 py-1 rounded-field"
           >
             Generate
           </button>

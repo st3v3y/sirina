@@ -1,74 +1,77 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { api, type AudioDevice, type Recording, type RecordingStatus, type Tag } from "../lib/api";
-import { TagChip, AddTagButton, TAG_COLORS, tagChipClass } from "../components/TagUI";
-import { confirmDialog } from "../lib/confirm";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { api, type Recording, type RecordingStatus } from "../lib/api";
+import { TagChip, AddTagButton } from "../components/TagUI";
+import { Icon } from "../components/Icon";
+import { useShell } from "../components/Shell";
 
-const STATUS_BADGE: Record<RecordingStatus, string> = {
-  recording: "bg-rose-500/15 text-rose-300 border-rose-500/30",
-  processing: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-  ready: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
-  failed: "bg-neutral-700/40 text-neutral-300 border-neutral-600",
+const DOT: Record<RecordingStatus, string> = {
+  ready: "bg-ok",
+  processing: "bg-signal animate-recpulse",
+  recording: "bg-signal animate-recpulse",
+  failed: "bg-muted",
 };
-
-const LS_MIC = "lastMicDevice";
-const LS_SYSTEM = "lastSystemDevice";
-
-function lsGet(key: string): string {
-  try {
-    return localStorage.getItem(key) ?? "";
-  } catch {
-    return "";
-  }
-}
-function lsSet(key: string, value: string) {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    /* localStorage unavailable (private mode / restricted webview) — ignore */
-  }
-}
 
 function fmtDuration(s: number | null) {
   if (s == null) return "";
-  const m = Math.floor(s / 60);
-  const ss = Math.floor(s % 60).toString().padStart(2, "0");
-  return `${m}:${ss}`;
+  const total = Math.floor(s);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const ss = (total % 60).toString().padStart(2, "0");
+  return h > 0 ? `${h}:${m.toString().padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+}
+
+function friendlyDate(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+  const yest = new Date(now);
+  yest.setDate(now.getDate() - 1);
+  if (sameDay(d, now)) return `Today ${time}`;
+  if (sameDay(d, yest)) return `Yesterday ${time}`;
+  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+const GROUP_ORDER = ["Recent", "Earlier this month", "Last month", "Older"] as const;
+function bucket(iso: string): (typeof GROUP_ORDER)[number] {
+  const d = new Date(iso);
+  const now = new Date();
+  const days = (now.getTime() - d.getTime()) / 86400000;
+  if (days < 7) return "Recent";
+  if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth())
+    return "Earlier this month";
+  const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  if (d.getFullYear() === lm.getFullYear() && d.getMonth() === lm.getMonth()) return "Last month";
+  return "Older";
 }
 
 export default function Dashboard() {
-  const [recordings, setRecordings] = useState<Recording[]>([]);
-  const [title, setTitle] = useState("");
-  const [devices, setDevices] = useState<AudioDevice[]>([]);
-  const [device, setDevice] = useState<string>("");
-  const [systemDevice, setSystemDevice] = useState<string>("");
-  const [nativeAudio, setNativeAudio] = useState(false);
-  const [picking, setPicking] = useState(false);
-  const [starting, setStarting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [tags, setTags] = useState<Tag[]>([]);
-  const [filterTag, setFilterTag] = useState<number | null>(null);
-  const [managing, setManaging] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [editTitle, setEditTitle] = useState("");
   const nav = useNavigate();
+  const { tags, reloadTags, filterTag, setFilterTag } = useShell();
+  const [recordings, setRecordings] = useState<Recording[]>([]);
+  const [query, setQuery] = useState("");
 
-  async function refresh(tagId: number | null = filterTag) {
+  async function refresh() {
     try {
-      setRecordings(await api.listRecordings(tagId ?? undefined));
-    } catch (e) {
-      setError(String(e));
+      setRecordings(await api.listRecordings(filterTag ?? undefined));
+    } catch {
+      /* ignore */
     }
   }
 
-  async function loadTags() {
-    setTags(await api.listTags());
-  }
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterTag]);
 
-  function applyFilter(tagId: number | null) {
-    setFilterTag(tagId);
-    refresh(tagId);
-  }
+  const anyProcessing = recordings.some((r) => r.status === "processing");
+  useEffect(() => {
+    if (!anyProcessing) return;
+    const t = setInterval(refresh, 2000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anyProcessing]);
 
   async function addTag(recordingId: number, tagId: number) {
     await api.addTagToRecording(recordingId, tagId);
@@ -79,334 +82,138 @@ export default function Dashboard() {
     refresh();
   }
   async function createAndAssign(recordingId: number, name: string) {
-    const t = await api.createTag(name, TAG_COLORS[tags.length % TAG_COLORS.length]);
+    const t = await api.createTag(name);
     await api.addTagToRecording(recordingId, t.id);
-    await loadTags();
+    await reloadTags();
     refresh();
   }
-
-  useEffect(() => {
-    refresh();
-    loadTags();
-    api
-      .listAudioDevices()
-      .then((d) => {
-        setDevices(d);
-        // Prefer the last-used devices (if still present), else auto-detect a mic.
-        const names = new Set(d.map((x) => x.name));
-        const savedMic = lsGet(LS_MIC);
-        const savedSys = lsGet(LS_SYSTEM);
-        const mic = (savedMic && names.has(savedMic) && savedMic) ||
-          (d.find((x) => /microphone|mic/i.test(x.name)) ?? d[0])?.name || "";
-        setDevice(mic);
-        setSystemDevice(savedSys && names.has(savedSys) ? savedSys : "");
-      })
-      .catch(() => setDevices([]));
-    // Native system-audio capture (ScreenCaptureKit) is available in the desktop app;
-    // when present we don't ask for a system-audio device at all.
-    api.getAudioCapabilities().then((c) => setNativeAudio(c.native_system_audio)).catch(() => {});
-  }, []);
-
-  // Keep the list fresh (and the progress % advancing) while anything is processing.
-  const anyProcessing = recordings.some((r) => r.status === "processing");
-  useEffect(() => {
-    if (!anyProcessing) return;
-    const t = setInterval(() => refresh(), 2000);
-    return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anyProcessing]);
-
-  function openPicker() {
-    setError(null);
-    setPicking(true);
-  }
-
-  async function confirmStart() {
-    // With native capture, the far-end is grabbed automatically — only a mic is needed.
-    const systemSource = nativeAudio ? "native" : systemDevice ? "device" : "none";
-    if (!device && systemSource !== "native") {
-      setError("Select a microphone (or, in the desktop app, system audio is automatic).");
-      return;
-    }
-    setStarting(true);
-    setError(null);
-    try {
-      lsSet(LS_MIC, device);
-      if (!nativeAudio) lsSet(LS_SYSTEM, systemDevice);
-      const { id } = await api.startRecording({
-        title: title || undefined,
-        device: device || undefined,
-        system_device: nativeAudio ? undefined : systemDevice || undefined,
-        system_source: systemSource,
-      });
-      nav(`/recordings/live/${id}`);
-    } catch (e) {
-      setError(String(e));
-      setStarting(false);
-    }
-  }
-
-  async function del(id: number) {
-    if (!(await confirmDialog("Delete this recording and all its data?"))) return;
-    await api.deleteRecording(id);
-    refresh();
-  }
-
   async function retry(id: number) {
     await api.reprocessRecording(id);
     refresh();
   }
 
-  async function commitTitle(id: number, current: string | null) {
-    const v = editTitle.trim();
-    setEditingId(null);
-    if (v !== (current ?? "")) {
-      await api.renameRecording(id, v);
-      refresh();
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const list = q
+      ? recordings.filter((r) => (r.title ?? `Recording #${r.id}`).toLowerCase().includes(q))
+      : recordings;
+    const groups = new Map<string, Recording[]>();
+    for (const r of list) {
+      const b = bucket(r.started_at);
+      (groups.get(b) ?? groups.set(b, []).get(b)!).push(r);
     }
-  }
+    return GROUP_ORDER.filter((g) => groups.has(g)).map((g) => [g, groups.get(g)!] as const);
+  }, [recordings, query]);
+
+  const activeTag = tags.find((t) => t.id === filterTag);
 
   return (
-    <div className="max-w-3xl mx-auto p-6 space-y-8">
-      <section className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-5">
-        <h2 className="text-base font-medium mb-3">Start a recording</h2>
-
-        <div className="flex flex-wrap gap-2 items-center">
-          <input
-            className="bg-neutral-950 border border-neutral-800 rounded px-3 py-1.5 text-sm flex-1 min-w-[10rem]"
-            placeholder="Title (optional)"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
+    <div className="flex flex-col h-full">
+      {/* header */}
+      <div className="flex items-center gap-3.5 px-7 h-16 border-b border-line-2 shrink-0">
+        <h1 className="font-serif text-xl font-semibold">Recordings</h1>
+        {activeTag && (
           <button
-            onClick={openPicker}
-            disabled={starting}
-            className="bg-rose-600 hover:bg-rose-500 disabled:opacity-50 px-4 py-1.5 rounded text-sm font-medium"
+            onClick={() => setFilterTag(null)}
+            className="flex items-center gap-1.5 text-xs"
+            title="Clear filter"
           >
-            {starting ? "Starting…" : "● Start recording"}
+            <TagChip tag={activeTag} />
+            <Icon name="x" size={12} className="text-muted" />
           </button>
-        </div>
-
-        <p className="text-xs text-neutral-500 mt-2">
-          Records to disk only — transcription and the AI summary run after you stop. You'll choose
-          the audio source when you start.
-        </p>
-        {error && !picking && <p className="text-rose-400 text-xs mt-2">{error}</p>}
-      </section>
-
-      {picking && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-20">
-          <div className="bg-neutral-900 border border-neutral-800 rounded-lg max-w-md w-full p-5 space-y-4">
-            <h3 className="text-sm font-medium">Choose audio source</h3>
-
-            <div>
-              <label className="block text-xs text-neutral-500 mb-1">Microphone</label>
-              <select
-                className="w-full bg-neutral-950 border border-neutral-800 rounded px-2 py-1.5 text-sm"
-                value={device}
-                onChange={(e) => setDevice(e.target.value)}
-              >
-                <option value="">None</option>
-                {devices.map((d) => (
-                  <option key={`m-${d.index}`} value={d.name}>
-                    {d.name} ({d.channels}ch · {Math.round(d.default_samplerate)} Hz)
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {nativeAudio ? (
-              <p className="text-xs text-emerald-300/90 bg-emerald-500/10 border border-emerald-500/20 rounded px-2 py-1.5">
-                System audio (other participants) is captured automatically — no extra device needed.
-              </p>
-            ) : (
-              <>
-                <div>
-                  <label className="block text-xs text-neutral-500 mb-1">System audio</label>
-                  <select
-                    className="w-full bg-neutral-950 border border-neutral-800 rounded px-2 py-1.5 text-sm"
-                    value={systemDevice}
-                    onChange={(e) => setSystemDevice(e.target.value)}
-                  >
-                    <option value="">None</option>
-                    {devices.map((d) => (
-                      <option key={`s-${d.index}`} value={d.name}>
-                        {d.name} ({d.channels}ch · {Math.round(d.default_samplerate)} Hz)
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <p className="text-xs text-neutral-500">
-                  Use a system-audio device (e.g. BlackHole) to capture a call's other participants
-                  as a second track.
-                </p>
-              </>
-            )}
-            {error && <p className="text-rose-400 text-xs">{error}</p>}
-
-            <div className="flex justify-end gap-2 pt-1">
-              <button
-                onClick={() => setPicking(false)}
-                disabled={starting}
-                className="text-sm px-3 py-1.5 rounded bg-neutral-800 hover:bg-neutral-700"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmStart}
-                disabled={starting || (!device && !nativeAudio && !systemDevice)}
-                className="text-sm px-3 py-1.5 rounded bg-rose-600 hover:bg-rose-500 disabled:opacity-50 font-medium"
-              >
-                {starting ? "Starting…" : "● Start"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <section>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-base font-medium">Recordings</h2>
-          {tags.length > 0 && (
-            <button
-              onClick={() => setManaging((m) => !m)}
-              className="text-xs text-neutral-400 hover:text-neutral-200"
-            >
-              {managing ? "Done" : "Manage tags"}
-            </button>
-          )}
-        </div>
-
-        {tags.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 mb-3">
-            <button
-              onClick={() => applyFilter(null)}
-              className={`text-[11px] px-2 py-0.5 rounded border ${filterTag == null ? "bg-neutral-700 text-neutral-100 border-neutral-600" : "border-neutral-800 text-neutral-400 hover:text-neutral-200"}`}
-            >
-              All
-            </button>
-            {tags.map((t) => (
-              <button key={t.id} onClick={() => applyFilter(t.id)} className={filterTag === t.id ? "ring-1 ring-neutral-400 rounded" : ""}>
-                <TagChip tag={t} />
-              </button>
-            ))}
-          </div>
         )}
+        <div className="flex-1" />
+        <div className="flex items-center gap-2 w-[300px] h-[38px] px-3 border border-line rounded-field bg-surface text-muted">
+          <Icon name="search" size={14} />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Filter by name…"
+            className="flex-1 min-w-0 bg-transparent text-[13px] text-ink placeholder:text-muted focus:outline-none"
+          />
+        </div>
+      </div>
 
-        {managing && (
-          <div className="mb-3 rounded-lg border border-neutral-800 divide-y divide-neutral-800">
-            {tags.map((t) => (
-              <div key={t.id} className="flex items-center gap-2 px-3 py-2 text-sm">
-                <span className={`text-[11px] px-1.5 py-0.5 rounded border ${tagChipClass(t.color)}`}>{t.name}</span>
-                <input
-                  defaultValue={t.name}
-                  onBlur={async (e) => {
-                    const v = e.target.value.trim();
-                    if (v && v !== t.name) { await api.updateTag(t.id, { name: v }); loadTags(); refresh(); }
-                  }}
-                  className="bg-neutral-950 border border-neutral-800 rounded px-2 py-0.5 text-xs w-32"
-                />
-                <select
-                  value={t.color ?? "neutral"}
-                  onChange={async (e) => { await api.updateTag(t.id, { color: e.target.value }); loadTags(); refresh(); }}
-                  className="bg-neutral-950 border border-neutral-800 rounded px-1 py-0.5 text-xs"
-                >
-                  {TAG_COLORS.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-                <button
-                  onClick={async () => { if (await confirmDialog(`Delete tag "${t.name}"?`)) { await api.deleteTag(t.id); if (filterTag === t.id) setFilterTag(null); loadTags(); refresh(filterTag === t.id ? null : filterTag); } }}
-                  className="ml-auto text-xs text-neutral-400 hover:text-rose-400"
-                >
-                  Delete
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {recordings.length === 0 ? (
-          <p className="text-sm text-neutral-500">{filterTag != null ? "No recordings with this tag." : "No recordings yet."}</p>
+      {/* list */}
+      <div className="flex-1 overflow-y-auto px-7 py-6">
+        {filtered.length === 0 ? (
+          <p className="text-sm text-muted">
+            {query || filterTag != null ? "No matching recordings." : "No recordings yet — hit Record."}
+          </p>
         ) : (
-          <ul className="divide-y divide-neutral-800 rounded-lg border border-neutral-800">
-            {recordings.map((r) => (
-              <li key={r.id} className="flex items-center gap-3 px-4 py-3 text-sm">
-                <span className="text-neutral-500 text-xs w-40 shrink-0">
-                  {new Date(r.started_at).toLocaleString()}
-                </span>
-                <span
-                  className={`text-[10px] uppercase px-1.5 py-0.5 rounded border shrink-0 ${STATUS_BADGE[r.status]}`}
-                  title={r.status === "failed" && r.error ? r.error : undefined}
-                >
-                  {r.status}
-                </span>
-                {r.status === "processing" && r.progress?.fraction != null && (
-                  <span className="text-[10px] text-amber-300 tabular-nums shrink-0">
-                    {Math.round(r.progress.fraction * 100)}%
-                  </span>
-                )}
-                {editingId === r.id ? (
-                  <input
-                    autoFocus
-                    value={editTitle}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                    onBlur={() => commitTitle(r.id, r.title)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") commitTitle(r.id, r.title);
-                      if (e.key === "Escape") setEditingId(null);
-                    }}
-                    placeholder={`Recording #${r.id}`}
-                    className="min-w-0 flex-shrink bg-neutral-950 border border-neutral-700 rounded px-2 py-0.5 text-sm w-48"
-                  />
-                ) : (
-                  <button
-                    onClick={() => {
-                      setEditingId(r.id);
-                      setEditTitle(r.title ?? "");
-                    }}
-                    title="Click to rename"
-                    className="truncate min-w-0 text-left hover:text-neutral-100"
-                  >
-                    {r.title || `Recording #${r.id}`}
-                  </button>
-                )}
-                <div className="flex flex-wrap items-center gap-1 flex-1">
-                  {r.tags.map((t) => (
-                    <TagChip key={t.id} tag={t} onRemove={() => removeTag(r.id, t.id)} />
-                  ))}
-                  <AddTagButton
-                    allTags={tags}
-                    currentIds={r.tags.map((t) => t.id)}
-                    onAdd={(tagId) => addTag(r.id, tagId)}
-                    onCreate={(name) => createAndAssign(r.id, name)}
-                  />
-                </div>
-                <span className="text-xs text-neutral-500 w-12 text-right">{fmtDuration(r.duration_s)}</span>
-                {r.status === "failed" && (
-                  <button
-                    onClick={() => retry(r.id)}
-                    className="text-xs px-2 py-1 rounded bg-amber-600/80 hover:bg-amber-500 text-amber-50"
-                    title={r.error ?? "Re-run transcription"}
-                  >
-                    Retry
-                  </button>
-                )}
-                <Link
-                  to={r.status === "recording" ? `/recordings/live/${r.id}` : `/recordings/${r.id}`}
-                  className="text-xs px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700"
-                >
-                  Open
-                </Link>
-                <button
-                  onClick={() => del(r.id)}
-                  className="text-xs px-2 py-1 rounded text-neutral-400 hover:text-rose-400"
-                >
-                  Delete
-                </button>
-              </li>
-            ))}
-          </ul>
+          filtered.map(([group, rows]) => (
+            <div key={group} className="mb-6">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-label mb-3">
+                {group}
+              </div>
+              <div className="rounded-card border border-line-2 bg-surface overflow-hidden shadow-card">
+                {rows.map((r, i) => {
+                  const processing = r.status === "processing";
+                  const pct =
+                    r.progress?.fraction != null ? Math.round(r.progress.fraction * 100) : null;
+                  return (
+                    <div
+                      key={r.id}
+                      onClick={() =>
+                        nav(r.status === "recording" ? `/recordings/live/${r.id}` : `/recordings/${r.id}`)
+                      }
+                      className={`flex items-center gap-4 px-[18px] py-4 cursor-pointer hover:bg-surface-2 ${
+                        i < rows.length - 1 ? "border-b border-line-2" : ""
+                      }`}
+                    >
+                      <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${DOT[r.status]}`} />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[15px] font-semibold truncate">
+                          {r.title || `Recording #${r.id}`}
+                        </div>
+                        <div className="text-xs text-muted mt-0.5 font-mono">
+                          {processing
+                            ? `Transcribing… ${pct ?? 0}%`
+                            : `${friendlyDate(r.started_at)} · ${fmtDuration(r.duration_s) || "—"}`}
+                        </div>
+                      </div>
+                      <div
+                        className="flex flex-wrap items-center gap-1.5 justify-end"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {r.tags.map((t) => (
+                          <TagChip key={t.id} tag={t} onRemove={() => removeTag(r.id, t.id)} />
+                        ))}
+                        <AddTagButton
+                          allTags={tags}
+                          currentIds={r.tags.map((t) => t.id)}
+                          onAdd={(tagId) => addTag(r.id, tagId)}
+                          onCreate={(name) => createAndAssign(r.id, name)}
+                        />
+                      </div>
+                      {processing ? (
+                        <div className="w-[140px] h-1.5 rounded-full bg-line-2 overflow-hidden shrink-0">
+                          <div
+                            className="h-full bg-signal-grad transition-all"
+                            style={{ width: `${pct ?? 8}%` }}
+                          />
+                        </div>
+                      ) : r.status === "failed" ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            retry(r.id);
+                          }}
+                          className="shrink-0 text-xs px-2 py-1 rounded-field bg-warn/15 text-warn-deep hover:bg-warn/25"
+                        >
+                          Retry
+                        </button>
+                      ) : (
+                        <Icon name="chevron-right" size={16} className="text-line-3 shrink-0" />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))
         )}
-      </section>
+      </div>
     </div>
   );
 }

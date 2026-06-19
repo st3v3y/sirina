@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type Person } from "../lib/api";
 import { confirmDialog } from "../lib/confirm";
+import { Avatar, Button } from "../components/ui";
 
 export default function People() {
   const [people, setPeople] = useState<Person[]>([]);
@@ -30,56 +31,61 @@ export default function People() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto p-6">
-      <h2 className="text-base font-medium mb-4">People</h2>
-      {people.length === 0 ? (
-        <p className="text-sm text-neutral-500">
-          No people yet. Rename a speaker in a recording to create one.
-        </p>
-      ) : (
-        <ul className="divide-y divide-neutral-800 rounded-lg border border-neutral-800">
-          {people.map((p) => (
-            <li key={p.id} className="flex items-center gap-3 px-4 py-3 text-sm">
-              {editingId === p.id ? (
-                <input
-                  autoFocus
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") rename(p.id);
-                    if (e.key === "Escape") setEditingId(null);
-                  }}
-                  onBlur={() => rename(p.id)}
-                  className="flex-1 bg-neutral-950 border border-neutral-700 rounded px-2 py-1 text-sm"
-                />
-              ) : (
-                <span className="flex-1 truncate">{p.name}</span>
-              )}
-              <span className="text-xs text-neutral-500 w-24 text-right">
-                {p.recording_count} {p.recording_count === 1 ? "meeting" : "meetings"}
-              </span>
-              <span className="text-xs text-neutral-500 w-40 text-right">
-                {p.last_recording_at ? new Date(p.last_recording_at).toLocaleDateString() : "—"}
-              </span>
-              <button
-                onClick={() => {
-                  setEditingId(p.id);
-                  setDraft(p.name);
-                }}
-                className="text-xs px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700"
-              >
-                Rename
-              </button>
-              <button
-                onClick={() => del(p.id)}
-                className="text-xs px-2 py-1 rounded text-neutral-400 hover:text-rose-400"
-              >
-                Delete
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+    <div className="flex flex-col h-full">
+      <div className="flex items-center px-7 h-16 border-b border-line-2 shrink-0">
+        <h1 className="font-serif text-xl font-semibold">People</h1>
+      </div>
+      <div className="flex-1 overflow-y-auto px-7 py-6">
+        <div className="max-w-[760px] mx-auto">
+          {people.length === 0 ? (
+            <p className="text-sm text-muted">No people yet. Rename a speaker in a recording to create one.</p>
+          ) : (
+            <div className="rounded-card border border-line-2 bg-surface shadow-card overflow-hidden">
+              {people.map((p, i) => (
+                <div
+                  key={p.id}
+                  className={`flex items-center gap-3 px-4 py-3 text-sm ${i < people.length - 1 ? "border-b border-line-2" : ""}`}
+                >
+                  <Avatar name={p.name} size={32} />
+                  {editingId === p.id ? (
+                    <input
+                      autoFocus
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") rename(p.id);
+                        if (e.key === "Escape") setEditingId(null);
+                      }}
+                      onBlur={() => rename(p.id)}
+                      className="flex-1 bg-paper border border-line rounded-field px-2 py-1 text-sm"
+                    />
+                  ) : (
+                    <span className="flex-1 truncate font-semibold">{p.name}</span>
+                  )}
+                  <span className="text-xs text-muted w-24 text-right font-mono">
+                    {p.recording_count} {p.recording_count === 1 ? "meeting" : "meetings"}
+                  </span>
+                  <span className="text-xs text-muted w-32 text-right font-mono">
+                    {p.last_recording_at ? new Date(p.last_recording_at).toLocaleDateString() : "—"}
+                  </span>
+                  <Button
+                    onClick={() => {
+                      setEditingId(p.id);
+                      setDraft(p.name);
+                    }}
+                    className="!h-8 !px-2.5 text-xs"
+                  >
+                    Rename
+                  </Button>
+                  <button onClick={() => del(p.id)} className="text-xs px-2 py-1 rounded-field text-muted hover:text-signal">
+                    Delete
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

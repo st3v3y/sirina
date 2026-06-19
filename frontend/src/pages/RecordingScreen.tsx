@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../lib/api";
+import { Icon } from "../components/Icon";
 
 function fmt(seconds: number) {
   const s = Math.max(0, Math.floor(seconds));
@@ -11,15 +12,22 @@ function fmt(seconds: number) {
   return hh > 0 ? `${hh}:${mm}:${ss}` : `${m}:${ss}`;
 }
 
+const BARS = 24;
+
 export default function RecordingScreen() {
   const { id } = useParams();
   const recordingId = Number(id);
   const nav = useNavigate();
   const [elapsed, setElapsed] = useState(0);
   const [level, setLevel] = useState(0);
+  const [title, setTitle] = useState<string | null>(null);
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const missesRef = useRef(0);
+
+  useEffect(() => {
+    api.getRecording(recordingId).then((r) => setTitle(r.title)).catch(() => {});
+  }, [recordingId]);
 
   useEffect(() => {
     let alive = true;
@@ -32,7 +40,6 @@ export default function RecordingScreen() {
           setLevel(info.level);
           missesRef.current = 0;
         } else {
-          // No active recording for this id — it was stopped elsewhere.
           missesRef.current += 1;
           if (missesRef.current > 2) nav(`/recordings/${recordingId}`);
         }
@@ -63,35 +70,60 @@ export default function RecordingScreen() {
   const pct = Math.min(100, Math.round(level * 140));
 
   return (
-    <div className="h-full flex flex-col items-center justify-center gap-8 p-6">
-      <div className="flex items-center gap-2 text-rose-400 text-sm">
-        <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" /> Recording
+    <div
+      className="h-full flex flex-col items-center justify-center gap-8 p-6"
+      style={{
+        background:
+          "radial-gradient(circle at 50% 36%, rgba(214,73,47,0.07), transparent 58%)",
+      }}
+    >
+      <div className="flex flex-col items-center gap-3.5">
+        <span className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-signal/10 text-signal text-xs font-semibold uppercase tracking-wider">
+          <span className="w-2.5 h-2.5 rounded-full bg-signal animate-recpulse" /> Recording
+        </span>
+        {title && <div className="font-serif text-xl text-ink-2">{title}</div>}
       </div>
 
-      <div className="text-6xl font-mono tabular-nums tracking-tight">{fmt(elapsed)}</div>
+      <div
+        className="font-mono tabular-nums text-ink leading-none"
+        style={{ fontSize: "88px", letterSpacing: "-0.02em" }}
+      >
+        {fmt(elapsed)}
+      </div>
 
-      <div className="w-72">
-        <div className="h-3 rounded-full bg-neutral-800 overflow-hidden">
-          <div
-            className="h-full bg-emerald-500 transition-[width] duration-75"
-            style={{ width: `${pct}%` }}
-          />
+      <div className="flex flex-col items-center gap-3">
+        <div className="flex items-end gap-1 h-[60px]">
+          {Array.from({ length: BARS }).map((_, i) => {
+            // Drive bar heights from the live level with a stable per-bar variation.
+            const wobble = 0.45 + 0.55 * Math.abs(Math.sin((i + 1) * 1.7));
+            const h = Math.max(8, Math.min(100, level * 140 * wobble));
+            return (
+              <div
+                key={i}
+                className="w-1 rounded-full bg-signal/70 transition-[height] duration-100"
+                style={{ height: `${h}%` }}
+              />
+            );
+          })}
         </div>
-        <div className="text-center text-xs text-neutral-500 mt-2">input level</div>
+        <div className="w-[300px] h-[7px] rounded-full bg-line-2 overflow-hidden">
+          <div className="h-full bg-signal-grad transition-[width] duration-75" style={{ width: `${pct}%` }} />
+        </div>
+        <div className="text-[11px] uppercase tracking-wider text-muted">Input level</div>
       </div>
 
       <button
         onClick={stop}
         disabled={stopping}
-        className="bg-rose-600 hover:bg-rose-500 disabled:opacity-50 px-6 py-2.5 rounded-full text-sm font-medium"
+        className="flex items-center gap-2.5 h-13 px-7 py-3 rounded-full bg-signal-grad text-white font-semibold shadow-[var(--shadow-rec)] disabled:opacity-50"
       >
-        {stopping ? "Stopping…" : "■ Stop recording"}
+        <Icon name="square" size={14} /> {stopping ? "Stopping…" : "Stop recording"}
       </button>
 
-      <p className="text-xs text-neutral-500 max-w-sm text-center">
-        Audio is being saved to disk. Transcription and the summary run after you stop.
+      <p className="max-w-sm text-center text-[13px] leading-relaxed text-muted">
+        Audio is being saved to disk. Transcription and the summary run automatically after you stop.
       </p>
-      {error && <p className="text-rose-400 text-xs">{error}</p>}
+      {error && <p className="text-signal text-xs">{error}</p>}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { BrowserRouter, Link, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { api } from "./lib/api";
 import Dashboard from "./pages/Dashboard";
 import RecordingScreen from "./pages/RecordingScreen";
@@ -8,7 +8,7 @@ import Templates from "./pages/Templates";
 import People from "./pages/People";
 import Ask from "./pages/Ask";
 import Settings from "./pages/Settings";
-import ConnectionStatus from "./components/ConnectionStatus";
+import Shell from "./components/Shell";
 
 /** Wait for the backend before rendering the app. In the packaged desktop app the
  *  bundled backend takes a while to start on first run (binary extraction + the
@@ -38,11 +38,11 @@ function BackendGate({ children }: { children: ReactNode }) {
 
   if (ready) return <>{children}</>;
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-3 text-neutral-400">
-      <div className="w-6 h-6 rounded-full border-2 border-neutral-700 border-t-rose-500 animate-spin" />
+    <div className="min-h-screen flex flex-col items-center justify-center gap-3 text-muted">
+      <div className="w-6 h-6 rounded-full border-2 border-line-3 border-t-signal animate-spin" />
       <p className="text-sm">Starting the backend…</p>
       {elapsed > 8 && (
-        <p className="text-xs text-neutral-500 max-w-xs text-center leading-relaxed">
+        <p className="text-xs text-muted max-w-xs text-center leading-relaxed">
           First run downloads the transcription model — this can take a few minutes. ({elapsed}s)
         </p>
       )}
@@ -54,34 +54,17 @@ export default function App() {
   return (
     <BrowserRouter>
       <BackendGate>
-        <div className="min-h-screen flex flex-col">
-          <header className="border-b border-neutral-800 px-6 py-3 flex items-center gap-6">
-            <Link to="/" className="text-lg font-semibold tracking-tight">
-              Sirina
-            </Link>
-            <nav className="flex gap-4 text-sm text-neutral-400">
-              <Link to="/" className="hover:text-neutral-100">Dashboard</Link>
-              <Link to="/ask" className="hover:text-neutral-100">Ask</Link>
-              <Link to="/people" className="hover:text-neutral-100">People</Link>
-              <Link to="/templates" className="hover:text-neutral-100">Templates</Link>
-              <Link to="/settings" className="hover:text-neutral-100">Settings</Link>
-            </nav>
-            <div className="ml-auto">
-              <ConnectionStatus />
-            </div>
-          </header>
-          <main className="flex-1 min-h-0">
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/recordings/live/:id" element={<RecordingScreen />} />
-              <Route path="/recordings/:id" element={<RecordingDetail />} />
-              <Route path="/ask" element={<Ask />} />
-              <Route path="/people" element={<People />} />
-              <Route path="/templates" element={<Templates />} />
-              <Route path="/settings" element={<Settings />} />
-            </Routes>
-          </main>
-        </div>
+        <Shell>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/recordings/live/:id" element={<RecordingScreen />} />
+            <Route path="/recordings/:id" element={<RecordingDetail />} />
+            <Route path="/ask" element={<Ask />} />
+            <Route path="/people" element={<People />} />
+            <Route path="/templates" element={<Templates />} />
+            <Route path="/settings" element={<Settings />} />
+          </Routes>
+        </Shell>
       </BackendGate>
     </BrowserRouter>
   );

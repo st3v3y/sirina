@@ -10,6 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/hanken-grotesk": "^5.2.8",
+    "@fontsource/jetbrains-mono": "^5.2.8",
+    "@fontsource/newsreader": "^5.2.10",
+    "@iconify-json/lucide": "^1.2.113",
+    "@iconify/react": "^6.0.2",
     "@tailwindcss/vite": "^4.3.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",

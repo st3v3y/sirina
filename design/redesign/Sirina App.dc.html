@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  @keyframes recpulse { 0%,100% { opacity:1; box-shadow:0 0 0 4px rgba(214,73,47,0.22); } 50% { opacity:0.55; box-shadow:0 0 0 7px rgba(214,73,47,0.06); } }
+</style>
+</helmet>
+
+<div style="font-family:'Hanken Grotesk',system-ui,sans-serif; width:max-content; min-width:100%; min-height:100vh; box-sizing:border-box; padding:48px; background:#e7e5df; color:#24211d;">
+
+  <div style="max-width:920px; margin-bottom:40px;">
+    <div style="font-size:12px; letter-spacing:0.14em; text-transform:uppercase; color:#a39c8f; font-weight:600; margin-bottom:10px;">Sirina · Hi-fi design</div>
+    <h1 style="font-family:'Newsreader',serif; font-size:34px; line-height:1.1; margin:0 0 12px; font-weight:500; letter-spacing:-0.01em;">Local-first meeting transcription</h1>
+    <p style="font-size:15px; line-height:1.55; color:#6d675d; margin:0; max-width:660px;">Warm paper, ink, and a single vermilion signal reserved for recording &amp; live state. Editorial serif for titles and summaries; mono for time. Tabs and the speaker menu are interactive — click them.</p>
+  </div>
+
+  <!-- ===================== RECORDINGS ===================== -->
+  <div style="margin-bottom:14px; font-size:13px; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; color:#827b6f;">1 · Recordings</div>
+  <div style="display:flex; gap:48px; align-items:flex-start; margin-bottom:64px;">
+    <div style="flex:none; width:1280px;">
+      <div style="background:#fff; border-radius:14px; box-shadow:0 24px 60px -14px rgba(40,33,24,0.30), 0 4px 12px rgba(40,33,24,0.08); overflow:hidden; border:1px solid #d9d3c6;">
+
+        <!-- titlebar -->
+        <div style="height:44px; display:flex; align-items:center; padding:0 16px; background:linear-gradient(180deg,#f2eee5,#ece7dc); border-bottom:1px solid #e3dccd;">
+          <div style="display:flex; gap:8px;">
+            <span style="width:12px; height:12px; border-radius:50%; background:#ff5f57; box-shadow:inset 0 0 0 0.5px rgba(0,0,0,0.12);"></span>
+            <span style="width:12px; height:12px; border-radius:50%; background:#febc2e; box-shadow:inset 0 0 0 0.5px rgba(0,0,0,0.12);"></span>
+            <span style="width:12px; height:12px; border-radius:50%; background:#28c840; box-shadow:inset 0 0 0 0.5px rgba(0,0,0,0.12);"></span>
+          </div>
+          <div style="flex:1; text-align:center; font-size:13px; color:#938c7f; font-weight:500; letter-spacing:0.02em;">Sirina</div>
+          <div style="width:54px;"></div>
+        </div>
+
+        <div style="display:flex; height:768px;">
+          <!-- SIDEBAR -->
+          <div style="width:252px; flex:none; background:linear-gradient(168deg,#f4f0e8,#efe8dc); border-right:1px solid #e6dfd1; display:flex; flex-direction:column; padding:18px 14px;">
+            <div style="display:flex; align-items:center; gap:11px; padding:4px 8px 20px;">
+              <img src="assets/sirina-mark.svg" alt="Sirina" style="width:38px; height:38px; display:block; margin:-2px -1px -2px -3px;">
+              <span style="font-family:'Newsreader',serif; font-size:21px; font-weight:600; letter-spacing:-0.01em;">Sirina</span>
+            </div>
+
+            <!-- record -->
+            <button style="display:flex; align-items:center; justify-content:center; gap:10px; height:48px; border-radius:12px; background:linear-gradient(180deg,#e0563b,#c83f25); color:#fff; border:none; font-size:15px; font-weight:600; font-family:inherit; cursor:pointer; margin-bottom:8px; box-shadow:0 6px 16px -2px rgba(200,63,37,0.42), inset 0 1px 0 rgba(255,255,255,0.25);">
+              <span style="width:13px; height:13px; border-radius:50%; background:#fff; box-shadow:0 0 0 3px rgba(255,255,255,0.28);"></span> Record
+            </button>
+            <div style="display:flex; align-items:center; justify-content:center; gap:6px; font-size:11.5px; color:#9a9183; margin-bottom:24px;">
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="6" y="2" width="4" height="7" rx="2"/><path d="M4 8a4 4 0 0 0 8 0M8 12v2"/></svg>
+              MacBook Mic · BlackHole 2ch <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m4 6 4 4 4-4"/></svg>
+            </div>
+
+            <!-- nav -->
+            <div style="display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:10px; background:#fff; color:#24211d; font-size:14px; font-weight:600; box-shadow:0 1px 3px rgba(40,33,24,0.08); border:1px solid #efe8db;">
+              <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="#c83f25" stroke-width="1.6" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><path d="M8 4.5v3.5l2.3 1.4"/></svg>
+              Recordings
+            </div>
+            <div style="display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:10px; color:#6d675d; font-size:14px;">
+              <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M2.5 4.5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H6.5L3 13V10.5a2 2 0 0 1-.5-1.3z"/></svg>
+              Ask
+            </div>
+            <div style="display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:10px; color:#6d675d; font-size:14px;">
+              <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="5.5" cy="5" r="2.2"/><circle cx="11" cy="6" r="1.8"/><path d="M1.8 13c0-2 1.6-3.3 3.7-3.3S9.2 11 9.2 13M9.8 12.5c0-1.5 1-2.6 2.6-2.6 1.3 0 2.2.8 2.4 2"/></svg>
+              People
+            </div>
+            <div style="display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:10px; color:#6d675d; font-size:14px;">
+              <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="1.5" width="10" height="13" rx="1.5"/><path d="M5.5 5h5M5.5 8h5M5.5 11h3"/></svg>
+              Templates
+            </div>
+
+            <!-- tags -->
+            <div style="margin-top:24px; padding:0 12px;">
+              <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.09em; color:#aaa090; margin-bottom:12px;">Tags</div>
+              <div style="display:flex; flex-direction:column; gap:1px;">
+                <div style="display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:8px; background:#fff; font-size:13.5px; color:#24211d; box-shadow:0 1px 2px rgba(40,33,24,0.06);">
+                  <span style="width:9px;height:9px;border-radius:50%;background:#c0603a;flex:none;"></span>
+                  <span style="flex:1; font-weight:600;">Client</span>
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#a89e8e" stroke-width="1.5"><path d="M11 2.5 13.5 5 5 13.5 2 14l.5-3z"/></svg>
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#a89e8e" stroke-width="1.5"><path d="M3 4h10M6.5 4V2.5h3V4M4 4l.6 9h6.8L12 4"/></svg>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:8px; font-size:13.5px; color:#6d675d;">
+                  <span style="width:9px;height:9px;border-radius:50%;background:#5f7a8c;flex:none;"></span>
+                  <span style="flex:1;">Internal</span>
+                  <span style="font-size:11.5px; color:#aaa090;">8</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:8px; font-size:13.5px; color:#6d675d;">
+                  <span style="width:9px;height:9px;border-radius:50%;background:#8a6d3b;flex:none;"></span>
+                  <span style="flex:1;">Proposal</span>
+                  <span style="font-size:11.5px; color:#aaa090;">3</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:8px; font-size:13.5px; color:#6d675d;">
+                  <span style="width:9px;height:9px;border-radius:50%;background:#5e7d63;flex:none;"></span>
+                  <span style="flex:1;">Discovery</span>
+                  <span style="font-size:11.5px; color:#aaa090;">5</span>
+                </div>
+                <button style="display:flex; align-items:center; gap:10px; padding:8px 10px; margin-top:3px; border-radius:8px; border:none; background:none; font-family:inherit; font-size:13px; color:#9a9183; cursor:pointer;">
+                  <span style="width:9px;height:9px;border-radius:50%;border:1.5px dashed #c6bcab;flex:none;"></span>New tag
+                </button>
+              </div>
+            </div>
+
+            <div style="flex:1;"></div>
+            <div style="display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:10px; color:#6d675d; font-size:14px;">
+              <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.3"/><path d="M8 1.5v2M8 12.5v2M14.5 8h-2M3.5 8h-2M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4M12.6 12.6l-1.4-1.4M4.8 4.8 3.4 3.4"/></svg>
+              Settings
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; padding:10px 12px 2px; border-top:1px solid #e6dfd1; margin-top:5px; font-size:12px; color:#9a9183;">
+              <span style="width:7px; height:7px; border-radius:50%; background:#4a8c5f; display:inline-block; box-shadow:0 0 0 3px rgba(74,140,95,0.16);"></span>
+              Local · Whisper ready
+            </div>
+          </div>
+
+          <!-- MAIN -->
+          <div style="flex:1; display:flex; flex-direction:column; overflow:hidden; background:#fcfbf8;">
+            <div style="height:64px; flex:none; display:flex; align-items:center; gap:14px; padding:0 28px; border-bottom:1px solid #efe8db;">
+              <span style="font-family:'Newsreader',serif; font-size:21px; font-weight:600;">Recordings</span>
+              <span style="font-size:12px; color:#9a9183; padding:3px 9px; border-radius:20px; background:rgba(192,96,58,0.10); color:#a8542f; font-weight:600; display:flex; align-items:center; gap:6px;"><span style="width:7px;height:7px;border-radius:50%;background:#c0603a;"></span>Client · 12</span>
+              <div style="flex:1;"></div>
+              <div style="display:flex; align-items:center; gap:8px; width:300px; height:38px; padding:0 13px; border:1px solid #e6dfd1; border-radius:10px; background:#fff; color:#a39c8f; font-size:13px; box-shadow:0 1px 2px rgba(40,33,24,0.04);">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="m11 11 3 3"/></svg>
+                Filter by name…
+              </div>
+            </div>
+
+            <div style="flex:1; overflow:hidden; padding:24px 28px;">
+              <!-- Recent -->
+              <div style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.09em; color:#aaa090; margin-bottom:11px;">Recent</div>
+              <div style="background:#fff; border:1px solid #efe8db; border-radius:12px; overflow:hidden; margin-bottom:24px; box-shadow:0 1px 3px rgba(40,33,24,0.05);">
+                <div style="display:flex; align-items:center; gap:16px; padding:16px 18px; border-bottom:1px solid #f3eee4; cursor:pointer;">
+                  <span style="width:9px; height:9px; border-radius:50%; background:#4a8c5f; flex:none; box-shadow:0 0 0 3px rgba(74,140,95,0.14);"></span>
+                  <div style="flex:1;"><div style="font-size:15px; font-weight:600;">Acme Corp — Discovery call</div><div style="font-size:12px; color:#9a9183; margin-top:3px; font-family:'JetBrains Mono',monospace;">Today 10:30 · 47:12 · 3 speakers</div></div>
+                  <span style="padding:3px 11px; border-radius:20px; background:rgba(192,96,58,0.12); font-size:11.5px; color:#a8542f; font-weight:600;">Client</span>
+                  <span style="padding:3px 11px; border-radius:20px; background:rgba(94,125,99,0.14); font-size:11.5px; color:#4e6a53; font-weight:600;">Discovery</span>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#c6bcab" stroke-width="1.6"><path d="m6 4 4 4-4 4"/></svg>
+                </div>
+                <div style="display:flex; align-items:center; gap:16px; padding:16px 18px; border-bottom:1px solid #f3eee4; cursor:pointer;">
+                  <span style="width:9px; height:9px; border-radius:50%; background:#4a8c5f; flex:none; box-shadow:0 0 0 3px rgba(74,140,95,0.14);"></span>
+                  <div style="flex:1;"><div style="font-size:15px; font-weight:600;">Weekly team standup</div><div style="font-size:12px; color:#9a9183; margin-top:3px; font-family:'JetBrains Mono',monospace;">Yesterday 09:00 · 22:48 · 5 speakers</div></div>
+                  <span style="padding:3px 11px; border-radius:20px; background:rgba(95,122,140,0.14); font-size:11.5px; color:#4f6878; font-weight:600;">Internal</span>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#c6bcab" stroke-width="1.6"><path d="m6 4 4 4-4 4"/></svg>
+                </div>
+                <div style="display:flex; align-items:center; gap:16px; padding:16px 18px; background:#fdf8f1;">
+                  <span style="width:13px; height:13px; flex:none; display:flex; align-items:center; justify-content:center;"><span style="width:9px;height:9px;border-radius:50%;background:#d6492f;box-shadow:0 0 0 3px rgba(214,73,47,0.18);"></span></span>
+                  <div style="flex:1;"><div style="font-size:15px; font-weight:600; color:#6d675d;">Roadmap sync</div><div style="font-size:12px; color:#bb6a3a; margin-top:3px; font-family:'JetBrains Mono',monospace;">Transcribing… 62%</div></div>
+                  <div style="width:140px; height:6px; border-radius:4px; background:#f0e7da; overflow:hidden;"><div style="width:62%; height:100%; background:linear-gradient(90deg,#e0563b,#c83f25);"></div></div>
+                </div>
+              </div>
+
+              <!-- Earlier this month -->
+              <div style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.09em; color:#aaa090; margin-bottom:11px;">Earlier this month</div>
+              <div style="background:#fff; border:1px solid #efe8db; border-radius:12px; overflow:hidden; margin-bottom:24px; box-shadow:0 1px 3px rgba(40,33,24,0.05);">
+                <div style="display:flex; align-items:center; gap:16px; padding:16px 18px; border-bottom:1px solid #f3eee4; cursor:pointer;">
+                  <span style="width:9px; height:9px; border-radius:50%; background:#4a8c5f; flex:none; box-shadow:0 0 0 3px rgba(74,140,95,0.14);"></span>
+                  <div style="flex:1;"><div style="font-size:15px; font-weight:600;">Pricing workshop — Nordwind</div><div style="font-size:12px; color:#9a9183; margin-top:3px; font-family:'JetBrains Mono',monospace;">Jun 15 · 1:03:20 · 4 speakers</div></div>
+                  <span style="padding:3px 11px; border-radius:20px; background:rgba(192,96,58,0.12); font-size:11.5px; color:#a8542f; font-weight:600;">Client</span>
+                  <span style="padding:3px 11px; border-radius:20px; background:rgba(138,109,59,0.15); font-size:11.5px; color:#7a5f33; font-weight:600;">Proposal</span>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#c6bcab" stroke-width="1.6"><path d="m6 4 4 4-4 4"/></svg>
+                </div>
+                <div style="display:flex; align-items:center; gap:16px; padding:16px 18px; border-bottom:1px solid #f3eee4; cursor:pointer;">
+                  <span style="width:9px; height:9px; border-radius:50%; background:#4a8c5f; flex:none; box-shadow:0 0 0 3px rgba(74,140,95,0.14);"></span>
+                  <div style="flex:1;"><div style="font-size:15px; font-weight:600;">Onboarding — new hire</div><div style="font-size:12px; color:#9a9183; margin-top:3px; font-family:'JetBrains Mono',monospace;">Jun 12 · 18:05 · 2 speakers</div></div>
+                  <span style="padding:3px 11px; border-radius:20px; background:rgba(95,122,140,0.14); font-size:11.5px; color:#4f6878; font-weight:600;">Internal</span>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#c6bcab" stroke-width="1.6"><path d="m6 4 4 4-4 4"/></svg>
+                </div>
+                <div style="display:flex; align-items:center; gap:16px; padding:16px 18px; cursor:pointer;">
+                  <span style="width:9px; height:9px; border-radius:50%; background:#4a8c5f; flex:none; box-shadow:0 0 0 3px rgba(74,140,95,0.14);"></span>
+                  <div style="flex:1;"><div style="font-size:15px; font-weight:600;">Investor update prep</div><div style="font-size:12px; color:#9a9183; margin-top:3px; font-family:'JetBrains Mono',monospace;">Jun 10 · 34:51 · 2 speakers</div></div>
+                  <span style="padding:3px 11px; border-radius:20px; background:rgba(95,122,140,0.14); font-size:11.5px; color:#4f6878; font-weight:600;">Internal</span>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#c6bcab" stroke-width="1.6"><path d="m6 4 4 4-4 4"/></svg>
+                </div>
+              </div>
+
+              <!-- Last month -->
+              <div style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.09em; color:#aaa090; margin-bottom:11px;">Last month</div>
+              <div style="background:#fff; border:1px solid #efe8db; border-radius:12px; overflow:hidden; box-shadow:0 1px 3px rgba(40,33,24,0.05);">
+                <div style="display:flex; align-items:center; gap:16px; padding:16px 18px; cursor:pointer;">
+                  <span style="width:9px; height:9px; border-radius:50%; background:#4a8c5f; flex:none; box-shadow:0 0 0 3px rgba(74,140,95,0.14);"></span>
+                  <div style="flex:1;"><div style="font-size:15px; font-weight:600;">Acme Corp — Kickoff</div><div style="font-size:12px; color:#9a9183; margin-top:3px; font-family:'JetBrains Mono',monospace;">May 28 · 52:09 · 4 speakers</div></div>
+                  <span style="padding:3px 11px; border-radius:20px; background:rgba(192,96,58,0.12); font-size:11.5px; color:#a8542f; font-weight:600;">Client</span>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#c6bcab" stroke-width="1.6"><path d="m6 4 4 4-4 4"/></svg>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== RECORDING DETAIL ===================== -->
+  <div style="margin-bottom:14px; font-size:13px; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; color:#827b6f;">2 · Recording detail</div>
+  <div style="display:flex; gap:48px; align-items:flex-start;">
+    <div style="flex:none; width:1280px;">
+      <div style="background:#fff; border-radius:14px; box-shadow:0 24px 60px -14px rgba(40,33,24,0.30), 0 4px 12px rgba(40,33,24,0.08); overflow:hidden; border:1px solid #d9d3c6;">
+
+        <div style="height:44px; display:flex; align-items:center; padding:0 16px; background:linear-gradient(180deg,#f2eee5,#ece7dc); border-bottom:1px solid #e3dccd;">
+          <div style="display:flex; gap:8px;">
+            <span style="width:12px; height:12px; border-radius:50%; background:#ff5f57; box-shadow:inset 0 0 0 0.5px rgba(0,0,0,0.12);"></span>
+            <span style="width:12px; height:12px; border-radius:50%; background:#febc2e; box-shadow:inset 0 0 0 0.5px rgba(0,0,0,0.12);"></span>
+            <span style="width:12px; height:12px; border-radius:50%; background:#28c840; box-shadow:inset 0 0 0 0.5px rgba(0,0,0,0.12);"></span>
+          </div>
+          <div style="flex:1; text-align:center; font-size:13px; color:#938c7f; font-weight:500; letter-spacing:0.02em;">Sirina</div>
+          <div style="width:54px;"></div>
+        </div>
+
+        <div style="display:flex; height:828px;">
+          <!-- SIDEBAR -->
+          <div style="width:252px; flex:none; background:linear-gradient(168deg,#f4f0e8,#efe8dc); border-right:1px solid #e6dfd1; display:flex; flex-direction:column; padding:18px 14px;">
+            <div style="display:flex; align-items:center; gap:11px; padding:4px 8px 20px;">
+              <img src="assets/sirina-mark.svg" alt="Sirina" style="width:38px; height:38px; display:block; margin:-2px -1px -2px -3px;">
+              <span style="font-family:'Newsreader',serif; font-size:21px; font-weight:600; letter-spacing:-0.01em;">Sirina</span>
+            </div>
+            <button style="display:flex; align-items:center; justify-content:center; gap:10px; height:48px; border-radius:12px; background:linear-gradient(180deg,#e0563b,#c83f25); color:#fff; border:none; font-size:15px; font-weight:600; font-family:inherit; cursor:pointer; margin-bottom:8px; box-shadow:0 6px 16px -2px rgba(200,63,37,0.42), inset 0 1px 0 rgba(255,255,255,0.25);">
+              <span style="width:13px; height:13px; border-radius:50%; background:#fff; box-shadow:0 0 0 3px rgba(255,255,255,0.28);"></span> Record
+            </button>
+            <div style="display:flex; align-items:center; justify-content:center; gap:6px; font-size:11.5px; color:#9a9183; margin-bottom:24px;">
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="6" y="2" width="4" height="7" rx="2"/><path d="M4 8a4 4 0 0 0 8 0M8 12v2"/></svg>
+              MacBook Mic · BlackHole 2ch <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m4 6 4 4 4-4"/></svg>
+            </div>
+            <div style="display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:10px; background:#fff; color:#24211d; font-size:14px; font-weight:600; box-shadow:0 1px 3px rgba(40,33,24,0.08); border:1px solid #efe8db;">
+              <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="#c83f25" stroke-width="1.6" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><path d="M8 4.5v3.5l2.3 1.4"/></svg>
+              Recordings
+            </div>
+            <div style="display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:10px; color:#6d675d; font-size:14px;">
+              <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M2.5 4.5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H6.5L3 13V10.5a2 2 0 0 1-.5-1.3z"/></svg>
+              Ask
+            </div>
+            <div style="display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:10px; color:#6d675d; font-size:14px;">
+              <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="5.5" cy="5" r="2.2"/><circle cx="11" cy="6" r="1.8"/><path d="M1.8 13c0-2 1.6-3.3 3.7-3.3S9.2 11 9.2 13M9.8 12.5c0-1.5 1-2.6 2.6-2.6 1.3 0 2.2.8 2.4 2"/></svg>
+              People
+            </div>
+            <div style="display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:10px; color:#6d675d; font-size:14px;">
+              <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="1.5" width="10" height="13" rx="1.5"/><path d="M5.5 5h5M5.5 8h5M5.5 11h3"/></svg>
+              Templates
+            </div>
+            <div style="flex:1;"></div>
+            <div style="display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:10px; color:#6d675d; font-size:14px;">
+              <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.3"/><path d="M8 1.5v2M8 12.5v2M14.5 8h-2M3.5 8h-2M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4M12.6 12.6l-1.4-1.4M4.8 4.8 3.4 3.4"/></svg>
+              Settings
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; padding:10px 12px 2px; border-top:1px solid #e6dfd1; margin-top:5px; font-size:12px; color:#9a9183;">
+              <span style="width:7px; height:7px; border-radius:50%; background:#4a8c5f; display:inline-block; box-shadow:0 0 0 3px rgba(74,140,95,0.16);"></span>
+              Local · Whisper ready
+            </div>
+          </div>
+
+          <!-- MAIN DETAIL -->
+          <div style="flex:1; display:flex; flex-direction:column; overflow:hidden; background:#fcfbf8;">
+            <!-- header -->
+            <div style="flex:none; padding:20px 30px 0;">
+              <div style="display:flex; align-items:center; gap:9px; font-size:12.5px; color:#9a9183; margin-bottom:13px;">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m10 4-4 4 4 4"/></svg>
+                <span style="cursor:pointer;">Recordings</span><span style="color:#cfc6b6;">/</span><span style="color:#6d675d;">Acme Corp — Discovery call</span>
+              </div>
+              <div style="display:flex; align-items:flex-start; gap:16px;">
+                <div style="flex:1;">
+                  <div style="display:flex; align-items:center; gap:11px;">
+                    <h2 style="font-family:'Newsreader',serif; font-size:27px; font-weight:600; margin:0; letter-spacing:-0.01em;">Acme Corp — Discovery call</h2>
+                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#bdb4a3" stroke-width="1.6"><path d="M11 2.5 13.5 5 5 13.5 2 14l.5-3z"/></svg>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:14px; margin-top:9px;">
+                    <div style="display:flex; align-items:center; gap:12px; font-size:12.5px; color:#8e8779; font-family:'JetBrains Mono',monospace;">
+                      <span>Jun 17, 2026 · 10:30</span><span style="color:#d9d1c2;">|</span><span>47:12</span><span style="color:#d9d1c2;">|</span><span>EN</span>
+                    </div>
+                    <!-- speaker avatars + dropdown -->
+                    <div style="position:relative;">
+                      <button onClick="{{ toggleSpeakers }}" style="display:flex; align-items:center; gap:8px; border:none; background:none; cursor:pointer; padding:3px 6px 3px 3px; border-radius:20px; font-family:inherit;">
+                        <span style="display:flex;">
+                          <span style="width:25px;height:25px;border-radius:50%;background:#2f5d50;color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;border:2px solid #fcfbf8;">SL</span>
+                          <span style="width:25px;height:25px;border-radius:50%;background:#a4623a;color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;border:2px solid #fcfbf8;margin-left:-8px;">MK</span>
+                          <span style="width:25px;height:25px;border-radius:50%;background:#5a6b86;color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;border:2px solid #fcfbf8;margin-left:-8px;">TB</span>
+                        </span>
+                        <span style="font-size:12.5px; color:#6d675d;">3 speakers</span>
+                        <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="#a39a8a" stroke-width="1.8"><path d="m4 6 4 4 4-4"/></svg>
+                      </button>
+                      <div style="position:absolute; top:38px; left:0; width:248px; background:#fff; border:1px solid #e6dfd1; border-radius:12px; box-shadow:0 14px 36px -8px rgba(40,33,24,0.28); padding:7px; z-index:5; display:{{ speakersDisplay }};">
+                        <div style="font-size:10.5px; text-transform:uppercase; letter-spacing:0.08em; color:#aaa090; padding:7px 9px 9px;">Speakers · tap to rename / link</div>
+                        <div style="display:flex; align-items:center; gap:11px; padding:9px; border-radius:9px;">
+                          <span style="width:28px;height:28px;border-radius:50%;background:#2f5d50;color:#fff;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:600;">SL</span>
+                          <div style="flex:1;"><div style="font-size:13.5px; font-weight:600;">Sarah Lindqvist</div><div style="font-size:11px; color:#9a9183;">You · linked</div></div>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:11px; padding:9px; border-radius:9px;">
+                          <span style="width:28px;height:28px;border-radius:50%;background:#a4623a;color:#fff;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:600;">MK</span>
+                          <div style="flex:1;"><div style="font-size:13.5px; font-weight:600;">Markus Köhler</div><div style="font-size:11px; color:#9a9183;">Linked to Person</div></div>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:11px; padding:9px; border-radius:9px;">
+                          <span style="width:28px;height:28px;border-radius:50%;background:#5a6b86;color:#fff;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:600;">TB</span>
+                          <div style="flex:1;"><div style="font-size:13.5px; font-weight:600;">Speaker 3</div><div style="font-size:11px; color:#c2872f;">Unnamed — assign</div></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div style="display:flex; gap:7px; margin-top:13px;">
+                    <span style="padding:4px 11px; border-radius:20px; background:rgba(192,96,58,0.12); font-size:11.5px; color:#a8542f; font-weight:600; display:flex; align-items:center; gap:6px;"><span style="width:7px;height:7px;border-radius:50%;background:#c0603a;"></span>Client</span>
+                    <span style="padding:4px 11px; border-radius:20px; background:rgba(94,125,99,0.14); font-size:11.5px; color:#4e6a53; font-weight:600; display:flex; align-items:center; gap:6px;"><span style="width:7px;height:7px;border-radius:50%;background:#5e7d63;"></span>Discovery</span>
+                    <span style="padding:4px 11px; border-radius:20px; border:1px dashed #cfc6b6; font-size:11.5px; color:#9a9183;">+ Tag</span>
+                  </div>
+                </div>
+                <div style="display:flex; gap:8px;">
+                  <button style="height:36px; padding:0 15px; border:1px solid #e3dccd; background:#fff; border-radius:9px; font-size:13px; color:#6d675d; font-family:inherit; cursor:pointer; box-shadow:0 1px 2px rgba(40,33,24,0.05);">Re-process</button>
+                  <button style="width:36px; height:36px; border:1px solid #e3dccd; background:#fff; border-radius:9px; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 1px 2px rgba(40,33,24,0.05);"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#a39a8a" stroke-width="1.6"><path d="M3 4h10M6.5 4V2.5h3V4M4 4l.6 9h6.8L12 4"/></svg></button>
+                </div>
+              </div>
+            </div>
+
+            <!-- compact audio player -->
+            <div style="flex:none; margin:18px 30px 0; border:1px solid #ece5d8; border-radius:12px; background:#fff; box-shadow:0 1px 3px rgba(40,33,24,0.05); display:flex; align-items:center; gap:14px; padding:10px 14px;">
+              <button style="width:36px; height:36px; flex:none; border-radius:50%; background:linear-gradient(165deg,#322e28,#1c1916); border:none; display:flex; align-items:center; justify-content:center; cursor:pointer; box-shadow:0 2px 6px rgba(40,33,24,0.25);"><svg width="14" height="14" viewBox="0 0 16 16" fill="#fff"><path d="M4 2.5v11l9-5.5z"/></svg></button>
+              <span style="font-size:11.5px; color:#8e8779; font-family:'JetBrains Mono',monospace; flex:none;">12:48</span>
+              <div style="flex:1; height:6px; border-radius:4px; background:#efe7da; position:relative;">
+                <div style="width:27%; height:100%; background:#322e28; border-radius:4px;"></div>
+                <span style="position:absolute; left:27%; top:50%; width:13px; height:13px; border-radius:50%; background:#322e28; transform:translate(-50%,-50%); box-shadow:0 1px 3px rgba(40,33,24,0.3);"></span>
+              </div>
+              <span style="font-size:11.5px; color:#8e8779; font-family:'JetBrains Mono',monospace; flex:none;">47:12</span>
+              <div style="display:flex; align-items:center; gap:7px; height:30px; padding:0 11px; border:1px solid #e6dfd1; border-radius:8px; font-size:11.5px; color:#6d675d; flex:none;">Mixed <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m4 6 4 4 4-4"/></svg></div>
+            </div>
+
+            <!-- TABS -->
+            <div style="flex:none; display:flex; align-items:center; gap:6px; padding:18px 30px 0; border-bottom:1px solid #efe8db;">
+              <button onClick="{{ showSummary }}" style="{{ summaryTabStyle }}">Summary</button>
+              <button onClick="{{ showTranscript }}" style="{{ transcriptTabStyle }}">Transcript</button>
+              <button onClick="{{ showAsk }}" style="{{ askTabStyle }}">Ask AI</button>
+            </div>
+
+            <!-- TAB BODY -->
+            <div style="flex:1; overflow:hidden; position:relative;">
+
+              <!-- SUMMARY -->
+              <div style="position:absolute; inset:0; overflow:hidden; padding:20px 30px; display:{{ summaryDisplay }};">
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom:22px;">
+                  <span style="font-size:12px; color:#9a9183;">Template</span>
+                  <span style="height:32px; padding:0 13px; border:1px solid #e6dfd1; border-radius:8px; background:#fff; font-size:12.5px; color:#6d675d; display:flex; align-items:center; gap:7px;">Client Discovery <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m4 6 4 4 4-4"/></svg></span>
+                  <button style="height:32px; padding:0 14px; border:1px solid #e3dccd; background:#fff; border-radius:8px; font-size:12.5px; color:#6d675d; font-family:inherit; cursor:pointer; display:flex; align-items:center; gap:6px;"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2.5a5.5 5.5 0 1 0 5 3.2M11.5 2v3h-3"/></svg>Regenerate</button>
+                  <div style="flex:1;"></div>
+                  <button style="height:32px; padding:0 12px; border:1px solid #e3dccd; background:#fff; border-radius:8px; font-size:12.5px; color:#6d675d; font-family:inherit; cursor:pointer; display:flex; align-items:center; gap:6px;"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M3 11V3.5A1.5 1.5 0 0 1 4.5 2H11"/></svg>Copy <svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 6 4 4 4-4"/></svg></button>
+                  <button style="height:32px; padding:0 12px; border:1px solid #e3dccd; background:#fff; border-radius:8px; font-size:12.5px; color:#6d675d; font-family:inherit; cursor:pointer; display:flex; align-items:center; gap:6px;"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M5 7l3 3 3-3M2.5 11v2.5h11V11"/></svg>Export <svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 6 4 4 4-4"/></svg></button>
+                </div>
+                <div style="max-width:680px; display:flex; flex-direction:column; gap:22px;">
+                  <div>
+                    <div style="font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.09em; color:#a8542f; margin-bottom:9px;">Overview</div>
+                    <div style="font-family:'Newsreader',serif; font-size:17px; line-height:1.6; color:#2c2823;">A discovery call with Acme Corp's operations team about their client onboarding process. The current workflow is manual and spreadsheet-driven, with approval delays cited as the main pain point.</div>
+                  </div>
+                  <div>
+                    <div style="font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.09em; color:#a8542f; margin-bottom:11px;">Key points</div>
+                    <div style="font-size:14.5px; line-height:1.7; color:#3a3631; display:flex; flex-direction:column; gap:9px;">
+                      <div style="display:flex; gap:11px;"><span style="width:6px;height:6px;border-radius:50%;background:#c0603a;flex:none;margin-top:8px;"></span>Onboarding is tracked in a shared spreadsheet with no status visibility.</div>
+                      <div style="display:flex; gap:11px;"><span style="width:6px;height:6px;border-radius:50%;background:#c0603a;flex:none;margin-top:8px;"></span>Approvals stall when a document waits on one person with no reminder.</div>
+                      <div style="display:flex; gap:11px;"><span style="width:6px;height:6px;border-radius:50%;background:#c0603a;flex:none;margin-top:8px;"></span>Lost time per stalled client is estimated at roughly a week.</div>
+                    </div>
+                  </div>
+                  <div>
+                    <div style="font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.09em; color:#a8542f; margin-bottom:11px;">Action items</div>
+                    <div style="font-size:14.5px; line-height:1.6; color:#3a3631; display:flex; flex-direction:column; gap:10px;">
+                      <div style="display:flex; gap:11px; align-items:flex-start;"><span style="width:17px;height:17px;border-radius:5px;background:#322e28;flex:none;margin-top:1px;display:flex;align-items:center;justify-content:center;"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="2.2"><path d="m3.5 8.5 3 3 6-7"/></svg></span><span style="color:#9a9183; text-decoration:line-through;">Send a follow-up with a status-board mockup (Sarah, by Fri).</span></div>
+                      <div style="display:flex; gap:11px; align-items:flex-start;"><span style="width:17px;height:17px;border:1.5px solid #c6bcab;border-radius:5px;flex:none;margin-top:1px;"></span>Share current onboarding spreadsheet for reference (Markus).</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- TRANSCRIPT -->
+              <div style="position:absolute; inset:0; overflow:hidden; padding:20px 30px; display:{{ transcriptDisplay }}; flex-direction:column;">
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom:18px; flex:none;">
+                  <div style="display:flex; align-items:center; gap:8px; width:250px; height:32px; padding:0 12px; border:1px solid #e6dfd1; border-radius:8px; background:#fff; color:#a39c8f; font-size:12.5px;">
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="m11 11 3 3"/></svg>Search transcript…
+                  </div>
+                  <div style="flex:1;"></div>
+                  <button style="height:32px; padding:0 12px; border:1px solid #e3dccd; background:#fff; border-radius:8px; font-size:12.5px; color:#6d675d; font-family:inherit; cursor:pointer; display:flex; align-items:center; gap:6px;"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M3 11V3.5A1.5 1.5 0 0 1 4.5 2H11"/></svg>Copy <svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 6 4 4 4-4"/></svg></button>
+                  <button style="height:32px; padding:0 12px; border:1px solid #e3dccd; background:#fff; border-radius:8px; font-size:12.5px; color:#6d675d; font-family:inherit; cursor:pointer; display:flex; align-items:center; gap:6px;"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M5 7l3 3 3-3M2.5 11v2.5h11V11"/></svg>Export <svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 6 4 4 4-4"/></svg></button>
+                </div>
+                <div style="flex:1; overflow:hidden; display:flex; flex-direction:column; gap:20px; max-width:760px;">
+                  <div style="display:flex; gap:16px;">
+                    <span style="font-size:11px; color:#a39a8a; font-family:'JetBrains Mono',monospace; width:46px; flex:none; padding-top:3px;">00:12</span>
+                    <div style="flex:1;"><div style="font-size:12.5px; font-weight:700; color:#2f5d50; margin-bottom:4px; display:flex; align-items:center; gap:7px;"><span style="width:8px;height:8px;border-radius:50%;background:#2f5d50;"></span>Sarah <span style="color:#a39a8a; font-weight:500;">(You)</span></div><div style="font-size:14.5px; line-height:1.62; color:#3a3631;">Thanks for making the time, Markus. I'd love to start by understanding how your team handles client onboarding today.</div></div>
+                  </div>
+                  <div style="display:flex; gap:16px;">
+                    <span style="font-size:11px; color:#a39a8a; font-family:'JetBrains Mono',monospace; width:46px; flex:none; padding-top:3px;">00:21</span>
+                    <div style="flex:1;"><div style="font-size:12.5px; font-weight:700; color:#a4623a; margin-bottom:4px; display:flex; align-items:center; gap:7px;"><span style="width:8px;height:8px;border-radius:50%;background:#a4623a;"></span>Markus Köhler</div><div style="font-size:14.5px; line-height:1.62; color:#3a3631;">Right now it's mostly manual — a shared spreadsheet and a lot of email back-and-forth. It works, but things slip through when we get busy.</div></div>
+                  </div>
+                  <div style="display:flex; gap:16px;">
+                    <span style="font-size:11px; color:#a39a8a; font-family:'JetBrains Mono',monospace; width:46px; flex:none; padding-top:3px;">00:39</span>
+                    <div style="flex:1;"><div style="font-size:12.5px; font-weight:700; color:#5a6b86; margin-bottom:4px; display:flex; align-items:center; gap:7px;"><span style="width:8px;height:8px;border-radius:50%;background:#5a6b86;"></span>Tomas Berg</div><div style="font-size:14.5px; line-height:1.62; color:#3a3631;">And the spreadsheet doesn't tell us where a client actually is in the process. We'd want some kind of status at a glance.</div></div>
+                  </div>
+                  <div style="display:flex; gap:16px;">
+                    <span style="font-size:11px; color:#a39a8a; font-family:'JetBrains Mono',monospace; width:46px; flex:none; padding-top:3px;">01:02</span>
+                    <div style="flex:1;"><div style="font-size:12.5px; font-weight:700; color:#2f5d50; margin-bottom:4px; display:flex; align-items:center; gap:7px;"><span style="width:8px;height:8px;border-radius:50%;background:#2f5d50;"></span>Sarah <span style="color:#a39a8a; font-weight:500;">(You)</span></div><div style="font-size:14.5px; line-height:1.62; color:#3a3631;">That's helpful. When you say things slip through — is that mostly documents, approvals, or scheduling?</div></div>
+                  </div>
+                  <div style="display:flex; gap:16px;">
+                    <span style="font-size:11px; color:#a39a8a; font-family:'JetBrains Mono',monospace; width:46px; flex:none; padding-top:3px;">01:18</span>
+                    <div style="flex:1;"><div style="font-size:12.5px; font-weight:700; color:#a4623a; margin-bottom:4px; display:flex; align-items:center; gap:7px;"><span style="width:8px;height:8px;border-radius:50%;background:#a4623a;"></span>Markus Köhler</div><div style="font-size:14.5px; line-height:1.62; color:#3a3631;">Mostly approvals. A document sits waiting on someone and nobody's reminded. By the time we notice, we've lost a week.</div></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ASK AI -->
+              <div style="position:absolute; inset:0; overflow:hidden; padding:20px 30px; display:{{ askDisplay }}; flex-direction:column;">
+                <div style="flex:1; display:flex; flex-direction:column; gap:18px;">
+                  <div style="font-size:12px; color:#9a9183; text-align:center;">Ask anything about this recording · answers cite the transcript</div>
+                  <div style="align-self:flex-end; max-width:62%; background:linear-gradient(165deg,#322e28,#1f1c18); color:#fff; border-radius:16px 16px 5px 16px; padding:12px 16px; font-size:13.5px; line-height:1.55; box-shadow:0 2px 8px rgba(40,33,24,0.18);">What did Markus say was the biggest pain point?</div>
+                  <div style="align-self:flex-start; max-width:74%; background:#fff; border:1px solid #efe8db; color:#3a3631; border-radius:16px 16px 16px 5px; padding:14px 17px; font-size:13.5px; line-height:1.62; box-shadow:0 1px 3px rgba(40,33,24,0.06);">
+                    The biggest pain point was <strong style="color:#a8542f;">stalled approvals</strong> — documents wait on a single person with no reminder, costing about a week per client.
+                    <div style="margin-top:11px; padding-top:11px; border-top:1px solid #f0e9dd; display:flex; align-items:center; gap:7px; font-size:11px; color:#9a9183; font-family:'JetBrains Mono',monospace;"><span style="padding:2px 7px; border-radius:5px; background:rgba(164,98,58,0.12); color:#a4623a;">01:18</span>Markus Köhler</div>
+                  </div>
+                </div>
+                <div style="flex:none; margin-top:18px; height:50px; border:1px solid #e3dccd; border-radius:12px; background:#fff; display:flex; align-items:center; padding:0 7px 0 17px; box-shadow:0 1px 3px rgba(40,33,24,0.05);">
+                  <span style="flex:1; font-size:13.5px; color:#b3aa99;">Ask about this meeting…</span>
+                  <button style="width:36px; height:36px; border-radius:9px; background:linear-gradient(165deg,#322e28,#1c1916); border:none; display:flex; align-items:center; justify-content:center; cursor:pointer;"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.7"><path d="M8 13V3M4 7l4-4 4 4"/></svg></button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== RECORDING (LIVE) ===================== -->
+  <div style="margin-bottom:14px; font-size:13px; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; color:#827b6f;">3 · Recording (live)</div>
+  <div style="display:flex; gap:48px; align-items:flex-start;">
+    <div style="flex:none; width:1280px;">
+      <div style="background:#fff; border-radius:14px; box-shadow:0 24px 60px -14px rgba(40,33,24,0.30), 0 4px 12px rgba(40,33,24,0.08); overflow:hidden; border:1px solid #d9d3c6;">
+
+        <div style="height:44px; display:flex; align-items:center; padding:0 16px; background:linear-gradient(180deg,#f2eee5,#ece7dc); border-bottom:1px solid #e3dccd;">
+          <div style="display:flex; gap:8px;">
+            <span style="width:12px; height:12px; border-radius:50%; background:#ff5f57; box-shadow:inset 0 0 0 0.5px rgba(0,0,0,0.12);"></span>
+            <span style="width:12px; height:12px; border-radius:50%; background:#febc2e; box-shadow:inset 0 0 0 0.5px rgba(0,0,0,0.12);"></span>
+            <span style="width:12px; height:12px; border-radius:50%; background:#28c840; box-shadow:inset 0 0 0 0.5px rgba(0,0,0,0.12);"></span>
+          </div>
+          <div style="flex:1; text-align:center; font-size:13px; color:#938c7f; font-weight:500; letter-spacing:0.02em; display:flex; align-items:center; justify-content:center; gap:8px;"><span style="width:7px;height:7px;border-radius:50%;background:#d6492f;animation:recpulse 1.6s ease-in-out infinite;"></span>Sirina · Recording</div>
+          <div style="width:54px;"></div>
+        </div>
+
+        <div style="display:flex; height:768px;">
+          <!-- SIDEBAR (live record state) -->
+          <div style="width:252px; flex:none; background:linear-gradient(168deg,#f4f0e8,#efe8dc); border-right:1px solid #e6dfd1; display:flex; flex-direction:column; padding:18px 14px;">
+            <div style="display:flex; align-items:center; gap:11px; padding:4px 8px 20px;">
+              <img src="assets/sirina-mark.svg" alt="Sirina" style="width:38px; height:38px; display:block; margin:-2px -1px -2px -3px;">
+              <span style="font-family:'Newsreader',serif; font-size:21px; font-weight:600; letter-spacing:-0.01em;">Sirina</span>
+            </div>
+
+            <!-- live record pill -->
+            <div style="display:flex; align-items:center; gap:11px; height:48px; border-radius:12px; background:linear-gradient(180deg,#e0563b,#c83f25); color:#fff; padding:0 16px; margin-bottom:8px; box-shadow:0 6px 16px -2px rgba(200,63,37,0.42), inset 0 1px 0 rgba(255,255,255,0.25);">
+              <span style="width:11px; height:11px; border-radius:50%; background:#fff; animation:recpulse 1.6s ease-in-out infinite; box-shadow:0 0 0 3px rgba(255,255,255,0.3);"></span>
+              <span style="font-size:14.5px; font-weight:600; flex:1;">Recording</span>
+              <span style="font-size:13px; font-weight:600; font-family:'JetBrains Mono',monospace; opacity:0.92;">2:35</span>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:center; gap:6px; font-size:11.5px; color:#9a9183; margin-bottom:24px;">
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="6" y="2" width="4" height="7" rx="2"/><path d="M4 8a4 4 0 0 0 8 0M8 12v2"/></svg>
+              MacBook Mic · BlackHole 2ch
+            </div>
+
+            <div style="display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:10px; background:#fff; color:#24211d; font-size:14px; font-weight:600; box-shadow:0 1px 3px rgba(40,33,24,0.08); border:1px solid #efe8db;">
+              <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="#c83f25" stroke-width="1.6" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><path d="M8 4.5v3.5l2.3 1.4"/></svg>
+              Recordings
+            </div>
+            <div style="display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:10px; color:#6d675d; font-size:14px;">
+              <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M2.5 4.5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H6.5L3 13V10.5a2 2 0 0 1-.5-1.3z"/></svg>
+              Ask
+            </div>
+            <div style="display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:10px; color:#6d675d; font-size:14px;">
+              <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="5.5" cy="5" r="2.2"/><circle cx="11" cy="6" r="1.8"/><path d="M1.8 13c0-2 1.6-3.3 3.7-3.3S9.2 11 9.2 13M9.8 12.5c0-1.5 1-2.6 2.6-2.6 1.3 0 2.2.8 2.4 2"/></svg>
+              People
+            </div>
+            <div style="display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:10px; color:#6d675d; font-size:14px;">
+              <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="1.5" width="10" height="13" rx="1.5"/><path d="M5.5 5h5M5.5 8h5M5.5 11h3"/></svg>
+              Templates
+            </div>
+            <div style="flex:1;"></div>
+            <div style="display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:10px; color:#6d675d; font-size:14px;">
+              <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.3"/><path d="M8 1.5v2M8 12.5v2M14.5 8h-2M3.5 8h-2M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4M12.6 12.6l-1.4-1.4M4.8 4.8 3.4 3.4"/></svg>
+              Settings
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; padding:10px 12px 2px; border-top:1px solid #e6dfd1; margin-top:5px; font-size:12px; color:#9a9183;">
+              <span style="width:7px; height:7px; border-radius:50%; background:#4a8c5f; display:inline-block; box-shadow:0 0 0 3px rgba(74,140,95,0.16);"></span>
+              Local · saving to disk
+            </div>
+          </div>
+
+          <!-- MAIN (live capture) -->
+          <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:34px; background:radial-gradient(circle at 50% 36%, rgba(214,73,47,0.07), rgba(252,251,248,0) 58%), #fcfbf8;">
+
+            <!-- live pill + title -->
+            <div style="display:flex; flex-direction:column; align-items:center; gap:14px;">
+              <div style="display:flex; align-items:center; gap:9px; padding:6px 15px; border-radius:30px; background:rgba(214,73,47,0.10); color:#c0402a; font-size:12.5px; font-weight:600; letter-spacing:0.04em; text-transform:uppercase;">
+                <span style="width:9px;height:9px;border-radius:50%;background:#d6492f;animation:recpulse 1.6s ease-in-out infinite;"></span>Recording
+              </div>
+              <div style="font-family:'Newsreader',serif; font-size:21px; font-weight:500; color:#3a3631;">Acme Corp — Discovery call</div>
+            </div>
+
+            <!-- big timer -->
+            <div style="font-family:'JetBrains Mono',monospace; font-size:92px; font-weight:500; letter-spacing:-0.02em; color:#24211d; line-height:1; font-variant-numeric:tabular-nums;">2:35</div>
+
+            <!-- live level / waveform -->
+            <div style="display:flex; flex-direction:column; align-items:center; gap:12px;">
+              <div style="display:flex; align-items:center; gap:4px; height:60px;">
+                <div style="width:4px;height:18%;border-radius:3px;background:#eccbbf;"></div><div style="width:4px;height:34%;border-radius:3px;background:#e7b6a4;"></div><div style="width:4px;height:26%;border-radius:3px;background:#eccbbf;"></div><div style="width:4px;height:52%;border-radius:3px;background:#e09a80;"></div><div style="width:4px;height:40%;border-radius:3px;background:#e7b6a4;"></div><div style="width:4px;height:68%;border-radius:3px;background:#d6492f;"></div><div style="width:4px;height:46%;border-radius:3px;background:#e09a80;"></div><div style="width:4px;height:82%;border-radius:3px;background:#d6492f;"></div><div style="width:4px;height:58%;border-radius:3px;background:#dd7e62;"></div><div style="width:4px;height:96%;border-radius:3px;background:#cf4329;"></div><div style="width:4px;height:64%;border-radius:3px;background:#d6492f;"></div><div style="width:4px;height:100%;border-radius:3px;background:#cf4329;"></div><div style="width:4px;height:72%;border-radius:3px;background:#d6492f;"></div><div style="width:4px;height:88%;border-radius:3px;background:#cf4329;"></div><div style="width:4px;height:54%;border-radius:3px;background:#dd7e62;"></div><div style="width:4px;height:78%;border-radius:3px;background:#d6492f;"></div><div style="width:4px;height:44%;border-radius:3px;background:#e09a80;"></div><div style="width:4px;height:62%;border-radius:3px;background:#d6492f;"></div><div style="width:4px;height:36%;border-radius:3px;background:#e7b6a4;"></div><div style="width:4px;height:56%;border-radius:3px;background:#dd7e62;"></div><div style="width:4px;height:30%;border-radius:3px;background:#eccbbf;"></div><div style="width:4px;height:48%;border-radius:3px;background:#e09a80;"></div><div style="width:4px;height:24%;border-radius:3px;background:#eccbbf;"></div><div style="width:4px;height:38%;border-radius:3px;background:#e7b6a4;"></div><div style="width:4px;height:20%;border-radius:3px;background:#eccbbf;"></div>
+              </div>
+              <div style="display:flex; flex-direction:column; align-items:center; gap:7px;">
+                <div style="width:300px; height:7px; border-radius:5px; background:#efe7da; overflow:hidden;"><div style="width:64%; height:100%; background:linear-gradient(90deg,#e7b6a4,#d6492f); border-radius:5px;"></div></div>
+                <div style="font-size:11px; letter-spacing:0.08em; text-transform:uppercase; color:#a39a8a;">Input level</div>
+              </div>
+            </div>
+
+            <!-- stop -->
+            <button style="display:flex; align-items:center; gap:11px; height:52px; padding:0 30px; border-radius:30px; background:linear-gradient(180deg,#e0563b,#c83f25); color:#fff; border:none; font-size:15px; font-weight:600; font-family:inherit; cursor:pointer; box-shadow:0 8px 22px -4px rgba(200,63,37,0.5), inset 0 1px 0 rgba(255,255,255,0.25); margin-top:4px;">
+              <span style="width:14px; height:14px; border-radius:3px; background:#fff;"></span> Stop recording
+            </button>
+
+            <p style="max-width:380px; text-align:center; font-size:13px; line-height:1.6; color:#9a9183; margin:0;">Audio is being saved to disk. Transcription and the summary run automatically after you stop.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== SETTINGS ===================== -->
+  <div style="margin-bottom:14px; font-size:13px; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; color:#827b6f;">4 · Settings</div>
+  <div style="display:flex; gap:48px; align-items:flex-start;">
+    <div style="flex:none; width:1280px;">
+      <div style="background:#fff; border-radius:14px; box-shadow:0 24px 60px -14px rgba(40,33,24,0.30), 0 4px 12px rgba(40,33,24,0.08); overflow:hidden; border:1px solid #d9d3c6;">
+
+        <div style="height:44px; display:flex; align-items:center; padding:0 16px; background:linear-gradient(180deg,#f2eee5,#ece7dc); border-bottom:1px solid #e3dccd;">
+          <div style="display:flex; gap:8px;">
+            <span style="width:12px; height:12px; border-radius:50%; background:#ff5f57; box-shadow:inset 0 0 0 0.5px rgba(0,0,0,0.12);"></span>
+            <span style="width:12px; height:12px; border-radius:50%; background:#febc2e; box-shadow:inset 0 0 0 0.5px rgba(0,0,0,0.12);"></span>
+            <span style="width:12px; height:12px; border-radius:50%; background:#28c840; box-shadow:inset 0 0 0 0.5px rgba(0,0,0,0.12);"></span>
+          </div>
+          <div style="flex:1; text-align:center; font-size:13px; color:#938c7f; font-weight:500; letter-spacing:0.02em;">Sirina</div>
+          <div style="width:54px;"></div>
+        </div>
+
+        <div style="display:flex; height:1000px;">
+          <!-- SIDEBAR (Settings active) -->
+          <div style="width:252px; flex:none; background:linear-gradient(168deg,#f4f0e8,#efe8dc); border-right:1px solid #e6dfd1; display:flex; flex-direction:column; padding:18px 14px;">
+            <div style="display:flex; align-items:center; gap:11px; padding:4px 8px 20px;">
+              <img src="assets/sirina-mark.svg" alt="Sirina" style="width:38px; height:38px; display:block; margin:-2px -1px -2px -3px;">
+              <span style="font-family:'Newsreader',serif; font-size:21px; font-weight:600; letter-spacing:-0.01em;">Sirina</span>
+            </div>
+            <button style="display:flex; align-items:center; justify-content:center; gap:10px; height:48px; border-radius:12px; background:linear-gradient(180deg,#e0563b,#c83f25); color:#fff; border:none; font-size:15px; font-weight:600; font-family:inherit; cursor:pointer; margin-bottom:8px; box-shadow:0 6px 16px -2px rgba(200,63,37,0.42), inset 0 1px 0 rgba(255,255,255,0.25);">
+              <span style="width:13px; height:13px; border-radius:50%; background:#fff; box-shadow:0 0 0 3px rgba(255,255,255,0.28);"></span> Record
+            </button>
+            <div style="display:flex; align-items:center; justify-content:center; gap:6px; font-size:11.5px; color:#9a9183; margin-bottom:24px;">
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="6" y="2" width="4" height="7" rx="2"/><path d="M4 8a4 4 0 0 0 8 0M8 12v2"/></svg>
+              MacBook Mic · BlackHole 2ch <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m4 6 4 4 4-4"/></svg>
+            </div>
+            <div style="display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:10px; color:#6d675d; font-size:14px;">
+              <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><path d="M8 4.5v3.5l2.3 1.4"/></svg>
+              Recordings
+            </div>
+            <div style="display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:10px; color:#6d675d; font-size:14px;">
+              <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M2.5 4.5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H6.5L3 13V10.5a2 2 0 0 1-.5-1.3z"/></svg>
+              Ask
+            </div>
+            <div style="display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:10px; color:#6d675d; font-size:14px;">
+              <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="5.5" cy="5" r="2.2"/><circle cx="11" cy="6" r="1.8"/><path d="M1.8 13c0-2 1.6-3.3 3.7-3.3S9.2 11 9.2 13M9.8 12.5c0-1.5 1-2.6 2.6-2.6 1.3 0 2.2.8 2.4 2"/></svg>
+              People
+            </div>
+            <div style="display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:10px; color:#6d675d; font-size:14px;">
+              <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="1.5" width="10" height="13" rx="1.5"/><path d="M5.5 5h5M5.5 8h5M5.5 11h3"/></svg>
+              Templates
+            </div>
+            <div style="flex:1;"></div>
+            <div style="display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:10px; background:#fff; color:#24211d; font-size:14px; font-weight:600; box-shadow:0 1px 3px rgba(40,33,24,0.08); border:1px solid #efe8db;">
+              <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="#c83f25" stroke-width="1.5"><circle cx="8" cy="8" r="2.3"/><path d="M8 1.5v2M8 12.5v2M14.5 8h-2M3.5 8h-2M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4M12.6 12.6l-1.4-1.4M4.8 4.8 3.4 3.4"/></svg>
+              Settings
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; padding:10px 12px 2px; border-top:1px solid #e6dfd1; margin-top:5px; font-size:12px; color:#9a9183;">
+              <span style="width:7px; height:7px; border-radius:50%; background:#4a8c5f; display:inline-block; box-shadow:0 0 0 3px rgba(74,140,95,0.16);"></span>
+              Local · Whisper ready
+            </div>
+          </div>
+
+          <!-- MAIN -->
+          <div style="flex:1; display:flex; flex-direction:column; overflow:hidden; background:#fcfbf8;">
+            <div style="height:64px; flex:none; display:flex; align-items:center; gap:14px; padding:0 30px; border-bottom:1px solid #efe8db;">
+              <span style="font-family:'Newsreader',serif; font-size:21px; font-weight:600;">Settings</span>
+              <div style="flex:1;"></div>
+              <span style="font-size:12px; color:#9a9183;">Changes save automatically</span>
+            </div>
+
+            <div style="flex:1; overflow-y:auto; padding:26px 30px 40px;">
+              <div style="max-width:840px; margin:0 auto; display:flex; flex-direction:column; gap:18px;">
+
+                <!-- AI MODEL -->
+                <section style="background:#fff; border:1px solid #efe8db; border-radius:14px; padding:22px 26px; box-shadow:0 1px 3px rgba(40,33,24,0.05);">
+                  <div style="display:flex; align-items:flex-start; gap:13px; margin-bottom:18px;">
+                    <span style="width:32px;height:32px;flex:none;border-radius:9px;background:rgba(214,73,47,0.10);display:flex;align-items:center;justify-content:center;"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#c83f25" stroke-width="1.5" stroke-linejoin="round"><path d="M8 1.5 9.6 6 14 7.5 9.6 9 8 13.5 6.4 9 2 7.5 6.4 6z"/></svg></span>
+                    <div style="flex:1;">
+                      <div style="display:flex; align-items:center; gap:9px;"><span style="font-size:16px; font-weight:700;">AI model</span><span style="padding:2px 8px; border-radius:20px; background:rgba(74,140,95,0.14); color:#3f7a54; font-size:10.5px; font-weight:700; letter-spacing:0.03em;">APPLIES INSTANTLY</span></div>
+                      <div style="font-size:12.5px; color:#9a9183; margin-top:3px;">Used for summaries and the Ask assistant.</div>
+                    </div>
+                  </div>
+
+                  <!-- provider -->
+                  <div style="display:flex; align-items:center; gap:24px; padding:13px 0; border-top:1px solid #f3eee4;">
+                    <div style="width:230px; flex:none;"><div style="font-size:13.5px; font-weight:600;">Provider</div><div style="font-size:12px; color:#9a9183; margin-top:2px;">Local (Ollama) or a cloud API.</div></div>
+                    <div style="flex:1; display:flex; justify-content:flex-end;">
+                      <button onClick="{{ toggleProvider }}" style="display:flex; align-items:center; justify-content:space-between; gap:12px; min-width:230px; height:38px; padding:0 13px; border:1px solid #e6dfd1; border-radius:9px; background:#fff; font-size:13.5px; color:#24211d; cursor:pointer; font-family:inherit; box-shadow:0 1px 2px rgba(40,33,24,0.04);">
+                        <span style="display:flex; align-items:center; gap:8px;"><span style="width:7px;height:7px;border-radius:50%; background:{{ providerDot }};"></span><span style="display:{{ cloudInline }};">Google AI Studio</span><span style="display:{{ ollamaInline }};">Ollama · local</span></span>
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#a39a8a" stroke-width="1.8"><path d="m4 6 4 4 4-4"/></svg>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- api key (cloud only) -->
+                  <div style="display:{{ cloudFlex }}; align-items:center; gap:24px; padding:13px 0; border-top:1px solid #f3eee4;">
+                    <div style="width:230px; flex:none;"><div style="font-size:13.5px; font-weight:600;">API key</div><div style="font-size:12px; color:#9a9183; margin-top:2px;">Stored in the system keychain.</div></div>
+                    <div style="flex:1; display:flex; justify-content:flex-end;">
+                      <div style="display:flex; align-items:center; gap:8px; width:300px; height:38px; padding:0 13px; border:1px solid #e6dfd1; border-radius:9px; background:#fff; box-shadow:0 1px 2px rgba(40,33,24,0.04);">
+                        <span style="flex:1; font-family:'JetBrains Mono',monospace; font-size:14px; color:#6d675d; letter-spacing:1px;">••••••••••••••••••••</span>
+                        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#a39a8a" stroke-width="1.5"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- base url -->
+                  <div style="display:flex; align-items:center; gap:24px; padding:13px 0; border-top:1px solid #f3eee4;">
+                    <div style="width:230px; flex:none;"><div style="font-size:13.5px; font-weight:600;">Base URL <span style="font-weight:400; color:#a39a8a;">· optional</span></div><div style="font-size:12px; color:#9a9183; margin-top:2px;">Override for self-hosted or custom.</div></div>
+                    <div style="flex:1; display:flex; justify-content:flex-end;">
+                      <div style="width:300px; height:38px; padding:0 13px; border:1px solid #e6dfd1; border-radius:9px; background:#fff; display:flex; align-items:center; font-size:13px; color:#b3aa99; font-family:'JetBrains Mono',monospace; box-shadow:0 1px 2px rgba(40,33,24,0.04);">https://generativelanguage…</div>
+                    </div>
+                  </div>
+
+                  <!-- model -->
+                  <div style="display:flex; align-items:center; gap:24px; padding:13px 0; border-top:1px solid #f3eee4;">
+                    <div style="width:230px; flex:none;"><div style="font-size:13.5px; font-weight:600;">Model</div><div style="font-size:12px; color:#9a9183; margin-top:2px;"><span style="display:{{ cloudInline }};">Fetched from the provider's /models.</span><span style="display:{{ ollamaInline }};">Your installed models (/api/tags).</span></div></div>
+                    <div style="flex:1; display:flex; justify-content:flex-end;">
+                      <button style="display:flex; align-items:center; justify-content:space-between; gap:12px; min-width:230px; height:38px; padding:0 13px; border:1px solid #e6dfd1; border-radius:9px; background:#fff; font-size:13.5px; color:#24211d; cursor:pointer; font-family:'JetBrains Mono',monospace; box-shadow:0 1px 2px rgba(40,33,24,0.04);">
+                        <span style="display:{{ cloudInline }};">gemini-2.0-flash</span><span style="display:{{ ollamaInline }};">llama3.1:8b</span>
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#a39a8a" stroke-width="1.8"><path d="m4 6 4 4 4-4"/></svg>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- test -->
+                  <div style="display:flex; align-items:center; gap:14px; padding:15px 0 4px; border-top:1px solid #f3eee4;">
+                    <button style="height:36px; padding:0 16px; border:1px solid #322e28; background:#322e28; color:#fff; border-radius:9px; font-size:13px; font-weight:600; font-family:inherit; cursor:pointer;">Test connection</button>
+                    <span style="display:flex; align-items:center; gap:7px; font-size:12.5px; color:#3f7a54; font-weight:600;">
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#4a8c5f" stroke-width="1.8"><circle cx="8" cy="8" r="6.5"/><path d="m5 8 2 2 4-4.5"/></svg>
+                      <span style="display:{{ cloudInline }};">Reachable · 14 models</span><span style="display:{{ ollamaInline }};">Connected · 6 installed models</span>
+                    </span>
+                    <div style="flex:1;"></div>
+                  </div>
+
+                  <!-- warning (cloud only) -->
+                  <div style="display:{{ cloudFlex }}; align-items:center; gap:10px; margin-top:14px; padding:11px 14px; border-radius:10px; background:rgba(214,73,47,0.07); border:1px solid rgba(214,73,47,0.20); font-size:12.5px; color:#a8542f;">
+                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.2M8 11.6v.1"/></svg>
+                    Cloud providers send transcripts off-device. Use Ollama to keep everything local.
+                  </div>
+                  <div style="display:{{ ollamaFlex }}; align-items:center; gap:10px; margin-top:14px; padding:11px 14px; border-radius:10px; background:rgba(74,140,95,0.08); border:1px solid rgba(74,140,95,0.20); font-size:12.5px; color:#3f7a54;">
+                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5 8.5 7 10.5 11 5.5"/><circle cx="8" cy="8" r="6.5"/></svg>
+                    Fully local — transcripts never leave this device.
+                  </div>
+                </section>
+
+                <!-- TRANSCRIPTION -->
+                <section style="background:#fff; border:1px solid #efe8db; border-radius:14px; padding:22px 26px; box-shadow:0 1px 3px rgba(40,33,24,0.05);">
+                  <div style="display:flex; align-items:flex-start; gap:13px; margin-bottom:18px;">
+                    <span style="width:32px;height:32px;flex:none;border-radius:9px;background:rgba(95,122,140,0.12);display:flex;align-items:center;justify-content:center;"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="#4f6878" stroke-width="1.5" stroke-linecap="round"><path d="M2 8h1.5M5 5v6M7.5 3v10M10 5.5v5M12.5 7v2M14.5 8H14"/></svg></span>
+                    <div style="flex:1;">
+                      <div style="display:flex; align-items:center; gap:9px;"><span style="font-size:16px; font-weight:700;">Transcription</span><span style="padding:2px 8px; border-radius:20px; background:rgba(201,138,43,0.15); color:#a87423; font-size:10.5px; font-weight:700; letter-spacing:0.03em;">RESTART REQUIRED</span></div>
+                      <div style="font-size:12.5px; color:#9a9183; margin-top:3px;">Engine &amp; model changes reload after restart.</div>
+                    </div>
+                  </div>
+
+                  <div style="display:flex; align-items:center; gap:24px; padding:13px 0; border-top:1px solid #f3eee4;">
+                    <div style="width:230px; flex:none;"><div style="font-size:13.5px; font-weight:600;">Engine</div><div style="font-size:12px; color:#9a9183; margin-top:2px;">Apple MLX or faster-whisper.</div></div>
+                    <div style="flex:1; display:flex; justify-content:flex-end;"><div style="display:flex; align-items:center; justify-content:space-between; gap:12px; min-width:230px; height:38px; padding:0 13px; border:1px solid #e6dfd1; border-radius:9px; background:#fff; font-size:13.5px; color:#24211d;">Auto · MLX <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#a39a8a" stroke-width="1.8"><path d="m4 6 4 4 4-4"/></svg></div></div>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:24px; padding:13px 0; border-top:1px solid #f3eee4;">
+                    <div style="width:230px; flex:none;"><div style="font-size:13.5px; font-weight:600;">Model</div><div style="font-size:12px; color:#9a9183; margin-top:2px;">Larger = more accurate, slower.</div></div>
+                    <div style="flex:1; display:flex; justify-content:flex-end;"><div style="display:flex; align-items:center; justify-content:space-between; gap:12px; min-width:230px; height:38px; padding:0 13px; border:1px solid #e6dfd1; border-radius:9px; background:#fff; font-size:13.5px; color:#24211d; font-family:'JetBrains Mono',monospace;">large-v3 <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#a39a8a" stroke-width="1.8"><path d="m4 6 4 4 4-4"/></svg></div></div>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:24px; padding:13px 0; border-top:1px solid #f3eee4;">
+                    <div style="width:230px; flex:none;"><div style="font-size:13.5px; font-weight:600;">Language</div><div style="font-size:12px; color:#9a9183; margin-top:2px;">Auto-detect or force one.</div></div>
+                    <div style="flex:1; display:flex; justify-content:flex-end;"><div style="display:flex; align-items:center; justify-content:space-between; gap:12px; min-width:230px; height:38px; padding:0 13px; border:1px solid #e6dfd1; border-radius:9px; background:#fff; font-size:13.5px; color:#24211d;">Auto-detect <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#a39a8a" stroke-width="1.8"><path d="m4 6 4 4 4-4"/></svg></div></div>
+                  </div>
+                  <div style="display:flex; align-items:flex-start; gap:24px; padding:13px 0 4px; border-top:1px solid #f3eee4;">
+                    <div style="width:230px; flex:none;"><div style="font-size:13.5px; font-weight:600;">Vocabulary hints</div><div style="font-size:12px; color:#9a9183; margin-top:2px;">Bias toward names &amp; jargon (initial_prompt).</div></div>
+                    <div style="flex:1; display:flex; justify-content:flex-end;"><div style="width:300px; min-height:64px; padding:10px 13px; border:1px solid #e6dfd1; border-radius:9px; background:#fff; font-size:13px; color:#b3aa99; line-height:1.5;">Acme Corp, Nordwind, BlackHole, pyannote, onboarding…</div></div>
+                  </div>
+                </section>
+
+                <!-- DIARIZATION -->
+                <section style="background:#fff; border:1px solid #efe8db; border-radius:14px; padding:22px 26px; box-shadow:0 1px 3px rgba(40,33,24,0.05);">
+                  <div style="display:flex; align-items:flex-start; gap:13px; margin-bottom:18px;">
+                    <span style="width:32px;height:32px;flex:none;border-radius:9px;background:rgba(47,93,80,0.12);display:flex;align-items:center;justify-content:center;"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="#2f5d50" stroke-width="1.5"><circle cx="5.5" cy="5" r="2.2"/><circle cx="11" cy="6" r="1.8"/><path d="M1.8 13c0-2 1.6-3.3 3.7-3.3S9.2 11 9.2 13M9.8 12.5c0-1.5 1-2.6 2.6-2.6 1.3 0 2.2.8 2.4 2"/></svg></span>
+                    <div style="flex:1;">
+                      <div style="display:flex; align-items:center; gap:9px;"><span style="font-size:16px; font-weight:700;">Speaker diarization</span><span style="padding:2px 8px; border-radius:20px; background:rgba(74,140,95,0.14); color:#3f7a54; font-size:10.5px; font-weight:700; letter-spacing:0.03em;">APPLIES INSTANTLY</span></div>
+                      <div style="font-size:12.5px; color:#9a9183; margin-top:3px;">Separate &amp; label who spoke. Off by default · not bundled in the app yet.</div>
+                    </div>
+                  </div>
+
+                  <div style="display:flex; align-items:center; gap:24px; padding:13px 0; border-top:1px solid #f3eee4;">
+                    <div style="width:230px; flex:none;"><div style="font-size:13.5px; font-weight:600;">Enable diarization</div><div style="font-size:12px; color:#9a9183; margin-top:2px;">Adds a separation pass after transcription.</div></div>
+                    <div style="flex:1; display:flex; justify-content:flex-end;">
+                      <button onClick="{{ toggleDiar }}" style="width:44px; height:26px; border-radius:20px; border:none; cursor:pointer; padding:0; position:relative; background:{{ diarTrack }};">
+                        <span style="position:absolute; top:3px; left:3px; width:20px; height:20px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(40,33,24,0.3); transform:{{ diarKnob }}; transition:transform 0.15s;"></span>
+                      </button>
+                    </div>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:24px; padding:13px 0; border-top:1px solid #f3eee4; opacity:{{ diarFieldsOpacity }};">
+                    <div style="width:230px; flex:none;"><div style="font-size:13.5px; font-weight:600;">HuggingFace token</div><div style="font-size:12px; color:#9a9183; margin-top:2px;">Required to download pyannote.</div></div>
+                    <div style="flex:1; display:flex; justify-content:flex-end;"><div style="display:flex; align-items:center; gap:8px; width:300px; height:38px; padding:0 13px; border:1px solid #e6dfd1; border-radius:9px; background:#fff;"><span style="flex:1; font-family:'JetBrains Mono',monospace; font-size:14px; color:#6d675d; letter-spacing:1px;">••••••••••••••••</span></div></div>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:24px; padding:13px 0 4px; border-top:1px solid #f3eee4; opacity:{{ diarFieldsOpacity }};">
+                    <div style="width:230px; flex:none;"><div style="font-size:13.5px; font-weight:600;">Model</div><div style="font-size:12px; color:#9a9183; margin-top:2px;">pyannote pipeline.</div></div>
+                    <div style="flex:1; display:flex; justify-content:flex-end;"><div style="display:flex; align-items:center; justify-content:space-between; gap:12px; min-width:300px; height:38px; padding:0 13px; border:1px solid #e6dfd1; border-radius:9px; background:#fff; font-size:13px; color:#24211d; font-family:'JetBrains Mono',monospace;">pyannote/speaker-diarization-3.1 <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#a39a8a" stroke-width="1.8"><path d="m4 6 4 4 4-4"/></svg></div></div>
+                  </div>
+                </section>
+
+                <!-- ADVANCED -->
+                <section style="background:#fff; border:1px solid #efe8db; border-radius:14px; padding:22px 26px; box-shadow:0 1px 3px rgba(40,33,24,0.05);">
+                  <div style="display:flex; align-items:flex-start; gap:13px; margin-bottom:18px;">
+                    <span style="width:32px;height:32px;flex:none;border-radius:9px;background:rgba(138,109,59,0.13);display:flex;align-items:center;justify-content:center;"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="#7a5f33" stroke-width="1.5" stroke-linecap="round"><path d="M2 5h7M11.5 5H14M2 11h2.5M7 11h7"/><circle cx="10" cy="5" r="1.6"/><circle cx="5.5" cy="11" r="1.6"/></svg></span>
+                    <div style="flex:1;">
+                      <div style="display:flex; align-items:center; gap:9px;"><span style="font-size:16px; font-weight:700;">Advanced</span><span style="padding:2px 8px; border-radius:20px; background:#f0ebe1; color:#8a8170; font-size:10.5px; font-weight:700; letter-spacing:0.03em;">MIXED</span></div>
+                      <div style="font-size:12.5px; color:#9a9183; margin-top:3px;">Performance tuning &amp; local storage.</div>
+                    </div>
+                  </div>
+
+                  <div style="display:flex; align-items:center; gap:24px; padding:13px 0; border-top:1px solid #f3eee4;">
+                    <div style="width:230px; flex:none;"><div style="font-size:13.5px; font-weight:600;">Chunk length</div><div style="font-size:12px; color:#9a9183; margin-top:2px;">Seconds per processing window.</div></div>
+                    <div style="flex:1; display:flex; justify-content:flex-end;"><div style="display:flex; align-items:center; gap:0; width:120px; height:38px; border:1px solid #e6dfd1; border-radius:9px; background:#fff; overflow:hidden;"><span style="flex:1; text-align:center; font-size:13.5px; font-family:'JetBrains Mono',monospace;">30</span><div style="display:flex; flex-direction:column; border-left:1px solid #ece5d8;"><span style="width:28px; height:18px; display:flex; align-items:center; justify-content:center; border-bottom:1px solid #ece5d8;"><svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="#a39a8a" stroke-width="2"><path d="m4 10 4-4 4 4"/></svg></span><span style="width:28px; height:18px; display:flex; align-items:center; justify-content:center;"><svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="#a39a8a" stroke-width="2"><path d="m4 6 4 4 4-4"/></svg></span></div></div></div>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:24px; padding:13px 0; border-top:1px solid #f3eee4;">
+                    <div style="width:230px; flex:none;"><div style="font-size:13.5px; font-weight:600;">Silence threshold</div><div style="font-size:12px; color:#9a9183; margin-top:2px;">Skip near-silent audio.</div></div>
+                    <div style="flex:1; display:flex; align-items:center; justify-content:flex-end; gap:12px;"><div style="width:200px; height:6px; border-radius:4px; background:#efe7da; position:relative;"><div style="width:38%; height:100%; background:#322e28; border-radius:4px;"></div><span style="position:absolute; left:38%; top:50%; width:14px; height:14px; border-radius:50%; background:#322e28; transform:translate(-50%,-50%); box-shadow:0 1px 3px rgba(40,33,24,0.3);"></span></div><span style="font-size:13px; color:#6d675d; font-family:'JetBrains Mono',monospace; width:42px;">-38dB</span></div>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:24px; padding:13px 0; border-top:1px solid #f3eee4;">
+                    <div style="width:230px; flex:none;"><div style="font-size:13.5px; font-weight:600;">CPU threads</div><div style="font-size:12px; color:#9a9183; margin-top:2px;">0 = all available cores.</div></div>
+                    <div style="flex:1; display:flex; justify-content:flex-end;"><div style="display:flex; align-items:center; width:120px; height:38px; border:1px solid #e6dfd1; border-radius:9px; background:#fff; overflow:hidden;"><span style="flex:1; text-align:center; font-size:13.5px; font-family:'JetBrains Mono',monospace;">8</span><div style="display:flex; flex-direction:column; border-left:1px solid #ece5d8;"><span style="width:28px; height:18px; display:flex; align-items:center; justify-content:center; border-bottom:1px solid #ece5d8;"><svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="#a39a8a" stroke-width="2"><path d="m4 10 4-4 4 4"/></svg></span><span style="width:28px; height:18px; display:flex; align-items:center; justify-content:center;"><svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="#a39a8a" stroke-width="2"><path d="m4 6 4 4 4-4"/></svg></span></div></div></div>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:24px; padding:13px 0 4px; border-top:1px solid #f3eee4;">
+                    <div style="width:230px; flex:none;"><div style="font-size:13.5px; font-weight:600;">Data folder</div><div style="font-size:12px; color:#9a9183; margin-top:2px;">Where recordings &amp; the database live.</div></div>
+                    <div style="flex:1; display:flex; align-items:center; justify-content:flex-end; gap:10px;"><div style="max-width:320px; height:38px; padding:0 13px; border:1px solid #ece5d8; border-radius:9px; background:#faf8f3; display:flex; align-items:center; font-size:12px; color:#8e8779; font-family:'JetBrains Mono',monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">~/Library/App Support/Sirina</div><button style="height:38px; padding:0 14px; border:1px solid #e3dccd; background:#fff; border-radius:9px; font-size:12.5px; color:#6d675d; font-family:inherit; cursor:pointer; white-space:nowrap;">Open in Finder</button></div>
+                  </div>
+                </section>
+
+                <!-- STATUS -->
+                <section style="background:#faf8f3; border:1px solid #ece5d8; border-radius:14px; padding:22px 26px;">
+                  <div style="display:flex; align-items:flex-start; gap:13px; margin-bottom:16px;">
+                    <span style="width:32px;height:32px;flex:none;border-radius:9px;background:#fff;border:1px solid #ece5d8;display:flex;align-items:center;justify-content:center;"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#6d675d" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8h3l1.5-4 2.5 8 1.5-4h3"/></svg></span>
+                    <div style="flex:1;">
+                      <div style="display:flex; align-items:center; gap:9px;"><span style="font-size:16px; font-weight:700;">Status</span><span style="padding:2px 8px; border-radius:20px; background:#f0ebe1; color:#8a8170; font-size:10.5px; font-weight:700; letter-spacing:0.03em;">READ-ONLY</span></div>
+                      <div style="font-size:12.5px; color:#9a9183; margin-top:3px;">Live runtime health.</div>
+                    </div>
+                  </div>
+                  <div style="display:flex; flex-direction:column; gap:1px;">
+                    <div style="display:flex; align-items:center; gap:12px; padding:11px 0; border-top:1px solid #efe8db;"><span style="width:8px;height:8px;border-radius:50%;background:#4a8c5f;box-shadow:0 0 0 3px rgba(74,140,95,0.16);flex:none;"></span><span style="flex:1; font-size:13.5px; font-weight:600;">Transcription engine</span><span style="font-size:12.5px; color:#6d675d; font-family:'JetBrains Mono',monospace;">MLX · active</span></div>
+                    <div style="display:flex; align-items:center; gap:12px; padding:11px 0; border-top:1px solid #efe8db;"><span style="width:8px;height:8px;border-radius:50%;background:#4a8c5f;box-shadow:0 0 0 3px rgba(74,140,95,0.16);flex:none;"></span><span style="flex:1; font-size:13.5px; font-weight:600;">Whisper model</span><span style="font-size:12.5px; color:#6d675d; font-family:'JetBrains Mono',monospace;">large-v3 · loaded</span></div>
+                    <div style="display:flex; align-items:center; gap:12px; padding:11px 0; border-top:1px solid #efe8db;"><span style="width:8px;height:8px;border-radius:50%;background:#4a8c5f;box-shadow:0 0 0 3px rgba(74,140,95,0.16);flex:none;"></span><span style="flex:1; font-size:13.5px; font-weight:600;">AI provider</span><span style="font-size:12.5px; color:#6d675d; font-family:'JetBrains Mono',monospace;">Google AI Studio · reachable</span></div>
+                    <div style="display:flex; align-items:center; gap:12px; padding:11px 0; border-top:1px solid #efe8db;"><span style="width:8px;height:8px;border-radius:50%;background:#c98a2b;box-shadow:0 0 0 3px rgba(201,138,43,0.16);flex:none;"></span><span style="flex:1; font-size:13.5px; font-weight:600;">Diarization</span><span style="font-size:12.5px; color:#6d675d; font-family:'JetBrains Mono',monospace;">disabled</span></div>
+                  </div>
+                </section>
+
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<template id="__bundler_thumbnail">
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" fill="#c83f25"/><g transform="translate(50 46)" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round"><rect x="-9" y="-22" width="18" height="30" rx="9"/><path d="M-16 -2a16 16 0 0 0 32 0M0 8v12"/></g></svg>
+</template>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { tab: "summary", speakersOpen: false };
+
+  renderVals() {
+    const { tab, speakersOpen } = this.state;
+    const base = "height:38px; padding:0 16px; border:none; background:none; font-family:inherit; font-size:14.5px; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px;";
+    const active = base + "color:#24211d; font-weight:700; border-bottom-color:#c83f25;";
+    const idle = base + "color:#9a9183; font-weight:500;";
+    return {
+      showSummary: () => this.setState({ tab: "summary" }),
+      showTranscript: () => this.setState({ tab: "transcript" }),
+      showAsk: () => this.setState({ tab: "ask" }),
+      toggleSpeakers: () => this.setState(s => ({ speakersOpen: !s.speakersOpen })),
+      summaryTabStyle: tab === "summary" ? active : idle,
+      transcriptTabStyle: tab === "transcript" ? active : idle,
+      askTabStyle: tab === "ask" ? active : idle,
+      summaryDisplay: tab === "summary" ? "block" : "none",
+      transcriptDisplay: tab === "transcript" ? "flex" : "none",
+      askDisplay: tab === "ask" ? "flex" : "none",
+      speakersDisplay: speakersOpen ? "block" : "none",
+    };
+  }
+}
+</script>
+</body>
+</html>

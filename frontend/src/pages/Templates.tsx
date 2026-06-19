@@ -80,30 +80,30 @@ export default function Templates() {
       <section>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-base font-medium">Summary templates</h2>
-          <button onClick={startNew} className="text-sm px-3 py-1.5 rounded bg-neutral-800 hover:bg-neutral-700">
+          <button onClick={startNew} className="text-sm px-3 py-1.5 rounded bg-surface border border-line hover:bg-surface-2">
             + New
           </button>
         </div>
-        <ul className="divide-y divide-neutral-800 rounded-lg border border-neutral-800">
+        <ul className="divide-y divide-line-2 rounded-card border border-line-2 bg-surface shadow-card">
           {items.map((t) => (
             <li key={t.id} className="flex items-center gap-3 px-4 py-3 text-sm">
               <span className="flex-1 truncate">{t.name}</span>
-              <span className="text-xs text-neutral-500">{t.sections.length} sections</span>
-              {t.is_default && <span className="text-xs text-emerald-400">default</span>}
-              {t.builtin && <span className="text-[10px] uppercase text-neutral-500 border border-neutral-700 rounded px-1">built-in</span>}
+              <span className="text-xs text-muted">{t.sections.length} sections</span>
+              {t.is_default && <span className="text-xs text-ok-deep">default</span>}
+              {t.builtin && <span className="text-[10px] uppercase text-muted border border-line rounded px-1">built-in</span>}
               {t.builtin ? (
-                <button onClick={() => clone(t)} className="text-xs px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700">
+                <button onClick={() => clone(t)} className="text-xs px-2 py-1 rounded bg-surface border border-line hover:bg-surface-2">
                   Clone
                 </button>
               ) : (
-                <button onClick={() => edit(t)} className="text-xs px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700">
+                <button onClick={() => edit(t)} className="text-xs px-2 py-1 rounded bg-surface border border-line hover:bg-surface-2">
                   Edit
                 </button>
               )}
               <button
                 onClick={() => del(t.id)}
                 disabled={t.builtin}
-                className="text-xs px-2 py-1 rounded text-neutral-400 hover:text-rose-400 disabled:opacity-30"
+                className="text-xs px-2 py-1 rounded text-muted hover:text-signal disabled:opacity-30"
                 title={t.builtin ? "Built-in templates can't be deleted (clone to customize)" : ""}
               >
                 Delete
@@ -116,45 +116,45 @@ export default function Templates() {
       <section>
         <h2 className="text-base font-medium mb-3">Q&amp;A prompt</h2>
         <textarea
-          className="w-full h-48 bg-neutral-950 border border-neutral-800 rounded p-3 text-xs font-mono"
+          className="w-full h-48 bg-paper border border-line rounded p-3 text-xs font-mono"
           value={qaBody}
           onChange={(e) => setQaBody(e.target.value)}
           placeholder="Use {{transcript}}, {{qa_history}}, {{question}}."
         />
         <div className="flex items-center gap-2 mt-2">
-          <button onClick={saveQa} className="text-sm px-3 py-1.5 rounded bg-fuchsia-600 hover:bg-fuchsia-500">
+          <button onClick={saveQa} className="text-sm px-3 py-1.5 rounded bg-signal-grad text-white">
             Save Q&amp;A prompt
           </button>
-          {qaSaved && <span className="text-xs text-emerald-400">Saved</span>}
+          {qaSaved && <span className="text-xs text-ok-deep">Saved</span>}
         </div>
       </section>
 
       {editing && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-neutral-900 border border-neutral-800 rounded-lg max-w-2xl w-full p-5 space-y-3 max-h-[85vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-surface border border-line rounded-lg max-w-2xl w-full p-5 space-y-3 max-h-[85vh] overflow-y-auto">
             <input
-              className="w-full bg-neutral-950 border border-neutral-800 rounded px-3 py-1.5 text-sm"
+              className="w-full bg-paper border border-line rounded px-3 py-1.5 text-sm"
               value={editing.name}
               onChange={(e) => setEditing({ ...editing, name: e.target.value })}
               placeholder="Template name"
             />
             <div>
-              <label className="block text-xs text-neutral-500 mb-1">General context (optional)</label>
+              <label className="block text-xs text-muted mb-1">General context (optional)</label>
               <textarea
-                className="w-full h-20 bg-neutral-950 border border-neutral-800 rounded p-2 text-xs"
+                className="w-full h-20 bg-paper border border-line rounded p-2 text-xs"
                 value={editing.general_context}
                 onChange={(e) => setEditing({ ...editing, general_context: e.target.value })}
                 placeholder="Describes the template's purpose / audience. Added before every section."
               />
             </div>
-            <p className="text-xs text-neutral-500">
+            <p className="text-xs text-muted">
               Each section is a separate prompt. The transcript is added automatically — just describe
               what you want. Drag a section to reorder.
             </p>
             {editing.sections.map((sec, i) => (
               <div
                 key={i}
-                className={`rounded border p-3 space-y-2 ${dragIndex === i ? "border-fuchsia-500" : "border-neutral-800"}`}
+                className={`rounded border p-3 space-y-2 ${dragIndex === i ? "border-signal" : "border-line-2"}`}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => {
                   e.preventDefault();
@@ -168,39 +168,39 @@ export default function Templates() {
                     onDragStart={() => setDragIndex(i)}
                     onDragEnd={() => setDragIndex(null)}
                     title="Drag to reorder"
-                    className="cursor-grab text-neutral-500 hover:text-neutral-300 select-none px-1"
+                    className="cursor-grab text-muted hover:text-ink select-none px-1"
                   >
                     ⠿
                   </span>
                   <input
-                    className="flex-1 bg-neutral-950 border border-neutral-800 rounded px-2 py-1 text-sm"
+                    className="flex-1 bg-paper border border-line rounded px-2 py-1 text-sm"
                     value={sec.title}
                     onChange={(e) => setSection(i, { title: e.target.value })}
                     placeholder="Section title"
                   />
                   <button
                     onClick={() => removeSection(i)}
-                    className="text-xs px-2 py-1 rounded text-neutral-400 hover:text-rose-400"
+                    className="text-xs px-2 py-1 rounded text-muted hover:text-signal"
                   >
                     Remove
                   </button>
                 </div>
                 <textarea
-                  className="w-full h-24 bg-neutral-950 border border-neutral-800 rounded p-2 text-xs font-mono"
+                  className="w-full h-24 bg-paper border border-line rounded p-2 text-xs font-mono"
                   value={sec.prompt}
                   onChange={(e) => setSection(i, { prompt: e.target.value })}
                   placeholder="What should this section produce? (e.g. List the decisions made.)"
                 />
               </div>
             ))}
-            <button onClick={addSection} className="text-xs px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700">
+            <button onClick={addSection} className="text-xs px-2 py-1 rounded bg-surface border border-line hover:bg-surface-2">
               + Add section
             </button>
             <div className="flex justify-end gap-2 pt-2">
-              <button onClick={() => setEditing(null)} className="text-sm px-3 py-1.5 rounded bg-neutral-800 hover:bg-neutral-700">
+              <button onClick={() => setEditing(null)} className="text-sm px-3 py-1.5 rounded bg-surface border border-line hover:bg-surface-2">
                 Cancel
               </button>
-              <button onClick={save} className="text-sm px-3 py-1.5 rounded bg-fuchsia-600 hover:bg-fuchsia-500">
+              <button onClick={save} className="text-sm px-3 py-1.5 rounded bg-signal-grad text-white">
                 Save
               </button>
             </div>

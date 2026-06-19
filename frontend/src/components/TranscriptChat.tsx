@@ -1,19 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { Segment, QAMessage, Speaker } from "../lib/api";
+import { catColor } from "./TagUI";
 
 type ChatItem =
   | { kind: "segment"; segment: Segment }
   | { kind: "qa"; message: QAMessage };
-
-const COLORS: Record<string, string> = {
-  sky: "bg-sky-500/15 text-sky-200 border-sky-500/30",
-  emerald: "bg-emerald-500/15 text-emerald-200 border-emerald-500/30",
-  violet: "bg-violet-500/15 text-violet-200 border-violet-500/30",
-  amber: "bg-amber-500/15 text-amber-200 border-amber-500/30",
-  rose: "bg-rose-500/15 text-rose-200 border-rose-500/30",
-  teal: "bg-teal-500/15 text-teal-200 border-teal-500/30",
-};
-const DEFAULT_COLOR = "bg-neutral-800 text-neutral-300 border-neutral-700";
 
 function ts(seconds: number) {
   const m = Math.floor(seconds / 60);
@@ -26,9 +17,10 @@ type Props = {
   speakers?: Record<number, Speaker>;
   peopleNames?: string[];
   onRename?: (speakerId: number, name: string) => Promise<void>;
+  pending?: boolean; // show a loading bubble while an answer is in flight
 };
 
-export default function TranscriptChat({ items, speakers = {}, peopleNames = [], onRename }: Props) {
+export default function TranscriptChat({ items, speakers = {}, peopleNames = [], onRename, pending = false }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
@@ -36,7 +28,7 @@ export default function TranscriptChat({ items, speakers = {}, peopleNames = [],
   useEffect(() => {
     if (!ref.current) return;
     ref.current.scrollTop = ref.current.scrollHeight;
-  }, [items]);
+  }, [items, pending]);
 
   function currentName(speakerId: number): string {
     const sp = speakers[speakerId];
@@ -69,13 +61,13 @@ export default function TranscriptChat({ items, speakers = {}, peopleNames = [],
   }
 
   return (
-    <div ref={ref} className="h-full overflow-y-auto p-4 space-y-3">
-      {items.length === 0 && <p className="text-neutral-500 text-sm">No transcript yet.</p>}
+    <div ref={ref} className="h-full overflow-y-auto px-7 py-5 space-y-4">
+      {items.length === 0 && <p className="text-muted text-sm">No transcript yet.</p>}
       {items.map((it, i) => {
         if (it.kind === "segment") {
           const seg = it.segment;
           const sp = seg.speaker_id != null ? speakers[seg.speaker_id] : undefined;
-          const color = (sp?.color && COLORS[sp.color]) || DEFAULT_COLOR;
+          const c = catColor(sp?.color ?? null);
           const name = sp?.name ?? "Speaker";
           return (
             <div key={`s-${seg.id}-${i}`} className="flex gap-3">
@@ -91,22 +83,21 @@ export default function TranscriptChat({ items, speakers = {}, peopleNames = [],
                     }}
                     onBlur={() => commit(seg.speaker_id!)}
                     placeholder="Name or pick…"
-                    className="w-full text-xs px-2 py-0.5 rounded border border-neutral-600 bg-neutral-950"
+                    className="w-full text-xs px-2 py-0.5 rounded-field border border-line bg-paper"
                   />
                   {suggestions().length > 0 && (
-                    <div className="absolute z-10 mt-1 w-44 max-h-44 overflow-y-auto bg-neutral-900 border border-neutral-800 rounded shadow-lg p-1">
-                      <p className="text-[10px] uppercase tracking-wide text-neutral-500 px-2 py-0.5">
+                    <div className="absolute z-10 mt-1 w-44 max-h-44 overflow-y-auto bg-surface border border-line rounded-card shadow-pop p-1">
+                      <p className="text-[10px] uppercase tracking-wide text-label px-2 py-0.5">
                         Existing people
                       </p>
                       {suggestions().map((n) => (
                         <button
                           key={n}
-                          // onMouseDown fires before the input's onBlur, so the pick wins.
                           onMouseDown={(e) => {
                             e.preventDefault();
                             commit(seg.speaker_id!, n);
                           }}
-                          className="block w-full text-left text-xs px-2 py-1 rounded hover:bg-neutral-800"
+                          className="block w-full text-left text-xs px-2 py-1 rounded hover:bg-surface-2"
                         >
                           {n}
                         </button>
@@ -125,13 +116,15 @@ export default function TranscriptChat({ items, speakers = {}, peopleNames = [],
                   }}
                   disabled={!onRename || seg.speaker_id == null}
                   title={onRename ? "Click to rename this speaker" : undefined}
-                  className={`shrink-0 text-xs px-2 py-0.5 h-fit rounded border ${color} ${onRename ? "hover:brightness-125 cursor-pointer" : ""}`}
+                  className={`shrink-0 text-[12.5px] font-bold h-fit inline-flex items-center gap-1.5 ${onRename ? "cursor-pointer" : ""}`}
+                  style={{ color: c }}
                 >
+                  <span className="w-2 h-2 rounded-full" style={{ background: c }} />
                   {name}
                 </button>
               )}
-              <div className="text-sm leading-snug">
-                <span className="text-neutral-500 text-xs mr-2">{ts(seg.start_ts)}</span>
+              <div className="text-[14.5px] leading-relaxed text-ink">
+                <span className="text-muted text-[11px] font-mono mr-2">{ts(seg.start_ts)}</span>
                 {seg.text}
               </div>
             </div>
@@ -140,18 +133,29 @@ export default function TranscriptChat({ items, speakers = {}, peopleNames = [],
         const m = it.message;
         const isUser = m.role === "user";
         return (
-          <div key={`q-${m.id}-${i}`} className="flex gap-3">
-            <span
-              className={`shrink-0 text-xs px-2 py-0.5 h-fit rounded border ${
-                isUser ? DEFAULT_COLOR : "bg-fuchsia-500/15 text-fuchsia-200 border-fuchsia-500/30"
+          <div
+            key={`q-${m.id}-${i}`}
+            className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+          >
+            <div
+              className={`max-w-[74%] px-4 py-3 text-[13.5px] leading-relaxed whitespace-pre-wrap ${
+                isUser
+                  ? "bg-ink text-paper rounded-[16px_16px_5px_16px]"
+                  : "bg-surface border border-line-2 text-ink rounded-[16px_16px_16px_5px] shadow-card"
               }`}
             >
-              {isUser ? "You" : "AI"}
-            </span>
-            <div className="text-sm leading-snug whitespace-pre-wrap">{m.content}</div>
+              {m.content}
+            </div>
           </div>
         );
       })}
+      {pending && (
+        <div className="flex justify-start">
+          <div className="bg-surface border border-line-2 rounded-[16px_16px_16px_5px] shadow-card px-4 py-3">
+            <span className="inline-block w-4 h-4 rounded-full border-2 border-line-3 border-t-signal animate-spin" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

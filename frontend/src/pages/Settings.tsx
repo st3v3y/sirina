@@ -7,23 +7,31 @@ import {
   type SettingsResponse,
   type Status,
 } from "../lib/api";
+import { Icon } from "../components/Icon";
+import { Badge, Button, Card, FieldRow, Select, Slider, Stepper, Toggle } from "../components/ui";
 
-const SECTIONS: { id: SettingSection; title: string }[] = [
-  { id: "ai", title: "AI model" },
-  { id: "transcription", title: "Transcription" },
-  { id: "diarization", title: "Speaker diarization" },
-  { id: "advanced", title: "Advanced" },
+type SectionMeta = {
+  id: SettingSection;
+  title: string;
+  icon: string;
+  tint: string; // CSS color
+  badge: { tone: "ok" | "warn" | "neutral"; label: string };
+  desc: string;
+};
+
+const SECTIONS: SectionMeta[] = [
+  { id: "ai", title: "AI model", icon: "sparkles", tint: "var(--color-signal)", badge: { tone: "ok", label: "Applies instantly" }, desc: "Used for summaries and the Ask assistant." },
+  { id: "transcription", title: "Transcription", icon: "audio-lines", tint: "var(--color-cat-sky)", badge: { tone: "warn", label: "Restart required" }, desc: "Engine & model changes reload after restart." },
+  { id: "diarization", title: "Speaker diarization", icon: "users", tint: "var(--color-cat-teal)", badge: { tone: "ok", label: "Applies instantly" }, desc: "Separate & label who spoke. Off by default." },
+  { id: "advanced", title: "Advanced", icon: "settings", tint: "var(--color-cat-amber)", badge: { tone: "neutral", label: "Mixed" }, desc: "Performance tuning & local storage." },
 ];
 
-const RESTART_LABEL: Record<string, string> = {
-  reload_engine: "needs engine reload",
-  restart_app: "needs app restart",
-};
+const INPUT =
+  "h-[38px] min-w-[230px] px-3 border border-line rounded-field bg-surface text-[13.5px] text-ink focus:outline-none focus:border-line-3";
 
 export default function Settings() {
   const [data, setData] = useState<SettingsResponse | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
-  // Edited non-secret values, mirrored from the response; secrets edited separately.
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [original, setOriginal] = useState<Record<string, unknown>>({});
@@ -58,8 +66,7 @@ export default function Settings() {
     const nonSecretChanged = Object.keys(values).some(
       (k) => JSON.stringify(values[k]) !== JSON.stringify(original[k])
     );
-    const secretChanged = Object.values(secrets).some((s) => s !== "");
-    return nonSecretChanged || secretChanged;
+    return nonSecretChanged || Object.values(secrets).some((s) => s !== "");
   }, [data, values, original, secrets]);
 
   function optionsFor(f: SettingField): string[] | null {
@@ -73,6 +80,20 @@ export default function Settings() {
 
   async function save() {
     if (!data) return;
+    // Diarization needs a HF token (typed now or already stored) + a model.
+    if (values.diarization_enabled) {
+      const tokenSet =
+        Boolean((secrets.hf_token ?? "").trim()) ||
+        Boolean(data.fields.find((f) => f.key === "hf_token")?.is_set);
+      if (!tokenSet) {
+        setError("Add a HuggingFace token to enable speaker diarization.");
+        return;
+      }
+      if (!String(values.diarization_model ?? "").trim()) {
+        setError("Choose a diarization model.");
+        return;
+      }
+    }
     setSaving(true);
     setError(null);
     setSaved(false);
@@ -126,22 +147,22 @@ export default function Settings() {
   }
 
   if (!data) {
-    return (
-      <div className="max-w-3xl mx-auto p-6 text-sm text-neutral-400">
-        {error ?? "Loading settings…"}
-      </div>
-    );
+    return <div className="p-7 text-sm text-muted">{error ?? "Loading settings…"}</div>;
   }
 
-  const inputCls =
-    "bg-neutral-950 border border-neutral-800 rounded px-2 py-1 text-sm focus:outline-none focus:border-neutral-600";
+  const setValue = (k: string, v: unknown) => setValues((s) => ({ ...s, [k]: v }));
 
-  function control(f: SettingField) {
+  // The HF token + model only make sense once diarization is enabled.
+  const diarOn = Boolean(values.diarization_enabled);
+  const fieldVisible = (f: SettingField) =>
+    !(f.section === "diarization" && (f.key === "hf_token" || f.key === "diarization_model") && !diarOn);
+
+  function control(f: SettingField): ReactNode {
     if (f.secret) {
       return (
         <input
           type="password"
-          className={`${inputCls} w-64`}
+          className={INPUT}
           value={secrets[f.key] ?? ""}
           placeholder={f.is_set ? "•••••••• (set — blank keeps it)" : "not set"}
           onChange={(e) => setSecrets((s) => ({ ...s, [f.key]: e.target.value }))}
@@ -149,218 +170,191 @@ export default function Settings() {
       );
     }
     if (f.type === "bool") {
-      return (
-        <input
-          type="checkbox"
-          className="h-4 w-4 accent-fuchsia-600"
-          checked={Boolean(values[f.key])}
-          onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.checked }))}
-        />
-      );
+      return <Toggle checked={Boolean(values[f.key])} onChange={(v) => setValue(f.key, v)} />;
     }
     const opts = optionsFor(f);
     if (opts) {
       return (
-        <select
-          className={`${inputCls} w-64`}
-          value={String(values[f.key] ?? "")}
-          onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
-        >
+        <Select value={String(values[f.key] ?? "")} onChange={(v) => setValue(f.key, v)}>
           {opts.map((o) => (
             <option key={o} value={o}>
               {o}
             </option>
           ))}
-        </select>
+        </Select>
       );
     }
-    if (f.type === "int" || f.type === "float") {
+    if (f.type === "int") {
       return (
-        <input
-          type="number"
-          step={f.type === "float" ? "any" : 1}
-          className={`${inputCls} w-32`}
-          value={values[f.key] === "" || values[f.key] == null ? "" : String(values[f.key])}
-          onChange={(e) =>
-            setValues((v) => ({
-              ...v,
-              [f.key]: e.target.value === "" ? "" : Number(e.target.value),
-            }))
-          }
+        <Stepper
+          value={values[f.key] === "" || values[f.key] == null ? "" : Number(values[f.key])}
+          onChange={(v) => setValue(f.key, v)}
         />
+      );
+    }
+    if (f.type === "float") {
+      const n = Number(values[f.key] ?? 0);
+      return (
+        <div className="flex items-center gap-3">
+          <Slider value={n} onChange={(v) => setValue(f.key, v)} />
+          <span className="w-14 text-right text-[13px] font-mono text-ink-2">{n}</span>
+        </div>
       );
     }
     if (f.type === "text") {
       return (
         <textarea
-          className={`${inputCls} w-64 h-16 font-mono text-xs`}
+          className={`${INPUT} min-w-[300px] h-16 py-2 font-mono text-xs`}
           value={String(values[f.key] ?? "")}
-          onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+          onChange={(e) => setValue(f.key, e.target.value)}
         />
       );
     }
     return (
       <input
         type="text"
-        className={`${inputCls} w-64`}
+        className={INPUT}
         value={String(values[f.key] ?? "")}
-        onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+        onChange={(e) => setValue(f.key, e.target.value)}
       />
     );
   }
 
   return (
-    <div className="max-w-3xl mx-auto p-6 space-y-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Settings</h1>
-        <div className="flex items-center gap-3">
-          {saved && <span className="text-xs text-emerald-400">Saved</span>}
-          <button
-            onClick={save}
-            disabled={!dirty || saving}
-            className="text-sm px-3 py-1.5 rounded bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-40"
-          >
-            {saving ? "Saving…" : "Save changes"}
-          </button>
-        </div>
+    <div className="flex flex-col h-full">
+      <div className="flex items-center gap-3.5 px-7 h-16 border-b border-line-2 shrink-0">
+        <h1 className="font-serif text-xl font-semibold">Settings</h1>
+        <div className="flex-1" />
+        {saved && <span className="text-xs text-ok-deep">Saved</span>}
+        <Button variant="primary" onClick={save} disabled={!dirty || saving}>
+          {saving ? "Saving…" : "Save changes"}
+        </Button>
       </div>
 
-      {/* Status (read-only, reuses /api/status) */}
-      <section className="rounded-lg border border-neutral-800 p-4 text-sm">
-        <h2 className="text-xs uppercase tracking-wide text-neutral-500 mb-2">Status</h2>
-        <div className="flex flex-wrap gap-x-8 gap-y-1 text-neutral-300">
-          <span>
-            Engine: <span className="text-neutral-100">{status?.engine ?? "—"}</span>
-          </span>
-          <span>
-            Whisper:{" "}
-            <span className={status?.whisper_loaded ? "text-emerald-400" : "text-amber-400"}>
-              {status?.whisper_loaded ? "loaded" : "loading…"}
-            </span>
-          </span>
-          <span>
-            LLM:{" "}
-            <span className={status?.llm_ok ? "text-emerald-400" : "text-rose-400"}>
-              {status?.llm_ok ? "reachable" : "unreachable"}
-            </span>
-          </span>
-          <span>
-            Provider: <span className="text-neutral-100">{status?.llm_provider ?? "—"}</span>
-            {status?.llm_model ? (
-              <span className="text-neutral-500"> · {status.llm_model}</span>
-            ) : null}
-          </span>
-        </div>
-      </section>
-
-      {error && (
-        <div className="rounded border border-rose-800 bg-rose-950/40 px-3 py-2 text-sm text-rose-300">
-          {error}
-        </div>
-      )}
-
-      {SECTIONS.map(({ id, title }) => {
-        const fields = data.fields.filter((f) => f.section === id);
-        if (!fields.length) return null;
-        return (
-          <section key={id}>
-            <h2 className="text-base font-medium mb-3">{title}</h2>
-            {id === "diarization" && !data.diarization_supported && (
-              <p className="text-xs text-amber-400/90 mb-3">
-                Diarization isn't available in this build (the model runtime isn't bundled yet);
-                these settings are saved but won't take effect.
-              </p>
-            )}
-            {id === "ai" ? (
-              <AiSection
-                values={values}
-                setValue={(k, v) => setValues((s) => ({ ...s, [k]: v }))}
-                secrets={secrets}
-                setSecret={(k, v) => setSecrets((s) => ({ ...s, [k]: v }))}
-                apiKeyIsSet={Boolean(data.fields.find((f) => f.key === "llm_api_key")?.is_set)}
-              />
-            ) : (
-            <div className="rounded-lg border border-neutral-800 divide-y divide-neutral-800">
-              {fields.map((f) => (
-                <div key={f.key} className="flex items-start gap-4 px-4 py-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm">{f.label}</span>
-                      {f.restart !== "none" && (
-                        <span className="text-[10px] uppercase text-amber-400 border border-amber-700/60 rounded px-1">
-                          {RESTART_LABEL[f.restart]}
-                        </span>
-                      )}
-                    </div>
-                    {f.help && <p className="text-xs text-neutral-500 mt-0.5">{f.help}</p>}
-                  </div>
-                  <div className="shrink-0 pt-0.5">{control(f)}</div>
-                </div>
-              ))}
-              {id === "advanced" && (
-                <div className="flex items-center gap-4 px-4 py-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm">Data folder</div>
-                    <p className="text-xs text-neutral-500 mt-0.5 truncate">{data.data_dir}</p>
-                  </div>
-                  <button
-                    onClick={reveal}
-                    className="shrink-0 text-xs px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700"
-                  >
-                    Open in Finder
-                  </button>
-                </div>
-              )}
+      <div className="flex-1 overflow-y-auto px-7 py-7">
+        <div className="max-w-[840px] mx-auto space-y-[18px]">
+          {error && (
+            <div className="rounded-field border border-signal/40 bg-signal/5 px-3 py-2 text-sm text-signal">
+              {error}
             </div>
-            )}
+          )}
 
-            {id === "transcription" && (
-              <div className="mt-3 flex items-center gap-3">
-                <button
-                  onClick={reload}
-                  disabled={reloading}
-                  className={`text-sm px-3 py-1.5 rounded disabled:opacity-40 ${
-                    reloadRequired
-                      ? "bg-amber-600 hover:bg-amber-500"
-                      : "bg-neutral-800 hover:bg-neutral-700"
-                  }`}
-                >
-                  {reloading ? "Reloading…" : "Reload transcription engine"}
-                </button>
-                {reloadRequired && (
-                  <span className="text-xs text-amber-400">
-                    A change needs a reload to take effect.
+          {SECTIONS.map((sec) => {
+            const fields = data.fields.filter((f) => f.section === sec.id);
+            if (!fields.length) return null;
+            return (
+              <Card key={sec.id} className="p-6">
+                {/* header */}
+                <div className="flex items-start gap-3 mb-4">
+                  <span
+                    className="w-8 h-8 shrink-0 rounded-[9px] flex items-center justify-center"
+                    style={{ background: `color-mix(in srgb, ${sec.tint} 12%, transparent)`, color: sec.tint }}
+                  >
+                    <Icon name={sec.icon} size={16} />
                   </span>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-base font-bold">{sec.title}</span>
+                      <Badge tone={sec.badge.tone}>{sec.badge.label}</Badge>
+                    </div>
+                    <div className="text-xs text-muted mt-0.5">{sec.desc}</div>
+                  </div>
+                </div>
+
+                {sec.id === "diarization" && !data.diarization_supported && (
+                  <p className="text-xs text-warn-deep bg-warn/10 border border-warn/20 rounded-field px-3 py-2 mb-2">
+                    Not bundled in this build yet — these settings are saved but won't take effect.
+                  </p>
                 )}
-                {reloadMsg && <span className="text-xs text-neutral-400">{reloadMsg}</span>}
+
+                {sec.id === "ai" ? (
+                  <AiSection
+                    values={values}
+                    setValue={setValue}
+                    secrets={secrets}
+                    setSecret={(k, v) => setSecrets((s) => ({ ...s, [k]: v }))}
+                    apiKeyIsSet={Boolean(data.fields.find((f) => f.key === "llm_api_key")?.is_set)}
+                  />
+                ) : (
+                  <div>
+                    {fields.filter(fieldVisible).map((f) => (
+                      <FieldRow
+                        key={f.key}
+                        label={
+                          <span className="flex items-center gap-2">
+                            {f.label}
+                            {f.restart !== "none" && <Badge tone="warn">reload</Badge>}
+                          </span>
+                        }
+                        help={f.help ?? undefined}
+                      >
+                        {control(f)}
+                      </FieldRow>
+                    ))}
+                    {sec.id === "advanced" && (
+                      <FieldRow label="Data folder" help={data.data_dir}>
+                        <Button onClick={reveal}>Open in Finder</Button>
+                      </FieldRow>
+                    )}
+                  </div>
+                )}
+
+                {sec.id === "transcription" && (
+                  <div className="flex items-center gap-3 pt-4 border-t border-line-2 mt-1">
+                    <Button
+                      variant={reloadRequired ? "primary" : "secondary"}
+                      onClick={reload}
+                      disabled={reloading}
+                    >
+                      {reloading ? "Reloading…" : "Reload transcription engine"}
+                    </Button>
+                    {reloadRequired && (
+                      <span className="text-xs text-warn-deep">A change needs a reload to take effect.</span>
+                    )}
+                    {reloadMsg && <span className="text-xs text-muted">{reloadMsg}</span>}
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+
+          {/* Status (read-only) */}
+          <Card className="p-6 bg-surface-2">
+            <div className="flex items-start gap-3 mb-3">
+              <span className="w-8 h-8 shrink-0 rounded-[9px] flex items-center justify-center bg-surface border border-line-2 text-ink-2">
+                <Icon name="circle-check" size={16} />
+              </span>
+              <div className="flex-1">
+                <div className="flex items-center gap-2.5">
+                  <span className="text-base font-bold">Status</span>
+                  <Badge tone="neutral">Read-only</Badge>
+                </div>
+                <div className="text-xs text-muted mt-0.5">Live runtime health.</div>
               </div>
-            )}
-          </section>
-        );
-      })}
-    </div>
-  );
-}
-
-const AI_INPUT =
-  "bg-neutral-950 border border-neutral-800 rounded px-2 py-1 text-sm focus:outline-none focus:border-neutral-600";
-
-// Module-level so it isn't recreated each render (which would remount inputs and drop focus).
-function SettingRow({ label, help, children }: { label: string; help?: string; children: ReactNode }) {
-  return (
-    <div className="flex items-start gap-4 px-4 py-3">
-      <div className="flex-1 min-w-0">
-        <div className="text-sm">{label}</div>
-        {help && <p className="text-xs text-neutral-500 mt-0.5">{help}</p>}
+            </div>
+            <StatusRow ok={status?.whisper_loaded} label="Transcription engine" value={`${status?.engine ?? "—"}${status?.whisper_loaded ? " · loaded" : " · loading"}`} />
+            <StatusRow ok={status?.llm_ok} label="AI provider" value={`${status?.llm_provider ?? "—"}${status?.llm_ok ? " · reachable" : " · unreachable"}`} />
+            <StatusRow ok={status?.diarization} warn label="Diarization" value={status?.diarization ? "enabled" : "disabled"} />
+          </Card>
+        </div>
       </div>
-      <div className="shrink-0 pt-0.5">{children}</div>
     </div>
   );
 }
 
-/** The AI-model section: provider/model/key/base_url + dynamic discovery, test, and the
- *  cloud disclosure. Values live in the parent's shared `values`/`secrets` state so the
- *  page's Save button picks them up via the normal settings PATCH. */
+function StatusRow({ ok, warn, label, value }: { ok?: boolean; warn?: boolean; label: string; value: string }) {
+  const color = ok ? "var(--color-ok)" : warn ? "var(--color-warn)" : "var(--color-signal)";
+  return (
+    <div className="flex items-center gap-3 py-2.5 border-t border-line-2 first:border-t-0">
+      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color, boxShadow: `0 0 0 3px color-mix(in srgb, ${color} 16%, transparent)` }} />
+      <span className="flex-1 text-[13.5px] font-semibold">{label}</span>
+      <span className="text-[12.5px] text-ink-2 font-mono">{value}</span>
+    </div>
+  );
+}
+
+/** AI-model section: provider/model/key/base_url + dynamic discovery, test, cloud disclosure.
+ *  Values live in the parent's shared state so the page's Save button picks them up. */
 function AiSection({
   values,
   setValue,
@@ -377,9 +371,9 @@ function AiSection({
   const [providers, setProviders] = useState<LlmProvider[]>([]);
   const [models, setModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
-  const [customModel, setCustomModel] = useState(false); // free-text entry escape hatch
+  const [customModel, setCustomModel] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [testMsg, setTestMsg] = useState<string | null>(null);
+  const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const provider = String(values.llm_provider ?? "ollama");
   const baseUrl = String(values.llm_base_url ?? "");
@@ -391,7 +385,6 @@ function AiSection({
   const isCustom = provider === "custom";
   const requiresKey = preset?.requires_key ?? false;
   const loopback = /\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:|\/|$)/i.test(effBase);
-  // Custom pointing at a loopback URL is treated as local (no cloud warning).
   const isCloud = (preset?.is_cloud ?? false) && !(isCustom && loopback);
   const showKey = requiresKey || isCloud;
 
@@ -402,11 +395,7 @@ function AiSection({
   async function loadModels() {
     setLoadingModels(true);
     try {
-      const r = await api.listLlmModels({
-        provider,
-        base_url: baseUrl || undefined,
-        api_key: apiKey || undefined,
-      });
+      const r = await api.listLlmModels({ provider, base_url: baseUrl || undefined, api_key: apiKey || undefined });
       setModels(r.models);
     } catch {
       setModels([]);
@@ -414,8 +403,6 @@ function AiSection({
       setLoadingModels(false);
     }
   }
-
-  // Refresh the model list when the provider or its effective base URL changes.
   useEffect(() => {
     if (providers.length) loadModels();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -425,16 +412,11 @@ function AiSection({
     setTesting(true);
     setTestMsg(null);
     try {
-      const r = await api.testLlm({
-        provider,
-        base_url: baseUrl || undefined,
-        api_key: apiKey || undefined,
-        model: model || undefined,
-      });
-      setTestMsg(r.detail ?? (r.ok ? "Reachable." : "Not reachable."));
+      const r = await api.testLlm({ provider, base_url: baseUrl || undefined, api_key: apiKey || undefined, model: model || undefined });
+      setTestMsg({ ok: r.ok, text: r.detail ?? (r.ok ? "Reachable." : "Not reachable.") });
       if (r.models?.length) setModels(r.models);
     } catch (e) {
-      setTestMsg(String(e));
+      setTestMsg({ ok: false, text: String(e) });
     } finally {
       setTesting(false);
     }
@@ -442,112 +424,109 @@ function AiSection({
 
   function onProviderChange(next: string) {
     setValue("llm_provider", next);
-    setValue("llm_base_url", ""); // fall back to the new preset's base URL
-    setCustomModel(false); // re-show the dropdown for the new provider's models
+    setValue("llm_base_url", "");
+    setCustomModel(false);
     setTestMsg(null);
   }
 
   const CUSTOM_MODEL = "__custom__";
-  // Keep the configured model selectable even if discovery didn't return it.
   const modelOptions = model && !models.includes(model) ? [model, ...models] : models;
   const useModelText = customModel || (!loadingModels && modelOptions.length === 0);
 
   return (
-    <>
-      <div className="rounded-lg border border-neutral-800 divide-y divide-neutral-800">
-        <SettingRow label="Provider" help="Local (Ollama/LM Studio) or cloud (OpenAI/Google/Groq/custom).">
-          <select className={`${AI_INPUT} w-64`} value={provider} onChange={(e) => onProviderChange(e.target.value)}>
-            {providers.map((p) => (
-              <option key={p.key} value={p.key}>
-                {p.label}
+    <div>
+      <FieldRow label="Provider" help="Local (Ollama / LM Studio) or a cloud API.">
+        <Select value={provider} onChange={onProviderChange}>
+          {providers.map((p) => (
+            <option key={p.key} value={p.key}>
+              {p.label}
+            </option>
+          ))}
+        </Select>
+      </FieldRow>
+
+      {isCustom && (
+        <FieldRow label="Base URL" help="OpenAI-compatible endpoint, e.g. http://localhost:1234/v1">
+          <input
+            type="text"
+            className={INPUT}
+            value={baseUrl}
+            placeholder={preset?.base_url || "https://…/v1"}
+            onChange={(e) => setValue("llm_base_url", e.target.value)}
+          />
+        </FieldRow>
+      )}
+
+      {showKey && (
+        <FieldRow label="API key" help="Required for cloud providers.">
+          <input
+            type="password"
+            className={INPUT}
+            value={apiKey}
+            placeholder={apiKeyIsSet ? "•••••••• (set — blank keeps it)" : "not set"}
+            onChange={(e) => setSecret("llm_api_key", e.target.value)}
+          />
+        </FieldRow>
+      )}
+
+      <FieldRow label="Model" help="Discovered from the provider; updates when you switch providers.">
+        {loadingModels && modelOptions.length === 0 ? (
+          <Select value="" onChange={() => {}}>
+            <option>loading…</option>
+          </Select>
+        ) : modelOptions.length > 0 && !useModelText ? (
+          <Select
+            value={customModel ? CUSTOM_MODEL : model}
+            onChange={(v) => {
+              if (v === CUSTOM_MODEL) setCustomModel(true);
+              else {
+                setCustomModel(false);
+                setValue("llm_model", v);
+              }
+            }}
+          >
+            {!model && <option value="">Select a model…</option>}
+            {modelOptions.map((m) => (
+              <option key={m} value={m}>
+                {m}
               </option>
             ))}
-          </select>
-        </SettingRow>
-
-        {isCustom && (
-          <SettingRow label="Base URL" help="OpenAI-compatible endpoint, e.g. http://localhost:1234/v1">
-            <input
-              type="text"
-              className={`${AI_INPUT} w-64`}
-              value={baseUrl}
-              placeholder={preset?.base_url || "https://…/v1"}
-              onChange={(e) => setValue("llm_base_url", e.target.value)}
-            />
-          </SettingRow>
+            <option value={CUSTOM_MODEL}>Custom…</option>
+          </Select>
+        ) : (
+          <input
+            type="text"
+            className={`${INPUT} font-mono`}
+            value={model}
+            placeholder="model id"
+            onChange={(e) => setValue("llm_model", e.target.value)}
+          />
         )}
+      </FieldRow>
 
-        {showKey && (
-          <SettingRow label="API key" help="Required for cloud providers.">
-            <input
-              type="password"
-              className={`${AI_INPUT} w-64`}
-              value={apiKey}
-              placeholder={apiKeyIsSet ? "•••••••• (set — blank keeps it)" : "not set"}
-              onChange={(e) => setSecret("llm_api_key", e.target.value)}
-            />
-          </SettingRow>
-        )}
-
-        <SettingRow label="Model" help="Discovered from the provider; updates when you switch providers.">
-          <div className="flex flex-col items-end gap-1.5">
-            {loadingModels && modelOptions.length === 0 ? (
-              <select className={`${AI_INPUT} w-64`} disabled>
-                <option>loading…</option>
-              </select>
-            ) : modelOptions.length > 0 ? (
-              <select
-                className={`${AI_INPUT} w-64`}
-                value={customModel ? CUSTOM_MODEL : model}
-                onChange={(e) => {
-                  if (e.target.value === CUSTOM_MODEL) {
-                    setCustomModel(true);
-                  } else {
-                    setCustomModel(false);
-                    setValue("llm_model", e.target.value);
-                  }
-                }}
-              >
-                {!model && <option value="">Select a model…</option>}
-                {modelOptions.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-                <option value={CUSTOM_MODEL}>Custom…</option>
-              </select>
-            ) : null}
-            {useModelText && (
-              <input
-                type="text"
-                className={`${AI_INPUT} w-64`}
-                value={model}
-                placeholder="model id"
-                onChange={(e) => setValue("llm_model", e.target.value)}
-              />
-            )}
-          </div>
-        </SettingRow>
-      </div>
-
-      <div className="mt-3 flex items-center gap-3">
-        <button
-          onClick={test}
-          disabled={testing}
-          className="text-sm px-3 py-1.5 rounded bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40"
-        >
+      <div className="flex items-center gap-3 pt-4 border-t border-line-2">
+        <Button variant="dark" onClick={test} disabled={testing}>
           {testing ? "Testing…" : "Test connection"}
-        </button>
-        {testMsg && <span className="text-xs text-neutral-400">{testMsg}</span>}
+        </Button>
+        {testMsg && (
+          <span className={`flex items-center gap-1.5 text-[12.5px] font-semibold ${testMsg.ok ? "text-ok-deep" : "text-signal"}`}>
+            <Icon name={testMsg.ok ? "circle-check" : "triangle-alert"} size={14} />
+            {testMsg.text}
+          </span>
+        )}
       </div>
 
-      {isCloud && (
-        <p className="mt-3 rounded border border-amber-700/60 bg-amber-950/30 px-3 py-2 text-xs text-amber-300">
-          Heads up: with <span className="font-medium">{preset?.label ?? provider}</span> selected,
-          summaries and chat send your meeting transcripts to this cloud provider. Choose a local
-          provider (Ollama / LM Studio) to keep everything on your device.
-        </p>
+      {isCloud ? (
+        <div className="flex items-center gap-2.5 mt-3.5 px-3.5 py-2.5 rounded-[10px] bg-signal/[0.07] border border-signal/20 text-[12.5px] text-signal">
+          <Icon name="triangle-alert" size={15} />
+          Cloud providers send transcripts off-device. Use a local provider (Ollama / LM Studio) to keep everything local.
+        </div>
+      ) : (
+        <div className="flex items-center gap-2.5 mt-3.5 px-3.5 py-2.5 rounded-[10px] bg-ok/10 border border-ok/20 text-[12.5px] text-ok-deep">
+          <Icon name="circle-check" size={15} />
+          Fully local — transcripts never leave this device.
+        </div>
       )}
-    </>
+    </div>
   );
 }
