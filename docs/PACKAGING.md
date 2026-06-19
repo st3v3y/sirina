@@ -119,12 +119,18 @@ With **ad-hoc** signing (`-`, the default here) every rebuild — and often ever
 like a different app, so macOS re-prompts each time. Signing with a **stable identity** makes the
 grant stick.
 
-You don't need a paid Apple Developer account — a **self-signed "Code Signing" certificate** is enough:
+**Prefer a self-signed cert over an Apple Development cert for apps you share.** An Apple-issued
+cert embeds your team's organization in the signature (e.g. `codesign -dvvv` shows
+`O=<Your Company>`), which you may not want associated with the app. A **self-signed "Code Signing"
+certificate** has only the name you choose and no org/team — and you don't need a paid account:
 
 1. **Keychain Access → Certificate Assistant → Create a Certificate…**
    - Name: e.g. `Sirina Dev`
    - Identity Type: **Self-Signed Root**
-   - Certificate Type: **Code Signing**
+   - Certificate Type: **Code Signing**  ← required; this sets the code-signing key usage
+   - Verify it registered: `security find-identity -p codesigning` should list it (note: it won't
+     appear under `find-identity -v`, the *valid/trusted*-only list — that's expected for a
+     self-signed cert, and the build script accounts for it).
 2. Build with it:
    ```bash
    CODESIGN_IDENTITY="Sirina Dev" ./scripts/build-macos-app.sh

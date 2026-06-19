@@ -37,9 +37,9 @@ fi
 # Fail fast if an explicit signing identity won't resolve, rather than building for
 # minutes and only failing at codesign with "no identity found".
 if [ -n "${CODESIGN_IDENTITY:-}" ]; then
-  if ! security find-identity -v -p codesigning 2>/dev/null | grep -qF "$CODESIGN_IDENTITY"; then
+  if ! security find-identity -p codesigning 2>/dev/null | grep -qF "$CODESIGN_IDENTITY"; then
     echo "  ✗ CODESIGN_IDENTITY=\"$CODESIGN_IDENTITY\" is not a valid code-signing identity."
-    echo "    Available: $(security find-identity -v -p codesigning 2>/dev/null | grep -oE '\"[^\"]+\"' | paste -sd ', ' -)"
+    echo "    Available: $(security find-identity -p codesigning 2>/dev/null | grep -oE '\"[^\"]+\"' | paste -sd ', ' -)"
     echo "    Create a self-signed 'Code Signing' cert (see docs/PACKAGING.md), or use one above."
     missing=1
   fi
@@ -88,7 +88,7 @@ APP="$ROOT/frontend/src-tauri/target/release/bundle/macos/Sirina.app"
 # a company/work cert) → ad-hoc "-". Ad-hoc launches fine but re-prompts for permissions.
 IDENTITY="${CODESIGN_IDENTITY:-}"
 if [ -z "$IDENTITY" ]; then
-  CANDIDATES="$(security find-identity -v -p codesigning 2>/dev/null \
+  CANDIDATES="$(security find-identity -p codesigning 2>/dev/null \
     | grep -oE '"[^"]+"' | tr -d '"' \
     | grep -viE 'Apple Development|Apple Distribution|Developer ID|3rd Party' || true)"
   if [ "$(printf '%s\n' "$CANDIDATES" | sed '/^$/d' | wc -l | tr -d ' ')" = "1" ]; then
