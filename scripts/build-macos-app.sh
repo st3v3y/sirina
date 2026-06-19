@@ -62,14 +62,15 @@ echo "==> Freezing backend with PyInstaller"
 cd "$ROOT/backend"
 uv run python -m PyInstaller packaging/backend.spec --noconfirm --distpath dist --workpath build
 
-echo "==> Placing backend sidecar as backend-$TRIPLE"
-mkdir -p "$SIDECAR_DIR"
-cp "$ROOT/backend/dist/backend" "$SIDECAR_DIR/backend-$TRIPLE"
-chmod +x "$SIDECAR_DIR/backend-$TRIPLE"
+echo "==> Placing onedir backend into Tauri resources"
+RES_DIR="$ROOT/frontend/src-tauri/resources"
+rm -rf "$RES_DIR/backend"
+mkdir -p "$RES_DIR"
+cp -R "$ROOT/backend/dist/backend" "$RES_DIR/backend"   # -> resources/backend/{backend, _internal/…}
+chmod +x "$RES_DIR/backend/backend"
 
 echo "==> Building native system-audio capture sidecar"
 "$ROOT/native/system-audio-capture/build.sh"
-RES_DIR="$ROOT/frontend/src-tauri/resources"
 mkdir -p "$RES_DIR"
 cp "$ROOT/native/system-audio-capture/build/system-audio-capture" "$RES_DIR/system-audio-capture"
 chmod +x "$RES_DIR/system-audio-capture"
@@ -109,7 +110,11 @@ echo "==> Codesigning $APP with: $IDENTITY"
 # ScreenCaptureKit call as the same client as the app — otherwise the Screen Recording
 # grant doesn't cover it and native capture never becomes available.
 codesign --force --timestamp=none --identifier "$BUNDLE_ID" --sign "$IDENTITY" "$APP/Contents/Resources/resources/system-audio-capture"
-codesign --force --timestamp=none --sign "$IDENTITY" "$APP/Contents/MacOS/backend"
+# Onedir exposes the backend's dylibs/.so as individual files — every Mach-O must be signed
+# or the (signed) app won't launch. Sign them all, then the backend exe, then the bundle.
+find "$APP/Contents/Resources/resources/backend" -type f \( -name "*.so" -o -name "*.dylib" -o -perm +111 \) -print0 \
+  | while IFS= read -r -d '' f; do codesign --force --timestamp=none --sign "$IDENTITY" "$f" >/dev/null 2>&1 || true; done
+codesign --force --timestamp=none --sign "$IDENTITY" "$APP/Contents/Resources/resources/backend/backend"
 codesign --force --timestamp=none --sign "$IDENTITY" "$APP"
 
 cat <<EOF

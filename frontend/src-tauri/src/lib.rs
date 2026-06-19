@@ -1,21 +1,16 @@
-//! Tauri shell: spawns the bundled FastAPI backend (a PyInstaller sidecar) on a
-//! free localhost port, injects that port into the webview as `window.__BACKEND_URL__`
-//! (api.ts reads it), and serves the built React UI. The sidecar is terminated when
-//! the app exits.
-//!
-//! NOTE: scaffolding — build/iterate on-device with the real Tauri 2 toolchain
-//! (`cargo tauri dev` / `cargo tauri build`). It has not been compiled here.
+//! Tauri shell: spawns the bundled FastAPI backend (a PyInstaller *onedir* app under
+//! `resources/backend/`) on a free localhost port, injects that port into the webview as
+//! `window.__BACKEND_URL__` (api.ts reads it), and serves the built React UI. The backend
+//! is terminated when the app exits.
 
 use std::net::TcpListener;
-
+use std::process::{Child, Command};
 use std::sync::Mutex;
 
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
-use tauri_plugin_shell::process::{CommandChild, CommandEvent};
-use tauri_plugin_shell::ShellExt;
 
-/// Holds the backend sidecar child so we can kill it when the app exits (no orphans).
-struct BackendChild(Mutex<Option<CommandChild>>);
+/// Holds the backend child so we can kill it when the app exits (no orphans).
+struct BackendChild(Mutex<Option<Child>>);
 
 /// Ask the OS for an unused localhost port.
 fn free_port() -> u16 {
@@ -53,36 +48,28 @@ pub fn run() {
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_default();
 
-            // Start the backend, pointed at the per-user data dir for its DB + caches.
-            // Spawn failures are logged (not a panic) — the webview's startup gate then
-            // surfaces "backend unreachable" with a retry instead of the app hard-crashing.
-            match app.shell().sidecar("backend") {
-                Ok(cmd) => {
-                    let cmd = cmd
-                        .env("APP_DATA_DIR", &data_dir)
-                        .env("SYSTEM_AUDIO_SIDECAR", &capture_bin)
-                        .args(["--host", "127.0.0.1", "--port", &port.to_string()]);
-                    match cmd.spawn() {
-                        Ok((mut rx, child)) => {
-                            app.manage(BackendChild(Mutex::new(Some(child))));
-                            tauri::async_runtime::spawn(async move {
-                                while let Some(event) = rx.recv().await {
-                                    match event {
-                                        CommandEvent::Stdout(line) | CommandEvent::Stderr(line) => {
-                                            println!("[backend] {}", String::from_utf8_lossy(&line));
-                                        }
-                                        CommandEvent::Terminated(payload) => {
-                                            eprintln!("[backend] sidecar exited: {payload:?}");
-                                        }
-                                        _ => {}
-                                    }
-                                }
-                            });
-                        }
-                        Err(e) => eprintln!("[backend] failed to start sidecar: {e}"),
-                    }
+            // The onedir backend lives at Contents/Resources/resources/backend/backend, with
+            // its `_internal/` libs alongside (found relative to the exe — no re-extraction).
+            let backend = app
+                .path()
+                .resolve("resources/backend/backend", tauri::path::BaseDirectory::Resource)
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default();
+
+            // Spawn the backend directly, pointed at the per-user data dir for its DB + caches.
+            // Spawn failures are logged (not a panic) — the webview's startup gate then surfaces
+            // "backend unreachable" with a retry. The backend writes its own rotating log under
+            // the data dir, so we don't need to pipe its output here.
+            match Command::new(&backend)
+                .env("APP_DATA_DIR", &data_dir)
+                .env("SYSTEM_AUDIO_SIDECAR", &capture_bin)
+                .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+                .spawn()
+            {
+                Ok(child) => {
+                    app.manage(BackendChild(Mutex::new(Some(child))));
                 }
-                Err(e) => eprintln!("[backend] sidecar not bundled: {e}"),
+                Err(e) => eprintln!("[backend] failed to start ({backend}): {e}"),
             }
 
             // The window first loads the bundled UI (tauri://), which shows the
@@ -130,7 +117,7 @@ pub fn run() {
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = app_handle.try_state::<BackendChild>() {
                     if let Ok(mut guard) = state.0.lock() {
-                        if let Some(child) = guard.take() {
+                        if let Some(mut child) = guard.take() {
                             let _ = child.kill();
                         }
                     }

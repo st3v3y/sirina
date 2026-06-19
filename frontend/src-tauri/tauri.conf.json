@@ -19,8 +19,7 @@
     "active": true,
     "targets": ["app"],
     "icon": ["icons/icon.icns"],
-    "externalBin": ["binaries/backend"],
-    "resources": ["resources/system-audio-capture"],
+    "resources": ["resources/system-audio-capture", "resources/backend"],
     "macOS": {
       "minimumSystemVersion": "13.0"
     }

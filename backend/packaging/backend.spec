@@ -2,7 +2,7 @@
 #
 #   cd backend
 #   uv run pyinstaller packaging/backend.spec --noconfirm
-#   -> dist/backend  (single file); test: ./dist/backend --port 8000  then GET /api/status
+#   -> dist/backend/  (onedir: backend + _internal/); test: ./dist/backend/backend --port 8000
 #
 # Models are NOT bundled — they download to APP_DATA_DIR/models on first run, as in dev.
 # The heavy optional packages (diarization, MLX) are commented out; get the minimal
@@ -56,16 +56,27 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+# onedir (not onefile): the libs live in a `_internal/` folder next to the exe and are
+# NOT re-extracted to a temp dir on every launch — onefile re-extraction was the ~20s
+# startup cost. The Tauri app bundles `dist/backend/` as a resource (see build-macos-app.sh
+# + tauri.conf.json) and spawns `…/resources/backend/backend` directly.
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,  # onedir
     name="backend",
     debug=False,
     strip=False,
     upx=False,
     console=True,
     target_arch="arm64",  # Apple Silicon
+)
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    name="backend",  # -> dist/backend/{backend, _internal/…}
 )
