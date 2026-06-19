@@ -45,7 +45,7 @@ def native_available() -> bool:
     try:
         result = subprocess.run([path, "--probe"], capture_output=True, timeout=10)
     except Exception:
-        log.debug("native capture probe failed to run", exc_info=True)
+        log.warning("native capture probe failed to run (path=%s)", path, exc_info=True)
         return False
     if result.returncode != 0:
         log.info(

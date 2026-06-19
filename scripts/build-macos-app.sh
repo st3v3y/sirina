@@ -34,6 +34,16 @@ if [ "$NODE_MAJOR" -lt 18 ]; then
   echo "  ✗ Node $NODE_MAJOR is too old (Vite needs >= 18) — run:  nvm use 22"
   missing=1
 fi
+# Fail fast if an explicit signing identity won't resolve, rather than building for
+# minutes and only failing at codesign with "no identity found".
+if [ -n "${CODESIGN_IDENTITY:-}" ]; then
+  if ! security find-identity -v -p codesigning 2>/dev/null | grep -qF "$CODESIGN_IDENTITY"; then
+    echo "  ✗ CODESIGN_IDENTITY=\"$CODESIGN_IDENTITY\" is not a valid code-signing identity."
+    echo "    Available: $(security find-identity -v -p codesigning 2>/dev/null | grep -oE '\"[^\"]+\"' | paste -sd ', ' -)"
+    echo "    Create a self-signed 'Code Signing' cert (see docs/PACKAGING.md), or use one above."
+    missing=1
+  fi
+fi
 if [ "$missing" -ne 0 ]; then
   echo
   echo "Install the items above, then re-run ./scripts/build-macos-app.sh"
