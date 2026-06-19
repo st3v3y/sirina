@@ -46,3 +46,17 @@ The app SHALL write backend logs to a rotating file under the app data directory
 - **WHEN** the app has run
 - **THEN** a rotating log file exists under the app data directory
 - **AND** it contains no secret values (tokens / API keys)
+
+### Requirement: The app starts promptly
+
+The packaged backend SHALL NOT re-extract its entire bundle on every launch, and the app SHALL reach a usable state without blocking on optional or background model loading.
+
+#### Scenario: Repeat launches don't re-extract
+
+- **WHEN** the app is launched after the first run
+- **THEN** it does not re-extract the full backend bundle on each launch
+
+#### Scenario: Usable before models finish loading
+
+- **WHEN** the backend has started but the transcription model is still loading
+- **THEN** the app is usable and shows the model as still loading, rather than blocking startup

@@ -17,8 +17,13 @@ Four follow-ups deferred from earlier changes, all about the app behaving correc
 ### 1. Stable code signing
 The build script resolves a signing identity in order: explicit `CODESIGN_IDENTITY` → a single local **"Code Signing"** self-signed identity if exactly one is found (`security find-identity -p codesigning`) → ad-hoc `-`. When it lands on ad-hoc, it prints a clear warning that OS permissions will re-prompt and points at the cert-creation steps. `docs/PACKAGING.md` documents creating a self-signed "Code Signing" cert in Keychain Access. The capture sidecar keeps being signed with the app's bundle identifier (so TCC treats it as the same client). *Out of scope:* anything requiring an Apple Developer account.
 
-### 2. Bundle the diarization runtime
-Add `pyannote.audio` + `torch`/`torchaudio` to the PyInstaller bundle via `collect_all(...)` (datas/binaries/hiddenimports) in `backend.spec`, plus any hooks torch needs. Model weights are **not** bundled — they download once on first enable and cache under the app data dir (`HF_HOME` is already pointed there by `configure_model_caches()`), gated by the HF token. Torch is CPU/MPS (matches the existing pyannote MPS path). Diarization stays opt-in and off by default. *Trade-off:* the bundle grows substantially (torch) and the build is slower — accepted, behind the existing opt-in toggle.
+### 2. On-demand ONNX diarization (no torch bundle)
+Measured: bundling torch/pyannote would add ~0.5 GB (torch is ~430 MB on macOS arm64). Instead, **reuse the already-bundled `onnxruntime` (68 MB)** and run an ONNX diarizer, with the model **downloaded on demand**:
+- Replace the torch/pyannote `Diarizer` (`app/processing/diarize.py`) with an ONNX implementation (candidate: `sherpa-onnx` segmentation+embedding, or pyannote exported to ONNX). Drop the `pyannote.audio`/`torch`/`torchaudio` deps.
+- The ONNX model is **not** bundled. A small API reports whether it's present and downloads it on request; the Settings "Enable diarization" flow has an **Install / Download** step that fetches it once into the data dir (`HF_HOME`), after which it can be enabled. Off by default.
+- `backend.spec` then needs no torch hooks; only onnxruntime (already present) ships.
+*Trade-off:* a new diarizer implementation (real work) in exchange for ~zero bundle growth and a pay-only-if-you-want-it model. The `diarization_model` setting's options change to the ONNX model id(s).
+*Alternative considered:* bundle torch (~+0.5 GB, reuse the existing pyannote path) — rejected for the size, per the user's preference to download diarization on demand.
 
 ### 3. Secrets in the OS keyring
 Add the `keyring` dependency and reimplement the existing seam:
@@ -38,9 +43,15 @@ Give `OpenAICompatProvider` an optional native-Ollama path. `build_llm()` sets `
 - **Branded splash.** The `BackendGate` loading view becomes a paper-and-ink splash: the `sirina-mark.svg` logo + serif "Sirina" wordmark on a themed background, a refined (vermilion) loading indicator, and the phase text. It's one component that also renders the "still downloading / unreachable / model failed" + retry states from above. It needs no backend (just the bundled logo + fonts), so it renders correctly in both the pre-navigation `tauri://` phase and the post-navigation `http://` phase. Respect `prefers-reduced-motion`.
 - **Single instance + cleanup.** Add `tauri-plugin-single-instance` so a second launch focuses the existing window (no second sidecar/port). Remove the unused `app_password` field from `config.py` (dead code — never read; the local API is already loopback-only on an ephemeral port).
 
+### 6. Startup performance
+The packaged backend is PyInstaller **onefile**, which re-extracts the whole bundle (mlx, ctranslate2, onnxruntime, frozen Python — hundreds of MB) to a temp dir on every launch (~20–25 s observed in the logs as a fresh `/T/_MEIxxxx` each run).
+- **Switch to `onedir`** in `backend.spec` (`EXE(exclude_binaries=True)` + `COLLECT(...)`): the libs live in a folder and aren't re-extracted each launch. *Caveat:* the Tauri sidecar mechanism expects a single executable, so the onedir `_internal` folder must be bundled alongside the sidecar binary (adjust `backend.spec`, the copy step in `build-macos-app.sh`, and the Tauri resource bundling) — this is the fiddly part.
+- **Defer heavy imports**: `select_engine()` runs in lifespan and pulls in mlx/faster-whisper before `/api/status` answers. Defer engine construction/imports so the backend reports ready quickly and the model loads in the background (the sidebar already shows `whisper_state`), shortening the splash regardless of onefile/onedir.
+
 ## Risks / Trade-offs
 
-- **Torch bundle size / PyInstaller hooks** → larger app, slower build, possible missing-module errors. → Mitigation: `collect_all` + iterate on hiddenimports; verify a packaged diarized run; keep it behind the opt-in toggle so a failure doesn't affect the default path.
+- **New ONNX diarizer accuracy/parity** → a different model than pyannote; quality may differ, and it's net-new code. → Mitigation: keep it opt-in/off by default; validate on a known multi-speaker recording; the baseline two-track split still works without diarization.
+- **onedir + Tauri sidecar packaging** → the sidecar's `_internal` folder must travel with the binary or the packaged backend won't start. → Mitigation: verify with a real `./scripts/build-macos-app.sh` run before relying on it; the onefile fallback remains if onedir proves too fiddly.
 - **Keyring availability/prompts** → first keyring access on macOS can prompt; unsigned/ad-hoc apps get a fresh keychain identity. → Mitigation: stable signing (decision 1); DB fallback when no backend; never block startup on keyring errors.
 - **Native-Ollama path divergence** → a second request shape to maintain. → Mitigation: keep it minimal (only `generate`, only when `ollama_native`); the OpenAI path stays the default for everything else.
 - **Signing is partly a user action** (creating the cert) → can't be fully automated. → Mitigation: detect + document; the script still works ad-hoc with a clear warning.

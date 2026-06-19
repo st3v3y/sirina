@@ -20,12 +20,13 @@
 - [x] 3.3 Leave cloud + LM Studio on the OpenAI-compatible path (no local-only params sent); `ping`/`list_models` unchanged
 - [ ] 3.4 Verify: with Ollama, a transcript larger than the default context is fully considered when `llm_context_tokens` is raised (no mid-prompt truncation)
 
-## 4. Bundle the diarization runtime
+## 4. On-demand ONNX diarization
 
-- [ ] 4.1 Bundle `pyannote.audio` + `torch`/`torchaudio` in `backend/packaging/backend.spec` via `collect_all(...)` (datas/binaries/hiddenimports), adding hooks as the build surfaces missing modules
-- [ ] 4.2 Ensure weights download once on first enable and cache under the app data dir (`HF_HOME`); diarization stays gated by the HF token and off by default
-- [ ] 4.3 Confirm the bundled torch uses CPU/MPS consistent with the existing pyannote path
-- [ ] 4.4 Verify: in the packaged app, enable diarization with a valid token and process a recording → speakers are separated; weights are reused on the next run
+- [ ] 4.1 Replace the torch/pyannote `Diarizer` (`app/processing/diarize.py`) with an ONNX implementation on the bundled `onnxruntime` (candidate: sherpa-onnx segmentation+embedding, or pyannote-onnx); keep the existing diarize/turns interface so `job.py` is unchanged
+- [ ] 4.2 Drop the `pyannote.audio` / `torch` / `torchaudio` dependencies; update the `diarization_model` setting's options to the ONNX model id(s)
+- [ ] 4.3 Add a model-presence + download API (e.g. `GET/POST /api/diarization/model`): the model downloads on demand into the data dir (`HF_HOME`) and is reused; diarization stays off by default and can only be enabled once the model is present
+- [ ] 4.4 Settings UI: an "Install / Download" step for diarization (download progress/result), then allow enabling
+- [ ] 4.5 Verify: fresh app has no diarization model and a small bundle; install → download once; enable + process a recording → speakers separated; model reused next run
 
 ## 5. Runtime resilience + cleanups
 
@@ -37,14 +38,21 @@
 - [x] 5.6 Add `tauri-plugin-single-instance` (focus the existing window on a second launch); remove the unused `app_password` from `config.py`
 - [x] 5.7 Upgrade the startup splash (the `BackendGate` view): branded paper-and-ink screen (logo + serif wordmark, themed, vermilion loading indicator) showing the phase, and hosting the unreachable / model-failure + retry states; respect `prefers-reduced-motion`; works in both the tauri:// and http:// phases
 
-## 6. Verification
+## 6. Startup performance
 
-- [ ] 6.1 OS permission grant persists across launches/rebuilds with a stable identity; ad-hoc build prints the warning
-- [ ] 6.2 Secrets live in the OS keyring (DB fallback when unavailable); existing plaintext secret is migrated and removed from the DB
-- [ ] 6.3 Local Ollama honors the configured context window; cloud requests stay OpenAI-compatible (no `num_ctx`)
-- [ ] 6.4 Packaged app runs diarization end-to-end; default (diarization off) path and bundle still launch cleanly
-- [ ] 6.5 Backend failure (killed sidecar / forced startup error) shows an actionable error + retry, not an endless splash; a second launch focuses the existing window
-- [ ] 6.6 Offline first run surfaces a model-unavailable error with retry (not a perpetual "loading"); a forced render error shows the error boundary, not a blank screen
-- [ ] 6.7 Startup splash is branded/themed (logo + wordmark), shows the phase, and renders correctly in light and dark
-- [ ] 6.8 A rotating log file is written under the data dir with no secrets
-- [ ] 6.9 `npm run build` and a full `./scripts/build-macos-app.sh` succeed
+- [ ] 6.1 Switch `backend/packaging/backend.spec` from onefile to **onedir** (`EXE(exclude_binaries=True)` + `COLLECT(...)`)
+- [ ] 6.2 Bundle the onedir `_internal` folder alongside the Tauri sidecar binary so the packaged backend starts (adjust the copy step in `build-macos-app.sh` + Tauri resource bundling); fall back to onefile if onedir proves too fiddly
+- [ ] 6.3 Defer heavy engine imports out of backend startup so `/api/status` answers in a few seconds and the model loads in the background (sidebar already shows `whisper_state`)
+
+## 7. Verification
+
+- [ ] 7.1 OS permission grant persists across launches/rebuilds with a stable identity; ad-hoc build prints the warning
+- [ ] 7.2 Secrets live in the OS keyring (DB fallback when unavailable); existing plaintext secret is migrated and removed from the DB
+- [ ] 7.3 Local Ollama honors the configured context window; cloud requests stay OpenAI-compatible (no `num_ctx`)
+- [ ] 7.4 Diarization: fresh app has no model + small bundle; install → download once; enable + process → speakers separated; off-by-default path still launches cleanly
+- [ ] 7.5 Backend failure (killed sidecar / forced startup error) shows an actionable error + retry, not an endless splash; a second launch focuses the existing window
+- [ ] 7.6 Offline first run surfaces a model-unavailable error with retry (not a perpetual "loading"); a forced render error shows the error boundary, not a blank screen
+- [ ] 7.7 Startup splash is branded/themed (logo + wordmark), shows the phase, and renders correctly in light and dark
+- [ ] 7.8 A rotating log file is written under the data dir with no secrets
+- [ ] 7.9 Repeat launches are noticeably faster (no full re-extraction); the app is usable while the model still loads
+- [ ] 7.10 `npm run build` and a full `./scripts/build-macos-app.sh` succeed
