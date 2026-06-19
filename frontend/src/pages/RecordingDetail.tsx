@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
-import { api, type RecordingDetail as TR, type Speaker, type Summary, type QAMessage, type Tag, type SummaryTemplate } from "../lib/api";
+import { api, type RecordingDetail as TR, type Speaker, type Summary, type QAMessage, type SummaryTemplate } from "../lib/api";
 import TranscriptChat from "../components/TranscriptChat";
 import PromptBar from "../components/PromptBar";
 import { TagChip, AddTagButton, catColor } from "../components/TagUI";
 import { Avatar, Button } from "../components/ui";
 import { Icon } from "../components/Icon";
 import { confirmDialog } from "../lib/confirm";
+import { useShell } from "../components/Shell";
 
 const STAGE_LABEL: Record<string, string> = {
   queued: "Queued…",
@@ -180,7 +181,8 @@ export default function RecordingDetail() {
   const [qa, setQa] = useState<QAMessage[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [peopleNames, setPeopleNames] = useState<string[]>([]);
-  const [allTags, setAllTags] = useState<Tag[]>([]);
+  // Share the sidebar's tag list so a tag created here shows up there immediately.
+  const { tags: allTags, reloadTags } = useShell();
   const [tab, setTab] = useState<Tab>("summary");
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
@@ -200,7 +202,6 @@ export default function RecordingDetail() {
 
   useEffect(() => {
     api.listPeople().then((p) => setPeopleNames(p.map((x) => x.name))).catch(() => {});
-    api.listTags().then(setAllTags).catch(() => {});
   }, [recordingId]);
 
   useEffect(() => {
@@ -233,7 +234,7 @@ export default function RecordingDetail() {
   async function createAndAssign(name: string) {
     const t = await api.createTag(name);
     await api.addTagToRecording(recordingId, t.id);
-    setAllTags(await api.listTags());
+    await reloadTags();
     load();
   }
 
