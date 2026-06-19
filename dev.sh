@@ -14,6 +14,24 @@ prefix() {
   awk -v p="$1" '{ printf "%s %s\n", p, $0; fflush() }'
 }
 
+# Wait until the backend port accepts connections, so Vite's proxy doesn't spam
+# ECONNREFUSED for /api/status while uvicorn is still starting. Caps at ~60s, then
+# starts the frontend anyway (its BackendGate keeps polling).
+wait_for_backend() {
+  printf '\033[2m[dev] waiting for backend on :%s…\033[0m\n' "$BACKEND_PORT"
+  local tries=0
+  until (exec 3<>"/dev/tcp/127.0.0.1/$BACKEND_PORT") 2>/dev/null; do
+    tries=$((tries + 1))
+    if [ "$tries" -ge 120 ]; then
+      printf '\033[2m[dev] backend not up yet — starting frontend anyway.\033[0m\n'
+      return 0
+    fi
+    sleep 0.5
+  done
+  exec 3>&- 2>/dev/null || true
+  printf '\033[2m[dev] backend is up.\033[0m\n'
+}
+
 cleanup() {
   trap - INT TERM EXIT
   echo
@@ -29,6 +47,9 @@ trap cleanup INT TERM EXIT
   cd "$ROOT/backend"
   exec uv run uvicorn app.main:app --reload --reload-include='*.env' --port "$BACKEND_PORT"
 ) 2>&1 | prefix "\033[36m[backend]\033[0m" &
+
+# Give the backend a head start so the Vite proxy has something to connect to.
+wait_for_backend
 
 # Frontend
 (
