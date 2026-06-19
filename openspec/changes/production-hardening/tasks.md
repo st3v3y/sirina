@@ -29,12 +29,12 @@
 
 ## 5. Runtime resilience + cleanups
 
-- [ ] 5.1 In `lib.rs`, replace the spawn `.expect()` and the unbounded connect-loop with a bounded wait; on timeout or sidecar exit (`CommandEvent::Terminated`), surface an error to the webview and offer retry (re-spawn)
+- [x] 5.1 In `lib.rs`, replace the spawn `.expect()` and the unbounded connect-loop with a bounded wait; on timeout or sidecar exit (`CommandEvent::Terminated`), surface an error to the webview and offer retry (re-spawn)
 - [x] 5.2 In the React `BackendGate`, cap `/api/status` polling and render an actionable "backend unreachable" view with retry, while still tolerating a slow first-run model download
 - [x] 5.3 Report the transcription model state in `/api/status` as loading | ready | failed; record `whisper.load()` failures instead of an indefinite "loading"; surface `failed` + retry in the sidebar/status
 - [x] 5.4 Add a rotating file log handler (`data_dir/logs/sirina.log`) alongside stdout in `main.py`; confirm no secrets are written
 - [x] 5.5 Add a React error boundary around the routed content; show a recoverable message + reload on a render throw
-- [ ] 5.6 Add `tauri-plugin-single-instance` (focus the existing window on a second launch); remove the unused `app_password` from `config.py`
+- [x] 5.6 Add `tauri-plugin-single-instance` (focus the existing window on a second launch); remove the unused `app_password` from `config.py`
 - [x] 5.7 Upgrade the startup splash (the `BackendGate` view): branded paper-and-ink screen (logo + serif wordmark, themed, vermilion loading indicator) showing the phase, and hosting the unreachable / model-failure + retry states; respect `prefers-reduced-motion`; works in both the tauri:// and http:// phases
 
 ## 6. Verification

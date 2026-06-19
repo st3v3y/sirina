@@ -28,6 +28,14 @@ fn free_port() -> u16 {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Single-instance must be registered FIRST: a second launch focuses the existing
+        // window instead of spawning a second backend.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             let port = free_port();
@@ -46,27 +54,36 @@ pub fn run() {
                 .unwrap_or_default();
 
             // Start the backend, pointed at the per-user data dir for its DB + caches.
-            let sidecar = app
-                .shell()
-                .sidecar("backend")
-                .expect("backend sidecar is not bundled (see scripts/build-macos-app.sh)")
-                .env("APP_DATA_DIR", &data_dir)
-                .env("SYSTEM_AUDIO_SIDECAR", &capture_bin)
-                .args(["--host", "127.0.0.1", "--port", &port.to_string()]);
-            let (mut rx, child) = sidecar.spawn().expect("failed to start the backend sidecar");
-            app.manage(BackendChild(Mutex::new(Some(child))));
-
-            // Surface backend logs to the Tauri process output for debugging.
-            tauri::async_runtime::spawn(async move {
-                while let Some(event) = rx.recv().await {
-                    match event {
-                        CommandEvent::Stdout(line) | CommandEvent::Stderr(line) => {
-                            println!("[backend] {}", String::from_utf8_lossy(&line));
+            // Spawn failures are logged (not a panic) — the webview's startup gate then
+            // surfaces "backend unreachable" with a retry instead of the app hard-crashing.
+            match app.shell().sidecar("backend") {
+                Ok(cmd) => {
+                    let cmd = cmd
+                        .env("APP_DATA_DIR", &data_dir)
+                        .env("SYSTEM_AUDIO_SIDECAR", &capture_bin)
+                        .args(["--host", "127.0.0.1", "--port", &port.to_string()]);
+                    match cmd.spawn() {
+                        Ok((mut rx, child)) => {
+                            app.manage(BackendChild(Mutex::new(Some(child))));
+                            tauri::async_runtime::spawn(async move {
+                                while let Some(event) = rx.recv().await {
+                                    match event {
+                                        CommandEvent::Stdout(line) | CommandEvent::Stderr(line) => {
+                                            println!("[backend] {}", String::from_utf8_lossy(&line));
+                                        }
+                                        CommandEvent::Terminated(payload) => {
+                                            eprintln!("[backend] sidecar exited: {payload:?}");
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            });
                         }
-                        _ => {}
+                        Err(e) => eprintln!("[backend] failed to start sidecar: {e}"),
                     }
                 }
-            });
+                Err(e) => eprintln!("[backend] sidecar not bundled: {e}"),
+            }
 
             // The window first loads the bundled UI (tauri://), which shows the
             // "Starting backend…" splash. We then navigate it to the backend over http
@@ -85,20 +102,23 @@ pub fn run() {
             let nav_window = window.clone();
             std::thread::spawn(move || {
                 let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-                loop {
+                // Bounded wait (~60s). If the backend never comes up we stop trying and
+                // leave the webview on its splash, which times out into an error + retry.
+                for _ in 0..120 {
                     if std::net::TcpStream::connect_timeout(
                         &addr,
                         std::time::Duration::from_millis(500),
                     )
                     .is_ok()
                     {
-                        break;
+                        if let Ok(url) = format!("http://127.0.0.1:{port}/").parse::<tauri::Url>() {
+                            let _ = nav_window.navigate(url);
+                        }
+                        return;
                     }
                     std::thread::sleep(std::time::Duration::from_millis(500));
                 }
-                if let Ok(url) = format!("http://127.0.0.1:{port}/").parse::<tauri::Url>() {
-                    let _ = nav_window.navigate(url);
-                }
+                eprintln!("[backend] not reachable after ~60s; staying on the splash (offers retry)");
             });
 
             Ok(())
