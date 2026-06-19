@@ -28,6 +28,20 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 log = logging.getLogger(__name__)
+
+# Persist logs to a rotating file under the data dir so issues can be diagnosed after
+# the fact (the packaged app's stdout isn't easily accessible). Secrets are never logged.
+try:
+    from logging.handlers import RotatingFileHandler
+
+    _log_dir = settings.data_dir / "logs"
+    _log_dir.mkdir(parents=True, exist_ok=True)
+    _file_handler = RotatingFileHandler(_log_dir / "sirina.log", maxBytes=2_000_000, backupCount=3)
+    _file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    logging.getLogger().addHandler(_file_handler)
+    log.info("logging to %s", _log_dir / "sirina.log")
+except Exception:
+    log.warning("could not set up file logging", exc_info=True)
 if settings.dev:
     # DEBUG our own code, but keep chatty third-party libs (HTTP/TLS frames,
     # downloads) at INFO so the app's debug logs stay readable.
@@ -52,7 +66,15 @@ async def lifespan(app: FastAPI):
 
     # Whisper is loaded in the background; it is NOT used during recording. Recording
     # itself runs no inference — the transcription processor uses whisper after stop.
-    load_task = asyncio.create_task(runtime.whisper.load(), name="whisper-load")
+    async def _load_whisper() -> None:
+        try:
+            await runtime.whisper.load()
+            runtime.whisper_error = None
+        except Exception as e:  # offline / failed download / OOM — surface, don't hang
+            runtime.whisper_error = f"{type(e).__name__}: {e}"
+            log.exception("whisper model failed to load")
+
+    load_task = asyncio.create_task(_load_whisper(), name="whisper-load")
     runtime.pipeline = Pipeline(runtime.whisper, runtime.llm)
 
     runtime.diarizer = Diarizer()

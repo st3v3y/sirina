@@ -115,8 +115,14 @@ async def reload_engine() -> dict[str, Any]:
         from ..transcribe.engine import select_engine
 
         new = select_engine()
-        await new.load()
+        try:
+            await new.load()
+        except Exception as e:  # also the retry path for a failed/offline first-run load
+            runtime.whisper_error = f"{type(e).__name__}: {e}"
+            log.exception("transcription engine reload failed")
+            return {"ok": False, "detail": runtime.whisper_error}
         runtime.whisper = new
+        runtime.whisper_error = None
         if runtime.processor is not None:
             runtime.processor.set_engine(new)
         if runtime.pipeline is not None:

@@ -65,7 +65,6 @@ class Settings(BaseSettings):
     diarization_model: str = "pyannote/speaker-diarization-community-1"
 
     db_path: str = "./data/transcripts.db"
-    app_password: str = ""
 
     # Path to the native macOS system-audio capture sidecar (set by the Tauri app).
     # Empty → fall back to a dev build path; absent → native capture unavailable.

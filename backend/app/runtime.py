@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 class Runtime:
     def __init__(self) -> None:
         self.whisper: TranscriptionEngine | None = None
+        self.whisper_error: str | None = None  # last whisper load failure (e.g. offline)
         self.llm: OpenAICompatProvider | None = None
         self.ws: ConnectionManager | None = None
         self.pipeline: Pipeline | None = None
@@ -30,6 +31,13 @@ class Runtime:
 
     def whisper_loaded(self) -> bool:
         return bool(self.whisper and self.whisper.is_loaded())
+
+    def whisper_state(self) -> str:
+        """loading | ready | failed — so the UI can surface a failed/offline model
+        download instead of an indefinite 'loading'."""
+        if self.whisper and self.whisper.is_loaded():
+            return "ready"
+        return "failed" if self.whisper_error else "loading"
 
     async def rebuild_llm(self) -> None:
         """Rebuild the LLM provider after an AI setting (provider/model/base_url/key)

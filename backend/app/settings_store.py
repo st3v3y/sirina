@@ -152,39 +152,106 @@ def _persist(session: Session, key: str, text: str) -> None:
         session.add(row)
 
 
-# --- Secret seam (v1: DB-backed). Swap the body for `keyring` later. ---
+# --- Secret seam: OS keyring (macOS Keychain / Windows Cred Manager / Linux Secret
+#     Service) with a DB fallback when no keyring backend is available. ---
+
+KEYRING_SERVICE = "sirina"
+
+
+def _keyring_ok() -> bool:
+    """True if a real OS keyring backend is available (not the fail/null backend)."""
+    try:
+        import keyring
+        from keyring.backends.fail import Keyring as _Fail
+
+        return not isinstance(keyring.get_keyring(), _Fail)
+    except Exception:
+        return False
+
 
 def secret_get(key: str) -> str:
-    """Effective value of a secret setting (post-override). Never exposed in plaintext
-    by the API — callers only check truthiness."""
+    """Effective value of a secret (keyring → DB fallback → .env/default). Never returned
+    in plaintext by the API — callers only check truthiness."""
+    try:
+        import keyring
+
+        v = keyring.get_password(KEYRING_SERVICE, key)
+        if v:
+            return v
+    except Exception:
+        pass
+    with Session(engine) as s:
+        row = s.get(Setting, key)
+    if row and row.value:
+        return row.value
     return str(getattr(settings, key, "") or "")
 
 
 def secret_set(key: str, value: str, session: Session | None = None) -> None:
-    if session is not None:
-        _persist(session, key, value)
-    else:
-        with Session(engine) as s:
-            _persist(s, key, value)
-            s.commit()
+    """Store a secret in the OS keyring; fall back to the DB when no backend exists."""
+    stored = False
+    try:
+        import keyring
+
+        keyring.set_password(KEYRING_SERVICE, key, value)
+        stored = True
+    except Exception:
+        log.warning("keyring unavailable for %r; using DB fallback", key)
+    if not stored:
+        if session is not None:
+            _persist(session, key, value)
+        else:
+            with Session(engine) as s:
+                _persist(s, key, value)
+                s.commit()
     setattr(settings, key, value)
+
+
+def _migrate_secrets_to_keyring() -> None:
+    """One-time: move any plaintext secret out of the `setting` table into the keyring."""
+    if not _keyring_ok():
+        return
+    import keyring
+
+    moved = 0
+    with Session(engine) as s:
+        for key, spec in REGISTRY.items():
+            if not spec.secret:
+                continue
+            row = s.get(Setting, key)
+            if row and row.value:
+                try:
+                    keyring.set_password(KEYRING_SERVICE, key, row.value)
+                    s.delete(row)
+                    moved += 1
+                except Exception:
+                    log.warning("could not migrate secret %r to the keyring", key)
+        if moved:
+            s.commit()
+    if moved:
+        log.info("migrated %d secret(s) from the database into the OS keyring", moved)
 
 
 def load_overrides() -> None:
     """Apply persisted overrides onto the `Settings` singleton. Call once at startup,
     after `init_db()` and before the engine/LLM are constructed."""
+    _migrate_secrets_to_keyring()
     with Session(engine) as s:
         rows = s.exec(select(Setting)).all()
+    by_key = {r.key: r.value for r in rows}
     applied = 0
-    for row in rows:
-        spec = REGISTRY.get(row.key)
-        if spec is None:
-            continue  # stale key (e.g. a removed field) — ignore
-        try:
-            setattr(settings, spec.key, _coerce(spec, row.value))
-            applied += 1
-        except Exception:
-            log.warning("ignoring invalid stored setting %s=%r", row.key, row.value)
+    for key, spec in REGISTRY.items():
+        if spec.secret:
+            v = secret_get(key)  # keyring → DB fallback
+            if v:
+                setattr(settings, key, v)
+                applied += 1
+        elif key in by_key:
+            try:
+                setattr(settings, key, _coerce(spec, by_key[key]))
+                applied += 1
+            except Exception:
+                log.warning("ignoring invalid stored setting %s=%r", key, by_key[key])
     if applied:
         log.info("applied %d persisted setting override(s)", applied)
 

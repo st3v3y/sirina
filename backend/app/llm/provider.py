@@ -77,7 +77,13 @@ def is_local_provider(provider: str, base_url: str) -> bool:
 
 class OpenAICompatProvider:
     def __init__(
-        self, base_url: str, api_key: str = "", model: str = "", *, allow_fallback: bool = False
+        self,
+        base_url: str,
+        api_key: str = "",
+        model: str = "",
+        *,
+        allow_fallback: bool = False,
+        ollama_native: bool = False,
     ) -> None:
         self.base_url = (base_url or "").rstrip("/")
         self.model = model
@@ -85,6 +91,10 @@ class OpenAICompatProvider:
         self._client = httpx.AsyncClient(base_url=self.base_url, timeout=120.0, headers=headers)
         # Substitute an installed model when the configured one is missing — local only.
         self._allow_fallback = allow_fallback
+        # Ollama ignores the context window on its OpenAI-compatible endpoint, so for Ollama
+        # we route generate() to the native /api/chat with options.num_ctx (see generate()).
+        self._ollama_native = ollama_native
+        self._root = self.base_url[:-3] if self.base_url.endswith("/v1") else self.base_url
         self._resolved: str | None = None
 
     async def ping(self) -> bool:
@@ -129,6 +139,8 @@ class OpenAICompatProvider:
             if system:
                 messages.append({"role": "system", "content": system})
             messages.append({"role": "user", "content": prompt})
+            if self._ollama_native:
+                return await self._generate_ollama(use, messages)
             r = await self._client.post(
                 "/chat/completions",
                 json={
@@ -147,6 +159,18 @@ class OpenAICompatProvider:
             log.exception("llm generate failed (base_url=%s)", self.base_url)
             return ""
 
+    async def _generate_ollama(self, model: str, messages: list[dict[str, str]]) -> str:
+        """Ollama's native /api/chat, which honors options.num_ctx — unlike its
+        OpenAI-compatible endpoint, which silently truncates to the server default."""
+        body: dict = {"model": model, "messages": messages, "stream": False,
+                      "options": {"temperature": 0.3}}
+        ctx = settings.llm_context_tokens
+        if ctx and ctx > 0:
+            body["options"]["num_ctx"] = ctx
+        r = await self._client.post(f"{self._root}/api/chat", json=body)
+        r.raise_for_status()
+        return (r.json().get("message", {}).get("content") or "").strip()
+
     async def close(self) -> None:
         await self._client.aclose()
 
@@ -157,5 +181,6 @@ def build_llm() -> OpenAICompatProvider:
     base_url = effective_base_url(provider, settings.llm_base_url)
     local = is_local_provider(provider, base_url)
     return OpenAICompatProvider(
-        base_url, settings.llm_api_key, settings.llm_model, allow_fallback=local
+        base_url, settings.llm_api_key, settings.llm_model,
+        allow_fallback=local, ollama_native=(provider == "ollama"),
     )

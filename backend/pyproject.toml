@@ -22,6 +22,7 @@ dependencies = [
     # Apple-GPU transcription (auto-selected on Apple Silicon). Optional elsewhere:
     # the platform marker means it is only installed/resolved on macOS arm64.
     "mlx-whisper>=0.4; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "keyring>=25.7.0",
 ]
 
 [build-system]
