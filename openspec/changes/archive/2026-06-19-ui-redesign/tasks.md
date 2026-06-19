@@ -42,13 +42,13 @@
 
 ## 6. Verification
 
-- [ ] 6.1 Sidebar is present and active-marked on every screen; navigating keeps the shell
-- [ ] 6.2 Record + device selection work from any screen (sidebar → modal); the sidebar reflects live recording; last-used devices remembered; the optional pre-record title is still settable (in the modal)
-- [ ] 6.3 Selecting a sidebar tag filters the recordings list; tag create + manage (rename/recolor/delete) work; existing stored tag colors render in the warm palette with no migration
-- [ ] 6.4 Status footer reflects transcription-ready and LLM-reachable states
-- [ ] 6.5 Detail: all 3 tabs work; Summary generate/regenerate + copy/export; audio track-switch; speaker rename via the header dropdown AND inline; transcript search; Skip-speakers; Retry; Delete
+- [x] 6.1 Sidebar is present and active-marked on every screen; navigating keeps the shell
+- [x] 6.2 Record + device selection work from any screen (sidebar → modal); the sidebar reflects live recording; last-used devices remembered; the optional pre-record title is still settable (in the modal)
+- [x] 6.3 Selecting a sidebar tag filters the recordings list; tag create + manage (rename/recolor/delete) work; existing stored tag colors render in the warm palette with no migration
+- [x] 6.4 Status footer reflects transcription-ready and LLM-reachable states
+- [x] 6.5 Detail: all 3 tabs work; Summary generate/regenerate + copy/export; audio track-switch; speaker rename via the header dropdown AND inline; transcript search; Skip-speakers; Retry; Delete
 - [x] 6.6 App runs offline with fonts **and icons** from bundled assets; no external font/asset request (incl. no Iconify API call)
-- [ ] 6.7 Theme defaults to the OS preference; the toggle (auto/light/dark) applies immediately and persists across launch; both themes render correctly with no flash of the wrong theme
-- [ ] 6.8 Accessibility: visible focus states in **both themes**; AA contrast for content text; keyboard operability of selects, the device dialog, tab switches, and the speaker dropdown
-- [ ] 6.9 Spot-check each page: every control/action/route that existed before the redesign is still present and functional
+- [x] 6.7 Theme defaults to the OS preference; the toggle (auto/light/dark) applies immediately and persists across launch; both themes render correctly with no flash of the wrong theme
+- [x] 6.8 Accessibility: visible focus states in **both themes**; AA contrast for content text; keyboard operability of selects, the device dialog, tab switches, and the speaker dropdown
+- [x] 6.9 Spot-check each page: every control/action/route that existed before the redesign is still present and functional
 - [x] 6.10 `npm run build` (tsc + vite) passes
