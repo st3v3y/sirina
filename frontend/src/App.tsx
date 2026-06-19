@@ -18,7 +18,7 @@ const STARTUP_TIMEOUT_MS = 45_000;
 function Splash({ failed, elapsed, onRetry }: { failed: boolean; elapsed: number; onRetry: () => void }) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center gap-5 bg-paper text-ink">
-      <img src={mark} alt="" className="w-16 h-16" />
+      <img src={mark} alt="" className="app-logo w-16 h-16" />
       <div className="font-serif text-2xl font-semibold tracking-tight">Sirina</div>
       {failed ? (
         <div className="flex flex-col items-center gap-3">
@@ -39,7 +39,8 @@ function Splash({ failed, elapsed, onRetry }: { failed: boolean; elapsed: number
           <p className="text-sm text-muted">Starting the backend…</p>
           {elapsed > 8 && (
             <p className="text-xs text-muted max-w-xs text-center leading-relaxed">
-              First run downloads the transcription model — this can take a few minutes. ({elapsed}s)
+              Loading the local models — this takes a moment each launch (and the first run also
+              downloads them). ({elapsed}s)
             </p>
           )}
         </div>

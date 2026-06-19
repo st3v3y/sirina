@@ -123,6 +123,12 @@ body {
   background-image: linear-gradient(180deg, var(--color-signal-from), var(--color-signal-to));
 }
 
+/* The logo mark is a black silhouette (no fills) — invert it to white in dark mode so it
+   doesn't disappear on the dark surfaces (splash + sidebar). */
+:root[data-theme="dark"] img.app-logo {
+  filter: brightness(0) invert(1);
+}
+
 /* The live-recording pulse (from the comp). */
 @keyframes recpulse {
   0%, 100% { opacity: 1; box-shadow: 0 0 0 4px rgba(214, 73, 47, 0.22); }

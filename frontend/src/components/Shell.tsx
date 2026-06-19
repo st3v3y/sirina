@@ -101,7 +101,7 @@ export default function Shell({ children }: { children: ReactNode }) {
         <aside className="w-[252px] shrink-0 bg-sidebar border-r border-line flex flex-col px-3.5 py-[18px] overflow-y-auto">
           {/* logo */}
           <div className="flex items-center gap-2.5 px-2 pb-5">
-            <img src={mark} alt="Sirina" className="w-9 h-9" />
+            <img src={mark} alt="Sirina" className="app-logo w-9 h-9" />
             <span className="font-serif text-xl font-semibold tracking-tight">Sirina</span>
           </div>
 
