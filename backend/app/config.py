@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     llm_model: str = "llama3.1:8b-instruct"
     llm_base_url: str = ""  # overrides the preset base URL (required for `custom`)
     llm_api_key: str = ""  # required for cloud providers
+    # Approx. tokens of context the AI model can use; sizes how much transcript the
+    # cross-recording chat sends. Match your model's (or Ollama's) configured window.
+    llm_context_tokens: int = 8192
 
     diarization_enabled: bool = False
     hf_token: str = ""  # HuggingFace read token (gates the one-time pyannote download)

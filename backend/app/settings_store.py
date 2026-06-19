@@ -89,7 +89,14 @@ FIELDS: list[FieldSpec] = [
     FieldSpec("diarization_enabled", "Enable diarization", "diarization", "bool"),
     FieldSpec("hf_token", "HuggingFace token", "diarization", "string", secret=True,
               help="Read token gating the one-time pyannote download."),
-    FieldSpec("diarization_model", "Diarization model", "diarization", "string"),
+    FieldSpec(
+        "diarization_model", "Diarization model", "diarization", "string",
+        options=[
+            "pyannote/speaker-diarization-community-1",
+            "pyannote/speaker-diarization-3.1",
+        ],
+        help="pyannote pipeline.",
+    ),
     # --- Advanced ---
     FieldSpec("transcribe_chunk_seconds", "Chunk seconds", "advanced", "int",
               help="Window size for chunked transcription (MLX). 0 disables chunking."),
@@ -97,6 +104,9 @@ FIELDS: list[FieldSpec] = [
               help="Tracks peaking below this (0..1) are skipped as silent. 0 disables."),
     FieldSpec("whisper_cpu_threads", "CPU threads", "advanced", "int", restart="reload_engine",
               help="0 = use all cores."),
+    FieldSpec("llm_context_tokens", "AI context window (tokens)", "advanced", "int",
+              help="How much transcript cross-recording chat sends to the AI. Match your model's "
+                   "context window (for local Ollama, also its configured num_ctx)."),
 ]
 
 REGISTRY: dict[str, FieldSpec] = {f.key: f for f in FIELDS}

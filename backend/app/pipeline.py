@@ -12,6 +12,7 @@ from datetime import date
 
 from sqlmodel import Session, select
 
+from .config import settings
 from .db import engine
 from .llm.provider import OpenAICompatProvider, render
 from .models import (
@@ -29,8 +30,28 @@ from .transcribe.whisper import FasterWhisperWorker
 
 log = logging.getLogger(__name__)
 
-# Char budget for concatenated transcripts in a cross-recording chat answer.
-CROSS_CONTEXT_CHAR_BUDGET = 24000
+# Cross-recording chat sizes its transcript budget from the AI context-window setting
+# (`llm_context_tokens`). Rough chars-per-token ratio; reserve room for the question,
+# prior Q&A, the system prompt, and the answer itself.
+CHARS_PER_TOKEN = 3.5
+CONTEXT_RESERVE_TOKENS = 1024
+DEFAULT_CONTEXT_TOKENS = 8192
+
+
+def _cross_context_budget() -> int:
+    ctx = settings.llm_context_tokens or DEFAULT_CONTEXT_TOKENS
+    return max(4000, int((ctx - CONTEXT_RESERVE_TOKENS) * CHARS_PER_TOKEN))
+
+# Keeps each summary section on-task: many instruct models otherwise prepend a generic
+# "This appears to be a transcript of a conversation…" intro to every section.
+SUMMARY_SYSTEM = (
+    "You write one section of a meeting summary at a time. Output ONLY the content for the "
+    "requested section, following its instruction exactly. Do NOT add any introduction, "
+    "preamble, or sign-off. Never describe or restate that the input is a transcript or a "
+    "conversation, and never begin with phrases like 'This is a transcript' or 'Here is a "
+    "summary'. No meta-commentary. If the transcript has nothing relevant to the section, "
+    "output exactly: None."
+)
 
 
 class Pipeline:
@@ -72,7 +93,8 @@ class Pipeline:
         for section in sections_def:
             title = section.get("title", "")
             source = section.get("prompt", "")
-            prompt = render(source, meta)
+            instruction = render(source, meta)
+            prompt = f"SECTION: {title}\nINSTRUCTION: {instruction}" if title else instruction
             # Auto-supply the transcript so authors don't have to add the placeholder;
             # skip if they already reference it (avoids a duplicate copy).
             if "{{transcript}}" not in source:
@@ -80,7 +102,7 @@ class Pipeline:
             # Prepend the template's general context (framing) to every section.
             if general_context:
                 prompt = f"{general_context}\n\n{prompt}"
-            content = await self.llm.generate(prompt)
+            content = await self.llm.generate(prompt, system=SUMMARY_SYSTEM)
             produced.append({"title": title, "content": content})
 
         with Session(engine) as s:
@@ -138,16 +160,22 @@ class Pipeline:
                 .where(Recording.status == "ready")
                 .order_by(Recording.started_at.desc())  # type: ignore[attr-defined]
             ).all()
+            budget = _cross_context_budget()
             blocks: list[str] = []
+            index: list[str] = []
             used = 0
             omitted = 0
             for rec in recs:
                 transcript = self._transcript(s, rec.id)  # type: ignore[arg-type]
                 if not transcript.strip():
                     continue
-                header = f"### {rec.title or f'Recording {rec.id}'} ({rec.started_at.date().isoformat()})"
-                block = f"{header}\n{transcript}"
-                if blocks and used + len(block) > CROSS_CONTEXT_CHAR_BUDGET:
+                title = rec.title or f"Recording {rec.id}"
+                date = rec.started_at.date().isoformat()
+                # Every meeting is listed in the index (so "which meeting…" questions can
+                # reason over the full set even when a transcript is dropped for length).
+                index.append(f"- {date} — {title}")
+                block = f"### {title} ({date})\n{transcript}"
+                if blocks and used + len(block) > budget:
                     omitted += 1
                     continue
                 blocks.append(block)
@@ -159,10 +187,14 @@ class Pipeline:
             ).all()
 
         context = "\n\n".join(blocks) or "(no transcripts available)"
+        index_text = "\n".join(index) or "(none)"
         hist_text = "\n".join(f"{m.role.upper()}: {m.content}" for m in history)
         prompt = (
-            "You are an assistant answering questions across multiple meeting transcripts. "
-            "Use ONLY the transcripts and prior Q&A below. If the answer isn't supported, say so.\n\n"
+            "You are an assistant answering questions across the user's meeting transcripts. "
+            "MEETINGS lists every meeting; TRANSCRIPTS holds their content (some may be omitted "
+            "for length). Use the transcripts and prior Q&A below; if the answer isn't supported "
+            "by them, say so.\n\n"
+            f"MEETINGS:\n{index_text}\n\n"
             f"TRANSCRIPTS:\n{context}\n\n"
             f"PRIOR Q&A:\n{hist_text or '(none)'}\n\n"
             f"QUESTION:\n{question}\n\nANSWER:"

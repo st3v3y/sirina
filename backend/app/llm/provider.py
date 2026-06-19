@@ -122,14 +122,18 @@ class OpenAICompatProvider:
         self._resolved = chosen
         return chosen
 
-    async def generate(self, prompt: str, *, model: str | None = None) -> str:
+    async def generate(self, prompt: str, *, model: str | None = None, system: str | None = None) -> str:
         try:
             use = model or await self._resolve_model()
+            messages: list[dict[str, str]] = []
+            if system:
+                messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": prompt})
             r = await self._client.post(
                 "/chat/completions",
                 json={
                     "model": use,
-                    "messages": [{"role": "user", "content": prompt}],
+                    "messages": messages,
                     "temperature": 0.3,
                     "stream": False,
                 },
