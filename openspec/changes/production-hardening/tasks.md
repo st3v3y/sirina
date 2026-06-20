@@ -40,8 +40,8 @@
 
 ## 6. Startup performance
 
-- [ ] 6.1 Switch `backend/packaging/backend.spec` from onefile to **onedir** (`EXE(exclude_binaries=True)` + `COLLECT(...)`)
-- [ ] 6.2 Bundle the onedir `_internal` folder alongside the Tauri sidecar binary so the packaged backend starts (adjust the copy step in `build-macos-app.sh` + Tauri resource bundling); fall back to onefile if onedir proves too fiddly
+- [x] 6.1 Switch `backend/packaging/backend.spec` from onefile to **onedir** (`EXE(exclude_binaries=True)` + `COLLECT(...)`)
+- [x] 6.2 Bundle the onedir `_internal` folder alongside the Tauri sidecar binary so the packaged backend starts (adjust the copy step in `build-macos-app.sh` + Tauri resource bundling); fall back to onefile if onedir proves too fiddly
 - [x] 6.3 Defer heavy engine imports out of backend startup so `/api/status` answers in a few seconds and the model loads in the background (sidebar already shows `whisper_state`)
 
 ## 7. Verification
@@ -54,5 +54,5 @@
 - [ ] 7.6 Offline first run surfaces a model-unavailable error with retry (not a perpetual "loading"); a forced render error shows the error boundary, not a blank screen
 - [ ] 7.7 Startup splash is branded/themed (logo + wordmark), shows the phase, and renders correctly in light and dark
 - [ ] 7.8 A rotating log file is written under the data dir with no secrets
-- [ ] 7.9 Repeat launches are noticeably faster (no full re-extraction); the app is usable while the model still loads
+- [x] 7.9 Repeat launches are noticeably faster (no full re-extraction); the app is usable while the model still loads
 - [ ] 7.10 `npm run build` and a full `./scripts/build-macos-app.sh` succeed
