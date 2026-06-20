@@ -40,11 +40,15 @@ def _apple_silicon() -> bool:
 def _mlx_available() -> bool:
     if not _apple_silicon():
         return False
-    # find_spec checks importability WITHOUT importing mlx_whisper (heavy) — the actual
-    # import is deferred to MlxWhisperWorker.load() so it stays off the startup path.
-    import importlib.util
-
-    return importlib.util.find_spec("mlx_whisper") is not None
+    # Actually import to confirm it LOADS — find_spec is too optimistic in a frozen app,
+    # where a partially-bundled mlx_whisper "exists" but fails to initialize. In the packaged
+    # build mlx is excluded (see backend.spec), so this fails fast and we use faster-whisper;
+    # in dev (mlx installed) it loads and the GPU path is used.
+    try:
+        import mlx_whisper  # noqa: F401
+    except Exception:
+        return False
+    return True
 
 
 def select_engine() -> TranscriptionEngine:

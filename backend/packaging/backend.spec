@@ -51,7 +51,10 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
-    excludes=["tkinter", "matplotlib"],
+    # mlx/mlx_whisper get pulled in partially (mlx.py imports them lazily) but aren't
+    # usable in the frozen app — exclude them so the packaged build cleanly uses
+    # faster-whisper (CPU). (Apple-GPU MLX in the bundle is a separate, deliberate add.)
+    excludes=["tkinter", "matplotlib", "mlx", "mlx_whisper"],
     noarchive=False,
 )
 pyz = PYZ(a.pure)
