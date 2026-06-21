@@ -20,6 +20,8 @@ export default function RecordingScreen() {
   const nav = useNavigate();
   const [elapsed, setElapsed] = useState(0);
   const [level, setLevel] = useState(0);
+  const [micLevel, setMicLevel] = useState(0);
+  const [systemLevel, setSystemLevel] = useState(0);
   const [title, setTitle] = useState<string | null>(null);
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +40,8 @@ export default function RecordingScreen() {
         if (info && info.id === recordingId) {
           setElapsed(info.elapsed_s);
           setLevel(info.level);
+          setMicLevel(info.mic_level ?? 0);
+          setSystemLevel(info.system_level ?? 0);
           missesRef.current = 0;
         } else {
           missesRef.current += 1;
@@ -67,7 +71,9 @@ export default function RecordingScreen() {
     }
   }
 
-  const pct = Math.min(100, Math.round(level * 140));
+  const micPct = Math.min(100, Math.round(micLevel * 140));
+  const systemPct = Math.min(100, Math.round(systemLevel * 140));
+  const hasSystem = systemLevel > 0;
 
   return (
     <div
@@ -106,10 +112,22 @@ export default function RecordingScreen() {
             );
           })}
         </div>
-        <div className="w-[300px] h-[7px] rounded-full bg-line-2 overflow-hidden">
-          <div className="h-full bg-signal-grad transition-[width] duration-75" style={{ width: `${pct}%` }} />
+        <div className="flex flex-col gap-2 w-[300px]">
+          <div className="flex items-center gap-3">
+            <span className="w-12 text-[10px] uppercase tracking-wider text-muted text-right">Mic</span>
+            <div className="flex-1 h-[7px] rounded-full bg-line-2 overflow-hidden">
+              <div className="h-full bg-signal-grad transition-[width] duration-75" style={{ width: `${micPct}%` }} />
+            </div>
+          </div>
+          {hasSystem && (
+            <div className="flex items-center gap-3">
+              <span className="w-12 text-[10px] uppercase tracking-wider text-muted text-right">System</span>
+              <div className="flex-1 h-[7px] rounded-full bg-line-2 overflow-hidden">
+                <div className="h-full bg-signal-grad transition-[width] duration-75" style={{ width: `${systemPct}%` }} />
+              </div>
+            </div>
+          )}
         </div>
-        <div className="text-[11px] uppercase tracking-wider text-muted">Input level</div>
       </div>
 
       <button

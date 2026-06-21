@@ -29,6 +29,15 @@ log = logging.getLogger(__name__)
 
 CAPTURE_SR = 48_000  # capture both tracks at a common rate so they mix cleanly
 
+# Mixing: the mic is an acoustic signal (often 20-30 dB below digital full-scale)
+# while system audio is captured at its digital source level, so a naive 1:1 sum
+# buries the mic under the system track. Balance each track to a target peak before
+# summing, leaving headroom for the sum, and cap the boost so a near-silent track's
+# noise floor isn't amplified to full scale.
+MIX_TARGET_PEAK = 0.5  # per-track target peak as a fraction of int16 full-scale
+MIX_MAX_GAIN = 8.0  # cap boost (~+18 dB) so quiet-track noise isn't blown up
+MIX_SILENCE_PEAK = 64  # int16 peak at/below this counts as silent (left untouched)
+
 
 def _recordings_dir() -> Path:
     base = settings.recordings_dir
@@ -206,11 +215,13 @@ class Recorder:
         a = self._active
         if a is None:
             return None
-        level = max((t.level for t in a.tracks), default=0.0)
+        levels = {t.name: t.level for t in a.tracks}
         return {
             "id": a.recording_id,
             "elapsed_s": time.monotonic() - a.started_monotonic,
-            "level": level,
+            "level": max(levels.values(), default=0.0),
+            "mic_level": levels.get("mic", 0.0),
+            "system_level": levels.get("system", 0.0),
         }
 
     async def start(
@@ -333,15 +344,28 @@ def _read_mono_int16(path: Path) -> np.ndarray:
     return np.frombuffer(raw, dtype=np.int16)
 
 
+def _balance_gain(x: np.ndarray) -> float:
+    """Gain bringing a track's peak up to MIX_TARGET_PEAK, capped at MIX_MAX_GAIN.
+    A silent track is left untouched so its noise floor isn't amplified."""
+    peak = float(np.abs(x).max()) if x.size else 0.0
+    if peak <= MIX_SILENCE_PEAK:
+        return 1.0
+    return min(MIX_MAX_GAIN, (MIX_TARGET_PEAK * 32767.0) / peak)
+
+
 def _mix_wavs(a: Path, b: Path, out: Path) -> None:
-    """Sum two mono 16-bit WAVs (same rate) into one, hard-clipping to int16."""
-    xa = _read_mono_int16(a).astype(np.int32)
-    xb = _read_mono_int16(b).astype(np.int32)
+    """Mix two mono 16-bit WAVs (same rate) into one. Each track is level-balanced to
+    comparable loudness before summing so the (quieter) mic isn't buried under
+    full-scale system audio; the sum is hard-clipped to int16 as a final safety net."""
+    xa = _read_mono_int16(a).astype(np.float32)
+    xb = _read_mono_int16(b).astype(np.float32)
     n = max(xa.size, xb.size)
     if xa.size < n:
         xa = np.pad(xa, (0, n - xa.size))
     if xb.size < n:
         xb = np.pad(xb, (0, n - xb.size))
+    xa *= _balance_gain(xa)
+    xb *= _balance_gain(xb)
     mixed = np.clip(xa + xb, -32768, 32767).astype(np.int16)
     with wave.open(str(out), "wb") as wf:
         wf.setnchannels(1)

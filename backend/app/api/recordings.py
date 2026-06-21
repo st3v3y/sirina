@@ -84,7 +84,9 @@ class RecordingDetail(BaseModel):
 class ActiveInfo(BaseModel):
     id: int
     elapsed_s: float
-    level: float
+    level: float  # max of all tracks (kept for back-compat)
+    mic_level: float = 0.0
+    system_level: float = 0.0
 
 
 @router.post("/start")
