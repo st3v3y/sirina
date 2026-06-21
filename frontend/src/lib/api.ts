@@ -82,6 +82,8 @@ export type ActiveInfo = {
   id: number;
   elapsed_s: number;
   level: number;
+  mic_level: number;
+  system_level: number;
 };
 
 export type Segment = {
