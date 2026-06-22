@@ -232,7 +232,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   status: () => request<Status>("/api/status"),
-  listAudioDevices: () => request<AudioDevice[]>("/api/audio/devices"),
+  listAudioDevices: (refresh = false) =>
+    request<AudioDevice[]>(`/api/audio/devices${refresh ? "?refresh=true" : ""}`),
   getAudioCapabilities: () => request<AudioCapabilities>("/api/audio/capabilities"),
 
   listRecordings: (tagId?: number) =>
