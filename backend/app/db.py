@@ -69,6 +69,7 @@ def _add_missing_columns() -> None:
     so this is idempotent."""
     additive = {
         "summarytemplate": [("general_context", "TEXT")],
+        "recording": [("warning", "TEXT")],
     }
     with engine.connect() as conn:
         for table, columns in additive.items():

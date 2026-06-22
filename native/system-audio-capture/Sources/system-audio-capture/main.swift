@@ -17,9 +17,19 @@ import ScreenCaptureKit
 let SAMPLE_RATE = 48_000
 let CHANNELS = 1
 
-/// Receives audio sample buffers and writes interleaved s16le to stdout.
-final class AudioOutput: NSObject, SCStreamOutput {
+/// Receives audio sample buffers and writes interleaved s16le to stdout. Also acts as the
+/// stream delegate so a system-initiated stop (display sleep, permission loss, error) is
+/// observed instead of silently leaving the process running while emitting no audio.
+final class AudioOutput: NSObject, SCStreamOutput, SCStreamDelegate {
     private let out = FileHandle.standardOutput
+
+    // SCStreamDelegate: the system stopped the capture. Report why and exit so our stdout
+    // closes — the parent recorder then sees EOF promptly and can restart us, rather than
+    // blocking forever on a read that never returns.
+    func stream(_ stream: SCStream, didStopWithError error: Error) {
+        FileHandle.standardError.write(Data("stream stopped: \(error)\n".utf8))
+        exit(5)
+    }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .audio, sampleBuffer.isValid, CMSampleBufferDataIsReady(sampleBuffer) else { return }
@@ -82,17 +92,25 @@ func runCapture() async {
             FileHandle.standardError.write(Data("no display available for capture\n".utf8))
             exit(4)
         }
+        // Keep the display/system awake for the capture's lifetime: display capture stops
+        // delivering audio once the display sleeps, which is exactly how a long recording
+        // silently lost its far-end. Released automatically when the process exits.
+        let activity = ProcessInfo.processInfo.beginActivity(
+            options: [.idleSystemSleepDisabled, .idleDisplaySleepDisabled],
+            reason: "Capturing system audio for a recording"
+        )
         let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
-        let stream = SCStream(filter: filter, configuration: makeConfig(), delegate: nil)
-        // SCStream holds stream outputs WEAKLY — keep a strong ref for the whole capture,
-        // otherwise the audio callback never fires and we record silence.
+        // SCStream holds its output AND delegate WEAKLY — keep a strong ref for the whole
+        // capture, otherwise the audio callback never fires (silence) and stop-errors are missed.
         let output = AudioOutput()
+        let stream = SCStream(filter: filter, configuration: makeConfig(), delegate: output)
         try stream.addStreamOutput(output, type: .audio, sampleHandlerQueue: DispatchQueue(label: "audio"))
         try await stream.startCapture()
         FileHandle.standardError.write(Data("capturing system audio (48kHz mono s16le)\n".utf8))
-        // Run until the parent terminates us (SIGTERM). `output`/`stream` stay retained.
+        // Run until the parent terminates us (SIGTERM) or the delegate exits on a stop.
         try await Task.sleep(nanoseconds: UInt64.max)
-        withExtendedLifetime((stream, output)) {}
+        withExtendedLifetime((stream, output, activity)) {}
+        ProcessInfo.processInfo.endActivity(activity)
     } catch {
         FileHandle.standardError.write(Data("capture failed: \(error)\n".utf8))
         exit(2)

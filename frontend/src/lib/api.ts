@@ -84,6 +84,9 @@ export type ActiveInfo = {
   level: number;
   mic_level: number;
   system_level: number;
+  mic_healthy?: boolean;
+  system_healthy?: boolean | null; // null when there is no system track
+  system_restarts?: number;
 };
 
 export type Segment = {
@@ -195,6 +198,7 @@ export type ReloadEngineResult = {
 
 export type RecordingDetail = Recording & {
   language: string | null;
+  warning?: string | null; // non-fatal capture issue, e.g. a source track ended short
   tags: Tag[];
   tracks: string[]; // available audio tracks: mixed | mic | system
   speakers: Speaker[];
