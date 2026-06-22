@@ -22,6 +22,7 @@ class Recording(SQLModel, table=True):
     system_path: str | None = None
     audio_path: str | None = None  # mixed/primary track used for playback + transcription
     error: str | None = None
+    warning: str | None = None  # non-fatal capture issue, e.g. a source track ended short
 
 
 class Person(SQLModel, table=True):

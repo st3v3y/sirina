@@ -3,13 +3,17 @@ from pydantic import BaseModel
 
 from ..audio import system_capture
 from ..audio.local import list_input_devices
+from ..runtime import runtime
 
 router = APIRouter(prefix="/api/audio", tags=["audio"])
 
 
 @router.get("/devices")
-def get_devices() -> list[dict]:
-    return list_input_devices()
+def get_devices(refresh: bool = False) -> list[dict]:
+    # Re-enumerate PortAudio devices on demand (so a just-connected Bluetooth mic appears),
+    # but never while recording — reinitializing PortAudio would tear down the live stream.
+    recording = runtime.recorder is not None and runtime.recorder.is_recording()
+    return list_input_devices(refresh=refresh and not recording)
 
 
 class AudioCapabilities(BaseModel):

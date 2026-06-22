@@ -22,6 +22,8 @@ export default function RecordingScreen() {
   const [level, setLevel] = useState(0);
   const [micLevel, setMicLevel] = useState(0);
   const [systemLevel, setSystemLevel] = useState(0);
+  const [micHealthy, setMicHealthy] = useState(true);
+  const [systemHealthy, setSystemHealthy] = useState<boolean | null>(null);
   const [title, setTitle] = useState<string | null>(null);
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +44,8 @@ export default function RecordingScreen() {
           setLevel(info.level);
           setMicLevel(info.mic_level ?? 0);
           setSystemLevel(info.system_level ?? 0);
+          setMicHealthy(info.mic_healthy ?? true);
+          setSystemHealthy(info.system_healthy ?? null);
           missesRef.current = 0;
         } else {
           missesRef.current += 1;
@@ -73,7 +77,12 @@ export default function RecordingScreen() {
 
   const micPct = Math.min(100, Math.round(micLevel * 140));
   const systemPct = Math.min(100, Math.round(systemLevel * 140));
-  const hasSystem = systemLevel > 0;
+  const hasSystem = systemHealthy !== null || systemLevel > 0;
+  const trackWarning = systemHealthy === false
+    ? "System audio stopped — trying to reconnect. The other side may not be recorded."
+    : !micHealthy
+    ? "Microphone stopped delivering audio — check your input device."
+    : null;
 
   return (
     <div
@@ -129,6 +138,13 @@ export default function RecordingScreen() {
           )}
         </div>
       </div>
+
+      {trackWarning && (
+        <div className="flex items-center gap-2 px-4 py-2 rounded-field bg-warn/10 border border-warn/30 text-warn-deep text-[13px] max-w-md text-center">
+          <span className="w-2 h-2 rounded-full bg-warn animate-recpulse shrink-0" />
+          {trackWarning}
+        </div>
+      )}
 
       <button
         onClick={stop}

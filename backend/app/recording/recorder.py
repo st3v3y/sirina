@@ -21,6 +21,7 @@ from sqlmodel import Session
 
 from ..audio import system_capture
 from ..audio.local import find_device
+from ..audio.power import SleepBlocker
 from ..config import settings
 from ..db import engine
 from ..models import Recording
@@ -28,6 +29,22 @@ from ..models import Recording
 log = logging.getLogger(__name__)
 
 CAPTURE_SR = 48_000  # capture both tracks at a common rate so they mix cleanly
+
+# Liveness watchdog: a track that writes no data for STALL_SECONDS while recording is
+# active is considered stalled. Detection keys on data *progress*, not audio level, so a
+# silent-but-live source (frames still flowing) is never falsely flagged.
+WATCHDOG_INTERVAL = 2.0  # seconds between liveness checks
+STALL_SECONDS = 5.0  # no data for this long => stalled
+
+# System-audio sidecar restart policy (bounded, with backoff) so a permanently
+# unavailable source — e.g. revoked Screen Recording permission — can't respawn forever.
+MAX_SIDECAR_RESTARTS = 5
+RESTART_BASE_BACKOFF = 0.5  # seconds; doubles each attempt
+RESTART_MAX_BACKOFF = 8.0
+
+# A source track ending shorter than the recording by more than this leaves a warning.
+SHORT_TRACK_ABS_S = 2.0
+SHORT_TRACK_FRACTION = 0.01
 
 # Mixing: the mic is an acoustic signal (often 20-30 dB below digital full-scale)
 # while system audio is captured at its digital source level, so a naive 1:1 sum
@@ -54,8 +71,21 @@ class _Track:
         self.path = path
         self.level = 0.0
         self.frames = 0
+        self.restarts = 0  # PortAudio tracks don't auto-restart; kept for a uniform interface
+        self.health = "healthy"  # healthy | stalled | stopped
+        self.last_progress = time.monotonic()
         self._wav: wave.Wave_write | None = None
         self._stream: sd.InputStream | None = None
+
+    def on_stall(self) -> None:
+        """Called by the watchdog when this track stops producing data. PortAudio input
+        rarely recovers on its own; we just surface the state (no restart here)."""
+
+    def _note_progress(self) -> None:
+        self.last_progress = time.monotonic()
+        if self.health == "stalled":
+            self.health = "healthy"
+            log.info("track '%s' recovered", self.name)
 
     def start(self) -> None:
         info = (
@@ -84,6 +114,7 @@ class _Track:
                 if self._wav is not None:
                     self._wav.writeframes(pcm16.tobytes())
                     self.frames += pcm16.size
+                    self._note_progress()
             except Exception:
                 log.exception("track %s write failed", self.name)
 
@@ -124,8 +155,12 @@ class _SidecarTrack:
         self.path = path
         self.level = 0.0
         self.frames = 0
+        self.restarts = 0
+        self.health = "healthy"  # healthy | stalled | stopped
+        self.last_progress = time.monotonic()
         self._wav: wave.Wave_write | None = None
         self._proc: subprocess.Popen | None = None
+        self._proc_lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
 
@@ -135,53 +170,119 @@ class _SidecarTrack:
         wav.setsampwidth(2)
         wav.setframerate(CAPTURE_SR)
         self._wav = wav
-        self._proc = system_capture.spawn()
+        self._spawn()
         self._thread = threading.Thread(target=self._pump, name=f"sidecar-{self.name}", daemon=True)
         self._thread.start()
-        # Surface the sidecar's stderr (capture status / errors) to the log.
-        threading.Thread(target=self._drain_stderr, name=f"sidecar-{self.name}-err", daemon=True).start()
         log.info("track '%s' capturing native system audio -> %s", self.name, self.path.name)
 
-    def _drain_stderr(self) -> None:
-        proc = self._proc
-        if proc is None or proc.stderr is None:
+    def _spawn(self) -> None:
+        """(Re)start the sidecar process and a stderr drain for it."""
+        with self._proc_lock:
+            self._proc = system_capture.spawn()
+            proc = self._proc
+        # Surface the sidecar's stderr (capture status / stop errors) to the log.
+        threading.Thread(
+            target=self._drain_stderr, args=(proc,), name=f"sidecar-{self.name}-err", daemon=True
+        ).start()
+
+    def on_stall(self) -> None:
+        """Watchdog hook: the sidecar is alive but has gone quiet (e.g. a stop the delegate
+        didn't surface). Terminate it so the blocked read returns and `_pump` can restart."""
+        with self._proc_lock:
+            proc = self._proc
+        if proc is not None and proc.poll() is None:
+            log.warning("system-audio sidecar stalled; terminating to force a restart")
+            try:
+                proc.terminate()
+            except Exception:
+                log.debug("stalled sidecar terminate failed", exc_info=True)
+
+    def _drain_stderr(self, proc: subprocess.Popen) -> None:
+        if proc.stderr is None:
             return
         for raw in iter(proc.stderr.readline, b""):
             line = raw.decode(errors="replace").strip()
             if line:
                 log.info("system-audio sidecar: %s", line)
 
-    def _pump(self) -> None:
-        proc = self._proc
-        if proc is None or proc.stdout is None:
-            return
-        chunk = (CAPTURE_SR // 50) * 2  # ~20 ms of mono s16le bytes
+    def _restart(self) -> bool:
+        """Re-spawn the sidecar to continue the same WAV, with bounded backoff. Returns
+        False (giving up, track marked stopped) once the restart cap is reached."""
+        if self.restarts >= MAX_SIDECAR_RESTARTS:
+            self.health = "stopped"
+            log.warning(
+                "system-audio sidecar gave up after %d restarts; system track ends here",
+                self.restarts,
+            )
+            return False
+        self.restarts += 1
+        backoff = min(RESTART_MAX_BACKOFF, RESTART_BASE_BACKOFF * (2 ** (self.restarts - 1)))
+        log.warning(
+            "system-audio sidecar stopped; restarting (#%d) in %.1fs", self.restarts, backoff
+        )
+        with self._proc_lock:
+            old = self._proc
+            self._proc = None
+        if old is not None:
+            try:
+                old.kill()
+            except Exception:
+                pass
+        if self._stop.wait(backoff):  # interruptible: stop() was called during backoff
+            return False
         try:
-            while not self._stop.is_set():
+            self._spawn()
+        except Exception:
+            log.exception("system-audio sidecar respawn failed")
+            self.health = "stopped"
+            return False
+        return True
+
+    def _pump(self) -> None:
+        chunk = (CAPTURE_SR // 50) * 2  # ~20 ms of mono s16le bytes
+        while not self._stop.is_set():
+            with self._proc_lock:
+                proc = self._proc
+            if proc is None or proc.stdout is None:
+                break
+            try:
                 data = proc.stdout.read(chunk)
-                if not data:
-                    break  # sidecar exited (e.g. permission lost) → leaves a silent/short track
+            except Exception:
+                data = b""
+            if not data:
+                # Sidecar exited or its pipe closed (stop error, permission loss, kill).
+                if self._stop.is_set() or not self._restart():
+                    break
+                continue  # restarted; keep appending to the same WAV (gap = recovery time)
+            try:
                 arr = np.frombuffer(data, dtype=np.int16)
                 if arr.size:
                     self.level = float(np.abs(arr).max()) / 32768.0
                 if self._wav is not None:
                     self._wav.writeframes(data)
                     self.frames += arr.size
-        except Exception:
-            log.exception("sidecar pump failed for %s", self.name)
+                    self.last_progress = time.monotonic()
+                    if self.health == "stalled":
+                        self.health = "healthy"
+                        log.info("track '%s' recovered", self.name)
+            except Exception:
+                log.exception("sidecar pump failed for %s", self.name)
+                break
 
     def stop(self) -> None:
         self._stop.set()
-        if self._proc is not None:
+        with self._proc_lock:
+            proc = self._proc
+            self._proc = None
+        if proc is not None:
             try:
-                self._proc.terminate()
-                self._proc.wait(timeout=3)
+                proc.terminate()
+                proc.wait(timeout=3)
             except Exception:
                 try:
-                    self._proc.kill()
+                    proc.kill()
                 except Exception:
                     pass
-            self._proc = None
         if self._thread is not None:
             self._thread.join(timeout=2)
             self._thread = None
@@ -198,7 +299,44 @@ class _Active:
         self.recording_id = recording_id
         self.dir = dir_path
         self.started_monotonic = started_monotonic
-        self.tracks: list[_Track] = []
+        self.tracks: list[_Track | _SidecarTrack] = []
+        self.sleep_blocker = SleepBlocker()
+        self._watch_stop = threading.Event()
+        self._watch_thread: threading.Thread | None = None
+
+    def begin_monitoring(self) -> None:
+        """Start the liveness watchdog and prevent idle sleep for this recording."""
+        self.sleep_blocker.acquire()
+        self._watch_thread = threading.Thread(
+            target=self._watch, name=f"watchdog-{self.recording_id}", daemon=True
+        )
+        self._watch_thread.start()
+
+    def _watch(self) -> None:
+        # Each track updates `last_progress` when it writes data; a track that hasn't
+        # advanced for STALL_SECONDS is stalled. Keys on data flow, not level, so a
+        # silent-but-live source stays healthy.
+        while not self._watch_stop.wait(WATCHDOG_INTERVAL):
+            now = time.monotonic()
+            for t in self.tracks:
+                if t.health in ("stalled", "stopped"):
+                    continue
+                if now - t.last_progress > STALL_SECONDS:
+                    t.health = "stalled"
+                    log.warning(
+                        "track '%s' stalled: no audio for %.1fs", t.name, now - t.last_progress
+                    )
+                    try:
+                        t.on_stall()
+                    except Exception:
+                        log.exception("on_stall failed for track %s", t.name)
+
+    def end_monitoring(self) -> None:
+        self._watch_stop.set()
+        if self._watch_thread is not None:
+            self._watch_thread.join(timeout=2)
+            self._watch_thread = None
+        self.sleep_blocker.release()
 
 
 class Recorder:
@@ -216,12 +354,18 @@ class Recorder:
         if a is None:
             return None
         levels = {t.name: t.level for t in a.tracks}
+        by_name = {t.name: t for t in a.tracks}
+        sys_track = by_name.get("system")
+        mic_track = by_name.get("mic")
         return {
             "id": a.recording_id,
             "elapsed_s": time.monotonic() - a.started_monotonic,
             "level": max(levels.values(), default=0.0),
             "mic_level": levels.get("mic", 0.0),
             "system_level": levels.get("system", 0.0),
+            "mic_healthy": mic_track.health == "healthy" if mic_track else True,
+            "system_healthy": (sys_track.health == "healthy") if sys_track else None,
+            "system_restarts": sys_track.restarts if sys_track else 0,
         }
 
     async def start(
@@ -272,7 +416,11 @@ class Recorder:
                 # Opening the first PortAudio stream can block ~1-2s; start the
                 # clock once audio is actually flowing so elapsed/duration are accurate.
                 active.started_monotonic = time.monotonic()
+                for t in active.tracks:
+                    t.last_progress = active.started_monotonic
+                active.begin_monitoring()
             except Exception:
+                active.end_monitoring()
                 for t in active.tracks:
                     t.stop()
                 with Session(engine) as s:
@@ -305,6 +453,7 @@ class Recorder:
                 return
             self._active = None
 
+        active.end_monitoring()
         for t in active.tracks:
             t.stop()
 
@@ -312,6 +461,7 @@ class Recorder:
         mic_path = active.dir / "mic.wav"
         system_path = active.dir / "system.wav"
         has_system = system_path.exists() and any(t.name == "system" for t in active.tracks)
+        warning = _incompleteness_warning(active.tracks, duration_s)
 
         if has_system:
             audio_path = active.dir / "mixed.wav"
@@ -331,10 +481,33 @@ class Recorder:
             rec.duration_s = duration_s
             rec.audio_path = str(audio_path)
             rec.system_path = str(system_path) if has_system else None
+            rec.warning = warning
             rec.status = "processing"
             s.add(rec)
             s.commit()
         log.info("recording %d stopped (%.1fs) -> processing", active.recording_id, duration_s)
+
+
+def _fmt_minutes(seconds: float) -> str:
+    return f"{seconds / 60:.1f} min"
+
+
+def _incompleteness_warning(
+    tracks: list["_Track | _SidecarTrack"], duration_s: float
+) -> str | None:
+    """If a source track ended materially shorter than the recording (so the mix had to
+    pad it with silence), describe the shortfall so the partial track isn't presented as
+    complete. Returns None when every source spans the full duration within tolerance."""
+    tol = max(SHORT_TRACK_ABS_S, SHORT_TRACK_FRACTION * duration_s)
+    for t in tracks:
+        track_s = t.frames / CAPTURE_SR
+        if duration_s - track_s > tol:
+            label = "System audio" if t.name == "system" else f"{t.name.capitalize()} audio"
+            return (
+                f"{label} captured only {_fmt_minutes(track_s)} of {_fmt_minutes(duration_s)} — "
+                "the rest is missing (the source stopped delivering audio mid-recording)."
+            )
+    return None
 
 
 def _read_mono_int16(path: Path) -> np.ndarray:

@@ -71,6 +71,7 @@ class RecordingDetail(BaseModel):
     duration_s: float | None
     status: str
     error: str | None
+    warning: str | None = None  # non-fatal capture issue, e.g. a source track ended short
     progress: ProgressOut | None = None
     language: str | None
     tags: list[Tag]
@@ -87,6 +88,9 @@ class ActiveInfo(BaseModel):
     level: float  # max of all tracks (kept for back-compat)
     mic_level: float = 0.0
     system_level: float = 0.0
+    mic_healthy: bool = True
+    system_healthy: bool | None = None  # None when there is no system track
+    system_restarts: int = 0
 
 
 @router.post("/start")
@@ -261,6 +265,7 @@ def get_recording(recording_id: int, session: Session = Depends(get_session)) ->
         duration_s=r.duration_s,
         status=r.status,
         error=r.error,
+        warning=r.warning,
         progress=_progress_for(r.id),
         language=r.language,
         tags=tags,

@@ -5,11 +5,30 @@ lists input devices.
 """
 from __future__ import annotations
 
+import logging
+
 import sounddevice as sd
 
+log = logging.getLogger(__name__)
 
-def list_input_devices() -> list[dict]:
-    """Return all input-capable audio devices."""
+
+def refresh_devices() -> None:
+    """Re-enumerate audio devices. PortAudio caches the device list at initialization, so
+    a device connected after startup (e.g. Bluetooth headphones) won't appear until
+    PortAudio is reinitialized. MUST NOT be called while a stream is open — it tears down
+    the PortAudio instance — so callers guard on there being no active recording."""
+    try:
+        sd._terminate()
+        sd._initialize()
+    except Exception:
+        log.warning("portaudio re-enumeration failed", exc_info=True)
+
+
+def list_input_devices(refresh: bool = False) -> list[dict]:
+    """Return all input-capable audio devices. With refresh=True, re-enumerate first so a
+    newly connected device shows up."""
+    if refresh:
+        refresh_devices()
     devices = sd.query_devices()
     out: list[dict] = []
     for i, d in enumerate(devices):

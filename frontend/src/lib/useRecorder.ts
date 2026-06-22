@@ -34,24 +34,47 @@ export function useRecorder() {
   const [error, setError] = useState<string | null>(null);
   const [active, setActive] = useState<ActiveInfo | null>(null);
 
-  useEffect(() => {
+  // Load (or reload) the device list. `refresh` asks the backend to re-enumerate PortAudio
+  // so a device connected after startup (e.g. Bluetooth headphones) shows up. We always
+  // update the list but only fill a default into fields the user hasn't set, so a poll
+  // never clobbers an in-progress choice.
+  const loadDevices = useCallback((refresh = false) => {
     api
-      .listAudioDevices()
+      .listAudioDevices(refresh)
       .then((d) => {
         setDevices(d);
         const names = new Set(d.map((x) => x.name));
-        const savedMic = lsGet(LS_MIC);
-        const savedSys = lsGet(LS_SYSTEM);
-        const mic =
-          (savedMic && names.has(savedMic) && savedMic) ||
-          (d.find((x) => /microphone|mic/i.test(x.name)) ?? d[0])?.name ||
-          "";
-        setDevice(mic);
-        setSystemDevice(savedSys && names.has(savedSys) ? savedSys : "");
+        setDevice((cur) => {
+          if (cur && names.has(cur)) return cur;
+          const savedMic = lsGet(LS_MIC);
+          return (
+            (savedMic && names.has(savedMic) && savedMic) ||
+            (d.find((x) => /microphone|mic/i.test(x.name)) ?? d[0])?.name ||
+            ""
+          );
+        });
+        setSystemDevice((cur) => {
+          if (cur && names.has(cur)) return cur;
+          const savedSys = lsGet(LS_SYSTEM);
+          return savedSys && names.has(savedSys) ? savedSys : "";
+        });
       })
       .catch(() => setDevices([]));
-    api.getAudioCapabilities().then((c) => setNativeAudio(c.native_system_audio)).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    loadDevices();
+    api.getAudioCapabilities().then((c) => setNativeAudio(c.native_system_audio)).catch(() => {});
+  }, [loadDevices]);
+
+  // While the picker is open, poll for device changes (with backend re-enumeration) so a
+  // just-connected mic appears without reopening the app.
+  useEffect(() => {
+    if (!picking) return;
+    loadDevices(true);
+    const t = setInterval(() => loadDevices(true), 3000);
+    return () => clearInterval(t);
+  }, [picking, loadDevices]);
 
   // Poll the active recording so the sidebar can show the live state from any screen.
   useEffect(() => {

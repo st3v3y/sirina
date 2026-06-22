@@ -448,6 +448,14 @@ export default function RecordingDetail() {
           </div>
         </div>
       )}
+      {rec.warning && (
+        <div className="px-7 mt-3 shrink-0">
+          <div className="rounded-field bg-warn/5 border border-warn/20 px-3 py-2 text-xs text-warn-deep flex items-center gap-2">
+            <Icon name="triangle-alert" size={14} className="shrink-0" />
+            <span>{rec.warning}</span>
+          </div>
+        </div>
+      )}
 
       {/* tabs */}
       <div className="px-7 mt-4 flex items-center gap-1.5 border-b border-line-2 shrink-0">
