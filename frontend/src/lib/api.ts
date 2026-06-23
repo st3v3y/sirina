@@ -4,6 +4,8 @@ export type Status = {
   whisper_state: "loading" | "ready" | "failed";
   whisper_error?: string | null;
   engine: string;
+  configured_engine?: string; // engine the user selected (auto | faster-whisper | mlx)
+  engine_note?: string | null; // set when the choice fell back (e.g. mlx unavailable)
   llm_provider: string;
   llm_model: string;
   diarization: boolean;
@@ -255,6 +257,8 @@ export const api = {
     request<{ ok: true }>(`/api/recordings/${id}/reprocess`, { method: "POST" }),
   cancelDiarization: (id: number) =>
     request<{ ok: true }>(`/api/recordings/${id}/cancel-diarization`, { method: "POST" }),
+  cancelProcessing: (id: number) =>
+    request<{ ok: true }>(`/api/recordings/${id}/cancel-processing`, { method: "POST" }),
   deleteRecording: (id: number) =>
     request<void>(`/api/recordings/${id}`, { method: "DELETE" }),
   activeRecording: () => request<ActiveInfo | null>("/api/recordings/active"),

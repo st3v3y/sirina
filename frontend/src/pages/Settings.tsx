@@ -159,14 +159,22 @@ export default function Settings() {
 
   function control(f: SettingField): ReactNode {
     if (f.secret) {
+      const typed = (secrets[f.key] ?? "").length > 0;
       return (
-        <input
-          type="password"
-          className={INPUT}
-          value={secrets[f.key] ?? ""}
-          placeholder={f.is_set ? "•••••••• (set — blank keeps it)" : "not set"}
-          onChange={(e) => setSecrets((s) => ({ ...s, [f.key]: e.target.value }))}
-        />
+        <div className="flex items-center gap-2">
+          <input
+            type="password"
+            className={INPUT}
+            value={secrets[f.key] ?? ""}
+            placeholder={f.is_set ? "•••••••• (set — blank keeps it)" : "not set"}
+            onChange={(e) => setSecrets((s) => ({ ...s, [f.key]: e.target.value }))}
+          />
+          {f.is_set && !typed ? (
+            <Badge tone="ok">Set</Badge>
+          ) : (
+            !typed && <Badge tone="warn">Not set</Badge>
+          )}
+        </div>
       );
     }
     if (f.type === "bool") {
@@ -300,19 +308,29 @@ export default function Settings() {
                 )}
 
                 {sec.id === "transcription" && (
-                  <div className="flex items-center gap-3 pt-4 border-t border-line-2 mt-1">
-                    <Button
-                      variant={reloadRequired ? "primary" : "secondary"}
-                      onClick={reload}
-                      disabled={reloading}
-                    >
-                      {reloading ? "Reloading…" : "Reload transcription engine"}
-                    </Button>
-                    {reloadRequired && (
-                      <span className="text-xs text-warn-deep">A change needs a reload to take effect.</span>
+                  <>
+                    <div className="flex items-center gap-3 pt-4 border-t border-line-2 mt-1">
+                      <Button
+                        variant={reloadRequired ? "primary" : "secondary"}
+                        onClick={reload}
+                        disabled={reloading}
+                      >
+                        {reloading ? "Reloading…" : "Reload transcription engine"}
+                      </Button>
+                      {reloadRequired && (
+                        <span className="text-xs text-warn-deep">A change needs a reload to take effect.</span>
+                      )}
+                      {reloadMsg && <span className="text-xs text-muted">{reloadMsg}</span>}
+                    </div>
+                    {status && (
+                      <p className="text-xs text-muted mt-2">
+                        Active engine: <span className="font-mono text-ink-2">{status.engine}</span>
+                        {status.engine_note && (
+                          <span className="text-warn-deep"> · {status.engine_note}</span>
+                        )}
+                      </p>
                     )}
-                    {reloadMsg && <span className="text-xs text-muted">{reloadMsg}</span>}
-                  </div>
+                  </>
                 )}
               </Card>
             );
@@ -459,13 +477,16 @@ function AiSection({
 
       {showKey && (
         <FieldRow label="API key" help="Required for cloud providers.">
-          <input
-            type="password"
-            className={INPUT}
-            value={apiKey}
-            placeholder={apiKeyIsSet ? "•••••••• (set — blank keeps it)" : "not set"}
-            onChange={(e) => setSecret("llm_api_key", e.target.value)}
-          />
+          <div className="flex items-center gap-2">
+            <input
+              type="password"
+              className={INPUT}
+              value={apiKey}
+              placeholder={apiKeyIsSet ? "•••••••• (set — blank keeps it)" : "not set"}
+              onChange={(e) => setSecret("llm_api_key", e.target.value)}
+            />
+            {apiKeyIsSet && !apiKey && <Badge tone="ok">Set</Badge>}
+          </div>
         </FieldRow>
       )}
 

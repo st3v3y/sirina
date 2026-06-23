@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { api, type RecordingDetail as TR, type Speaker, type Summary, type QAMessage, type SummaryTemplate } from "../lib/api";
 import TranscriptChat from "../components/TranscriptChat";
+import Markdown from "../components/Markdown";
 import PromptBar from "../components/PromptBar";
 import { TagChip, AddTagButton, catColor } from "../components/TagUI";
 import { Avatar, Button } from "../components/ui";
@@ -190,6 +191,7 @@ export default function RecordingDetail() {
   const [tq, setTq] = useState("");
   const [pollNonce, setPollNonce] = useState(0);
   const [cancellingDiar, setCancellingDiar] = useState(false);
+  const [stoppingProc, setStoppingProc] = useState(false);
   const [asking, setAsking] = useState(false);
 
   async function load() {
@@ -282,6 +284,14 @@ export default function RecordingDetail() {
       await api.cancelDiarization(recordingId);
     } finally {
       setTimeout(() => setCancellingDiar(false), 2000);
+    }
+  }
+  async function stopProcessing() {
+    setStoppingProc(true);
+    try {
+      await api.cancelProcessing(recordingId);
+    } catch {
+      setStoppingProc(false);
     }
   }
 
@@ -400,7 +410,13 @@ export default function RecordingDetail() {
             </div>
           </div>
           <div className="flex gap-2 shrink-0">
-            <Button onClick={reprocess}>Re-process</Button>
+            {isProcessing ? (
+              <Button onClick={stopProcessing} disabled={stoppingProc} title="Stop processing (keeps any transcript so far)">
+                <Icon name="square" size={14} /> {stoppingProc ? "Stopping…" : "Stop"}
+              </Button>
+            ) : (
+              <Button onClick={reprocess}>Re-process</Button>
+            )}
             <Button onClick={del} title="Delete recording" className="!px-2.5">
               <Icon name="trash-2" size={15} />
             </Button>
@@ -430,11 +446,11 @@ export default function RecordingDetail() {
                 {pct != null && <span>{p?.estimated ? "~" : ""}{pct}%</span>}
               </span>
             </div>
-            <div className="h-1.5 rounded-full bg-warn/15 overflow-hidden">
+            <div className="relative h-1.5 rounded-full bg-warn/15 overflow-hidden">
               {pct != null ? (
                 <div className="h-full bg-warn transition-all duration-500" style={{ width: `${pct}%` }} />
               ) : (
-                <div className="h-full w-1/3 bg-warn/70 animate-pulse" />
+                <div className="progress-indeterminate bg-warn/70" />
               )}
             </div>
           </div>
@@ -483,7 +499,7 @@ export default function RecordingDetail() {
                 {summary.sections.map((sec, i) => (
                   <div key={i}>
                     <div className="text-[11.5px] font-bold uppercase tracking-wide text-signal mb-2">{sec.title}</div>
-                    <div className="font-serif text-[16px] leading-relaxed text-ink whitespace-pre-wrap">{sec.content}</div>
+                    <Markdown content={sec.content} className="font-serif text-[16px] leading-relaxed text-ink" />
                   </div>
                 ))}
               </div>
@@ -511,7 +527,7 @@ export default function RecordingDetail() {
               </a>
             </div>
             <div className="flex-1 min-h-0">
-              <TranscriptChat items={transcriptItems} speakers={speakerMap} peopleNames={peopleNames} onRename={renameSpeaker} />
+              <TranscriptChat items={transcriptItems} speakers={speakerMap} peopleNames={peopleNames} onRename={renameSpeaker} mode="transcript" />
             </div>
           </div>
         )}

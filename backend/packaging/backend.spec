@@ -31,14 +31,44 @@ for pkg in ("faster_whisper", "ctranslate2", "av"):
     binaries += b
     hiddenimports += h
 
+# Apple-GPU transcription (MLX). `mlx` ships the Metal kernel library
+# (mlx/lib/mlx.metallib, ~150 MB) + libmlx.dylib that collect_all gathers. `mlx_whisper`
+# is imported lazily by app/transcribe/mlx.py, so it must be named here for analysis to
+# follow it; that import graph then drags in its real deps — numba (→ llvmlite), scipy
+# (word-timestamp DTW in timing.py) and tiktoken — via their PyInstaller hooks.
+# `torch` is NOT on the transcribe path (only the unused torch_whisper.py imports it), so
+# it's excluded below to keep ~430 MB of CUDA/Torch out of the bundle.
+for pkg in ("mlx", "mlx_whisper", "tiktoken"):
+    d, b, h = collect_all(pkg)
+    datas += d
+    binaries += b
+    hiddenimports += h
+
+# mlx locates its Metal kernels (mlx.metallib) at runtime via dladdr — it looks for the
+# file colocated with libmlx.dylib. PyInstaller ships libmlx.dylib at the package path
+# (_internal/mlx/lib/) plus a symlink at _internal/ root. Tauri's resource bundler then
+# DEREFERENCES that symlink into a real file at _internal/ root, so mlx ends up loaded from
+# there and searches _internal/ for the metallib — where there isn't one — and falls back
+# to faster-whisper ("Failed to load the default metallib"). Shipping a second copy of the
+# metallib at the _internal/ root makes the colocated lookup succeed no matter which
+# libmlx dyld picks. Costs ~150 MB; the alternative (un-dereferencing in the bundler) is
+# brittler. See app/transcribe/engine.py for the symptom this prevents.
+import importlib.util as _ilu  # noqa: E402
+
+_mlx_spec = _ilu.find_spec("mlx")
+if _mlx_spec and _mlx_spec.submodule_search_locations:
+    _mlx_dir = list(_mlx_spec.submodule_search_locations)[0]
+    _metallib = os.path.join(_mlx_dir, "lib", "mlx.metallib")
+    if os.path.exists(_metallib):
+        datas += [(_metallib, ".")]  # -> _internal/mlx.metallib (colocated with the root libmlx)
+
 # sounddevice is a single module (not a package); its PortAudio dylib is handled by
 # PyInstaller's contrib hook. Just make sure it's imported.
 hiddenimports += ["sounddevice"]
 
-# Optional heavy extras — uncomment to bundle (each adds hundreds of MB):
+# Optional heavy extra — uncomment to bundle (adds hundreds of MB):
 #   - diarization: torch, pyannote, lightning_fabric, asteroid_filterbanks
-#   - Apple-GPU transcription: mlx, mlx_whisper
-# for pkg in ("torch", "pyannote", "lightning_fabric", "mlx", "mlx_whisper"):
+# for pkg in ("torch", "pyannote", "lightning_fabric"):
 #     d, b, h = collect_all(pkg); datas += d; binaries += b; hiddenimports += h
 
 hiddenimports += collect_submodules("uvicorn") + ["app.main"]
@@ -51,10 +81,15 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
-    # mlx/mlx_whisper get pulled in partially (mlx.py imports them lazily) but aren't
-    # usable in the frozen app — exclude them so the packaged build cleanly uses
-    # faster-whisper (CPU). (Apple-GPU MLX in the bundle is a separate, deliberate add.)
-    excludes=["tkinter", "matplotlib", "mlx", "mlx_whisper"],
+    # Keep torch out: mlx_whisper.torch_whisper imports it but is never used (our path is
+    # the MLX transcribe()), so excluding both keeps ~430 MB of Torch off the bundle.
+    excludes=[
+        "tkinter",
+        "matplotlib",
+        "torch",
+        "torchaudio",  # dead stub without torch; only the unused torch_whisper.py refs it
+        "mlx_whisper.torch_whisper",
+    ],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

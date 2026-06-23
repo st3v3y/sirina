@@ -175,6 +175,17 @@ async def cancel_diarization(recording_id: int) -> dict[str, bool]:
     return {"ok": True}
 
 
+@router.post("/{recording_id}/cancel-processing")
+async def cancel_processing(recording_id: int) -> dict[str, bool]:
+    """Stop processing this recording after the current uninterruptible step. Any transcript
+    already produced is kept (it finalizes as `ready`); remaining stages are skipped. No-op if
+    it isn't being processed."""
+    if runtime.processor is None:
+        raise HTTPException(503, "processor not running")
+    runtime.processor.cancel_processing(recording_id)
+    return {"ok": True}
+
+
 @router.get("/active", response_model=ActiveInfo | None)
 async def active_recording() -> ActiveInfo | None:
     if runtime.recorder is None:
@@ -437,7 +448,15 @@ def get_audio(recording_id: int, track: str = "mixed", session: Session = Depend
     path = {"mixed": r.audio_path, "mic": r.mic_path, "system": r.system_path}.get(track)
     if not path or not Path(path).exists():
         raise HTTPException(404, f"no {track} track for this recording")
-    return FileResponse(path, media_type="audio/wav", filename=f"recording-{recording_id}-{track}.wav")
+    # `inline` (not the default `attachment`): WebKit/WKWebView — the Tauri webview —
+    # refuses to play <audio>/<video> served with `Content-Disposition: attachment`,
+    # so the player would render but produce no sound. Inline keeps it seekable.
+    return FileResponse(
+        path,
+        media_type="audio/wav",
+        filename=f"recording-{recording_id}-{track}.wav",
+        content_disposition_type="inline",
+    )
 
 
 @router.get("/{recording_id}/export")

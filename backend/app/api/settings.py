@@ -106,10 +106,13 @@ async def reload_engine() -> dict[str, Any]:
     while a recording is being processed (a mid-job model swap would corrupt it)."""
     proc = runtime.processor
     if proc is not None and proc.is_busy():
+        rec_id = proc.current_id()
+        where = f"Recording #{rec_id} is being processed" if rec_id else "A recording is being processed"
         return {
             "ok": False,
             "busy": True,
-            "detail": "A recording is being processed. Wait for it to finish, or restart the app.",
+            "processing_id": rec_id,
+            "detail": f"{where}. Wait for it to finish (open it to Stop processing), or restart the app.",
         }
     async with _reload_lock:
         from ..transcribe.engine import select_engine
@@ -138,11 +141,22 @@ def reveal_data_dir() -> dict[str, bool]:
     path.mkdir(parents=True, exist_ok=True)
     try:
         if sys.platform == "darwin":
-            subprocess.Popen(["open", str(path)])
+            # The data dir ends in ".app" (it's named after the bundle id, com.sirina.app),
+            # so a bare `open <dir>` treats it as an application bundle and tries to LAUNCH it
+            # ("the application cannot be opened because its executable is missing") instead of
+            # revealing the folder. `-a Finder` forces Finder to open it and show its contents.
+            # Run (not fire-and-forget) and check the result so a failure surfaces, not silent.
+            proc = subprocess.run(
+                ["/usr/bin/open", "-a", "Finder", str(path)],
+                capture_output=True, text=True, timeout=10,
+            )
+            if proc.returncode != 0:
+                raise RuntimeError((proc.stderr or proc.stdout or f"exit {proc.returncode}").strip())
         elif os.name == "nt":
             os.startfile(str(path))  # type: ignore[attr-defined]
         else:
             subprocess.Popen(["xdg-open", str(path)])
     except Exception as e:
+        log.warning("reveal data dir failed: %s", e)
         raise HTTPException(500, f"could not open folder: {e}")
     return {"ok": True}

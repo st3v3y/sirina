@@ -6,11 +6,12 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 from .api import audio as audio_api
 from .api import chat, llm as llm_api, people, recordings, settings as settings_api, status, tags, templates
 from .api import debug as debug_api
+from .api import ui as ui_api
 from .api import ws as ws_api
 from .config import settings
 from .db import init_db
@@ -118,6 +119,7 @@ app.include_router(chat.router)
 app.include_router(tags.router)
 app.include_router(audio_api.router)
 app.include_router(debug_api.router)
+app.include_router(ui_api.router)
 app.include_router(ws_api.router)
 
 
@@ -138,14 +140,31 @@ def _frontend_dir() -> Path | None:
     return cand if cand.is_dir() else None
 
 
+def _index_html(frontend: Path) -> HTMLResponse:
+    """Serve index.html with the persisted theme injected as `window.__THEME__`, so the
+    page paints the right light/dark theme before first render. Necessary because the
+    packaged app's per-launch port wipes localStorage (the usual theme cache)."""
+    from .settings_store import get_ui_pref
+
+    html = (frontend / "index.html").read_text(encoding="utf-8")
+    theme = get_ui_pref("theme", "auto")
+    inject = f'<script>window.__THEME__={theme!r};</script>'
+    # Place it first in <head> so it runs before the inline pre-paint script.
+    if "<head>" in html:
+        html = html.replace("<head>", "<head>\n    " + inject, 1)
+    else:
+        html = inject + html
+    return HTMLResponse(html)
+
+
 _frontend = _frontend_dir()
 if _frontend is not None:
     # SPA fallback: serve index.html for any non-API path so client-side routes work.
     @app.get("/{full_path:path}", include_in_schema=False)
-    async def _spa(full_path: str) -> FileResponse:
+    async def _spa(full_path: str):
         candidate = _frontend / full_path
         if full_path and candidate.is_file():
             return FileResponse(candidate)
-        return FileResponse(_frontend / "index.html")
+        return _index_html(_frontend)
 
     log.info("serving frontend from %s", _frontend)

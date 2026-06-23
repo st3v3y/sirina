@@ -232,6 +232,27 @@ def _migrate_secrets_to_keyring() -> None:
         log.info("migrated %d secret(s) from the database into the OS keyring", moved)
 
 
+# --- UI preferences: small, free-form key/value state owned by the frontend (e.g. the
+#     light/dark theme choice). Persisted in the same `setting` table but OUTSIDE the
+#     typed registry, because the packaged app runs the backend on a fresh localhost port
+#     each launch, so the webview's localStorage (partitioned by origin → port) is wiped
+#     between runs. Server-side storage is the only durable home for these. ---
+
+_UI_PREF_PREFIX = "ui."
+
+
+def get_ui_pref(key: str, default: str = "") -> str:
+    with Session(engine) as s:
+        row = s.get(Setting, _UI_PREF_PREFIX + key)
+    return row.value if row and row.value else default
+
+
+def set_ui_pref(key: str, value: str) -> None:
+    with Session(engine) as s:
+        _persist(s, _UI_PREF_PREFIX + key, value)
+        s.commit()
+
+
 def load_overrides() -> None:
     """Apply persisted overrides onto the `Settings` singleton. Call once at startup,
     after `init_db()` and before the engine/LLM are constructed."""

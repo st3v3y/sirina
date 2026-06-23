@@ -7,9 +7,15 @@
     <title>Sirina</title>
     <script>
       // Resolve the theme before first paint to avoid a flash of the wrong theme.
+      // `window.__THEME__` is injected by the backend (the durable source of truth in
+      // the packaged app, where a per-launch port wipes localStorage); fall back to the
+      // localStorage cache otherwise.
       (function () {
         try {
-          var c = localStorage.getItem("sirina-theme");
+          var c = window.__THEME__ || localStorage.getItem("sirina-theme");
+          if (window.__THEME__) {
+            try { localStorage.setItem("sirina-theme", window.__THEME__); } catch (e) {}
+          }
           var dark =
             c === "dark" ||
             ((c === "auto" || !c) && window.matchMedia("(prefers-color-scheme: dark)").matches);

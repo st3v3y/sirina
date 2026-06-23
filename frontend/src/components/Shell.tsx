@@ -305,7 +305,7 @@ function StatusFooter() {
         className={`w-[7px] h-[7px] rounded-full ${ready ? "bg-ok" : "bg-warn"}`}
         style={{ boxShadow: ready ? "0 0 0 3px rgba(74,140,95,0.16)" : undefined }}
       />
-      {status ? (ready ? "Local · Whisper ready" : "Local · loading…") : "Connecting…"}
+      {status ? (ready ? `Local · ${status.engine} ready` : "Local · loading…") : "Connecting…"}
     </span>
   );
 }

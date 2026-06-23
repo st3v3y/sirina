@@ -41,12 +41,15 @@ def _mlx_available() -> bool:
     if not _apple_silicon():
         return False
     # Actually import to confirm it LOADS — find_spec is too optimistic in a frozen app,
-    # where a partially-bundled mlx_whisper "exists" but fails to initialize. In the packaged
-    # build mlx is excluded (see backend.spec), so this fails fast and we use faster-whisper;
-    # in dev (mlx installed) it loads and the GPU path is used.
+    # where a partially-bundled mlx_whisper "exists" but fails to initialize. The import
+    # pulls native libs (mlx's Metal kernels, llvmlite via numba) that can fail to load in a
+    # codesigned .app even though they're present, so log the real reason — otherwise the
+    # silent fallback to faster-whisper is impossible to diagnose from the field log.
     try:
         import mlx_whisper  # noqa: F401
-    except Exception:
+    except Exception as e:
+        log.warning("mlx_whisper import failed (%s: %s); using faster-whisper", type(e).__name__, e)
+        log.debug("mlx_whisper import traceback", exc_info=True)
         return False
     return True
 
@@ -69,19 +72,31 @@ def select_engine() -> TranscriptionEngine:
 
         return MlxWhisperWorker()
 
+    note: str | None = None
     if choice == "faster-whisper":
         engine: TranscriptionEngine = _faster()
     elif choice == "mlx":
         if not _apple_silicon():
+            note = "MLX needs Apple Silicon — using faster-whisper (CPU)."
             log.warning("TRANSCRIPTION_ENGINE=mlx but not on Apple Silicon; using faster-whisper")
             engine = _faster()
         elif not _mlx_available():
+            note = "MLX isn't bundled in this build — using faster-whisper (CPU)."
             log.warning("TRANSCRIPTION_ENGINE=mlx but mlx_whisper is not importable; using faster-whisper")
             engine = _faster()
         else:
             engine = _mlx()
     else:  # auto
         engine = _mlx() if _mlx_available() else _faster()
+
+    # Record (or clear) why the active engine may differ from the chosen one, so the
+    # Settings UI can explain a silent fallback instead of just showing faster-whisper.
+    try:
+        from ..runtime import runtime
+
+        runtime.engine_note = note
+    except Exception:
+        pass
 
     log.info("selected transcription engine: %s", engine.name)
     return engine

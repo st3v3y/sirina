@@ -124,6 +124,12 @@ class FasterWhisperWorker:
             vad_filter=True,
             word_timestamps=word_timestamps,
             initial_prompt=initial_prompt,
+            # Vocabulary hints (initial_prompt) can make the decoder latch onto a hint word
+            # and emit it dozens of times ("FOKS FOKS FOKS…"). These bound that loop without
+            # hurting normal speech: no n-gram of this length may repeat, and repeated tokens
+            # are penalised. compression_ratio_threshold (default on) is the backstop.
+            no_repeat_ngram_size=3,
+            repetition_penalty=1.15,
         )
         if self._batched is not None:
             # Batched mode is much faster on long files. It processes windows

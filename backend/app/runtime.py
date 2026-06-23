@@ -17,6 +17,9 @@ class Runtime:
     def __init__(self) -> None:
         self.whisper: TranscriptionEngine | None = None
         self.whisper_error: str | None = None  # last whisper load failure (e.g. offline)
+        # Set when the requested transcription engine couldn't be honored and we fell
+        # back (e.g. `mlx` chosen but not bundled in this build → faster-whisper).
+        self.engine_note: str | None = None
         self.llm: OpenAICompatProvider | None = None
         self.ws: ConnectionManager | None = None
         self.pipeline: Pipeline | None = None

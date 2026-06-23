@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Segment, QAMessage, Speaker } from "../lib/api";
 import { catColor } from "./TagUI";
+import Markdown from "./Markdown";
 
 type ChatItem =
   | { kind: "segment"; segment: Segment }
@@ -18,15 +19,26 @@ type Props = {
   peopleNames?: string[];
   onRename?: (speakerId: number, name: string) => Promise<void>;
   pending?: boolean; // show a loading bubble while an answer is in flight
+  // "chat" starts pinned to the newest message; "transcript" starts at the top and is
+  // never force-scrolled (so reading isn't interrupted while processing streams in more
+  // segments). Either way, auto-scroll only resumes once the user returns to the bottom.
+  mode?: "chat" | "transcript";
 };
 
-export default function TranscriptChat({ items, speakers = {}, peopleNames = [], onRename, pending = false }: Props) {
+export default function TranscriptChat({ items, speakers = {}, peopleNames = [], onRename, pending = false, mode = "chat" }: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  const stick = useRef(mode === "chat");
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
 
+  function onScroll() {
+    const el = ref.current;
+    if (!el) return;
+    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }
+
   useEffect(() => {
-    if (!ref.current) return;
+    if (!ref.current || !stick.current) return;
     ref.current.scrollTop = ref.current.scrollHeight;
   }, [items, pending]);
 
@@ -61,7 +73,7 @@ export default function TranscriptChat({ items, speakers = {}, peopleNames = [],
   }
 
   return (
-    <div ref={ref} className="h-full overflow-y-auto px-7 py-5 space-y-4">
+    <div ref={ref} onScroll={onScroll} className="h-full overflow-y-auto px-7 py-5 space-y-4">
       {items.length === 0 && <p className="text-muted text-sm">No transcript yet.</p>}
       {items.map((it, i) => {
         if (it.kind === "segment") {
@@ -138,13 +150,13 @@ export default function TranscriptChat({ items, speakers = {}, peopleNames = [],
             className={`flex ${isUser ? "justify-end" : "justify-start"}`}
           >
             <div
-              className={`max-w-[74%] px-4 py-3 text-[13.5px] leading-relaxed whitespace-pre-wrap ${
+              className={`max-w-[74%] px-4 py-3 text-[13.5px] leading-relaxed ${
                 isUser
-                  ? "bg-ink text-paper rounded-[16px_16px_5px_16px]"
+                  ? "bg-ink text-paper rounded-[16px_16px_5px_16px] whitespace-pre-wrap"
                   : "bg-surface border border-line-2 text-ink rounded-[16px_16px_16px_5px] shadow-card"
               }`}
             >
-              {m.content}
+              {isUser ? m.content : <Markdown content={m.content} />}
             </div>
           </div>
         );

@@ -67,8 +67,11 @@ def _is_silent(path: str) -> bool:
 # surface as a phantom "Speaker N". Drop clusters below both an absolute speech floor
 # and a share of the track, merging their lines into the dominant kept speaker so no
 # transcript text is lost. At least one speaker always remains.
+# The share floor is deliberately small: in a long meeting a real third participant may
+# speak only a couple of minutes (well under 5% of the total), and a 5% gate merged them
+# away into another speaker. The absolute-seconds floor still removes genuine noise blips.
 _CLUSTER_MIN_SECONDS = 2.0
-_CLUSTER_MIN_SHARE = 0.05
+_CLUSTER_MIN_SHARE = 0.015
 
 
 def _prune_clusters(order: list[str], by_cluster: dict[str, list]) -> list[str]:
@@ -114,10 +117,16 @@ class TranscriptionProcessor:
         self._current_id: int | None = None
         # Recordings whose diarization the user asked to cancel (fall back to baseline).
         self._cancel_diar: set[int] = set()
+        # Recordings the user asked to stop processing entirely (keep any transcript so far).
+        self._cancel_processing: set[int] = set()
 
     def is_busy(self) -> bool:
         """True while a recording is actively being processed."""
         return self._current_id is not None
+
+    def current_id(self) -> int | None:
+        """The recording being processed right now, or None when idle."""
+        return self._current_id
 
     def set_engine(self, whisper: FasterWhisperWorker) -> None:
         """Swap the transcription engine (used by the Settings reload action). Only safe
@@ -207,10 +216,15 @@ class TranscriptionProcessor:
                 self._progress.pop(recording_id, None)
                 self._started.pop(recording_id, None)
                 self._cancel_diar.discard(recording_id)
+                self._cancel_processing.discard(recording_id)
                 self._queue.task_done()
 
     async def _process(self, recording_id: int) -> None:
         self._started[recording_id] = time.monotonic()
+        # Stopped while still queued — don't even start the (uninterruptible) transcription.
+        if self._processing_cancelled(recording_id):
+            self._mark_failed(recording_id, "Processing stopped")
+            return
         with Session(engine) as s:
             rec = s.get(Recording, recording_id)
             if rec is None:
@@ -339,7 +353,7 @@ class TranscriptionProcessor:
         # Auto-generate the default summary BEFORE flipping to `ready`, so that
         # `ready` means transcript + summary are both present and the UI shows
         # them together. Best-effort: a summary failure must not fail the recording.
-        if lines_present and self._pipeline is not None:
+        if lines_present and self._pipeline is not None and not self._processing_cancelled(recording_id):
             try:
                 tmpl_id = self._pipeline.default_summary_template_id()
                 if tmpl_id is not None:
@@ -396,7 +410,18 @@ class TranscriptionProcessor:
         self._cancel_diar.add(recording_id)
 
     def _diar_cancelled(self, recording_id: int) -> bool:
-        return recording_id in self._cancel_diar
+        # A full stop also short-circuits the diarization wait.
+        return recording_id in self._cancel_diar or recording_id in self._cancel_processing
+
+    def cancel_processing(self, recording_id: int) -> None:
+        """Request that processing stop after the current uninterruptible step. Any transcript
+        already written is kept (the recording finalizes as `ready`); the remaining stages
+        (diarization, summary) are skipped. Checked at stage boundaries — it cannot preempt a
+        transcription already running in the executor, but stops everything after it."""
+        self._cancel_processing.add(recording_id)
+
+    def _processing_cancelled(self, recording_id: int) -> bool:
+        return recording_id in self._cancel_processing
 
     async def _speaker_groups(
         self,
