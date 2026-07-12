@@ -29,6 +29,40 @@ const SECTIONS: SectionMeta[] = [
 const INPUT =
   "h-[38px] min-w-[230px] px-3 border border-line rounded-field bg-surface text-[13.5px] text-ink focus:outline-none focus:border-line-3";
 
+// Plain-language explanations shown via a (?) tooltip next to a field — aimed at users
+// who don't know the underlying ML knobs. Keyed by setting key (see settings_store.FIELDS).
+const HELP_HINTS: Record<string, string> = {
+  transcription_engine:
+    "How transcription runs. “MLX” uses your Mac’s GPU (fastest on Apple Silicon); “faster-whisper” uses the CPU. “Auto” picks the best for your Mac — leave it on Auto if unsure. Changing this needs a reload.",
+  whisper_model:
+    "The speech-recognition model. Bigger models (medium, large) are more accurate but slower and use more memory; smaller ones (tiny, small) are faster. “medium” is a good balance; pick “large-v3” for best accuracy.",
+  whisper_compute_type:
+    "A speed/accuracy trade-off for the CPU engine (faster-whisper only). “int8” is fastest and lightest; “float16”/“float32” are slightly more accurate but slower. “int8” is fine for most people.",
+  whisper_beam_size:
+    "How many wording alternatives the model weighs before choosing. 1 is fastest (greedy); higher (e.g. 5) can be a little more accurate but slower. Leave at 1 unless you want to chase accuracy.",
+  whisper_initial_prompt:
+    "Names, jargon, or product terms the model tends to mishear — list a few so it spells them right (e.g. “Sirina, BlackHole, pyannote”). Keep it short: long lists can make it repeat words.",
+  whisper_cpu_threads:
+    "How many CPU cores transcription may use (faster-whisper only). 0 = use all cores (recommended). Lower it only if you want to keep the Mac responsive for other work.",
+  transcribe_chunk_seconds:
+    "For the GPU (MLX) engine, audio is transcribed in windows this many seconds long, so progress updates and memory stays bounded. 180 (3 min) is a good default; 0 turns chunking off.",
+  silence_peak_threshold:
+    "Audio quieter than this (0–1) is treated as silent and skipped, so the model doesn’t invent captions over silence (e.g. an empty system-audio track). 0.005 works well; 0 disables the check.",
+  diarization_enabled:
+    "Splits the other participants’ audio into separate speakers (Speaker 1, Speaker 2, …) so you can tell who said what. Needs a free HuggingFace token. Off by default; it makes processing slower.",
+};
+
+function HelpTip({ text }: { text: string }) {
+  return (
+    <span className="group relative inline-flex shrink-0">
+      <Icon name="circle-question-mark" size={13} className="text-muted hover:text-ink-2 cursor-help" />
+      <span className="pointer-events-none absolute left-0 top-5 z-30 hidden group-hover:block w-64 rounded-lg bg-ink text-paper text-[12px] leading-snug px-3 py-2 shadow-pop normal-case font-normal tracking-normal">
+        {text}
+      </span>
+    </span>
+  );
+}
+
 export default function Settings() {
   const [data, setData] = useState<SettingsResponse | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
@@ -291,6 +325,7 @@ export default function Settings() {
                         label={
                           <span className="flex items-center gap-2">
                             {f.label}
+                            {HELP_HINTS[f.key] && <HelpTip text={HELP_HINTS[f.key]} />}
                             {f.restart !== "none" && <Badge tone="warn">reload</Badge>}
                           </span>
                         }

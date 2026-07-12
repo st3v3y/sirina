@@ -28,6 +28,9 @@ class Recording(SQLModel, table=True):
 class Person(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str = Field(index=True)
+    # The app user ("You"): a singleton Person auto-linked to every recording's mic
+    # speaker. Renaming the "You" speaker renames this Person (it is never duplicated).
+    is_self: bool = Field(default=False)
     created_at: datetime = Field(default_factory=_utcnow)
 
 

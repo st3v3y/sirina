@@ -70,6 +70,7 @@ def _add_missing_columns() -> None:
     additive = {
         "summarytemplate": [("general_context", "TEXT")],
         "recording": [("warning", "TEXT")],
+        "person": [("is_self", "BOOLEAN DEFAULT 0")],
     }
     with engine.connect() as conn:
         for table, columns in additive.items():
@@ -91,12 +92,42 @@ def init_db() -> None:
     _add_missing_columns()
     _assert_schema_current()
     with Session(engine) as session:
-        if session.exec(select(SummaryTemplate)).first() is None:
+        existing = session.exec(select(SummaryTemplate)).all()
+        if not existing:
             for t in SUMMARY_TEMPLATES:
                 session.add(SummaryTemplate(**t))
+        else:
+            # Refresh built-in templates' sections from code so default-template tweaks
+            # (new sections, dropped {{transcript}} clutter) reach existing installs.
+            # User-created templates and the user's chosen default are left untouched.
+            by_name = {t.name: t for t in existing}
+            for t in SUMMARY_TEMPLATES:
+                cur = by_name.get(t["name"])
+                if cur is not None and cur.builtin:
+                    cur.sections = t["sections"]
+                    session.add(cur)
         if session.exec(select(PromptTemplate)).first() is None:
             session.add(PromptTemplate(**QA_TEMPLATE))
         session.commit()
+        _backfill_self_person(session)
+
+
+def _backfill_self_person(session: Session) -> None:
+    """Bind existing "You" speakers (from recordings made before the self-Person existed)
+    to the singleton self-Person, so the app user appears in People for past recordings."""
+    from .models import Speaker
+    from .speakers import SELF_LABEL, get_or_create_self_person
+
+    orphan_you = session.exec(
+        select(Speaker).where(Speaker.label == SELF_LABEL, Speaker.person_id == None)  # noqa: E711
+    ).all()
+    if not orphan_you:
+        return
+    self_id = get_or_create_self_person(session).id
+    for sp in orphan_you:
+        sp.person_id = self_id
+        session.add(sp)
+    session.commit()
 
 
 def get_session() -> Iterator[Session]:

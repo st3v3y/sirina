@@ -17,6 +17,7 @@ class PersonOut(BaseModel):
     name: str
     recording_count: int
     last_recording_at: datetime | None
+    is_self: bool = False
 
 
 class PersonUpdate(BaseModel):
@@ -39,7 +40,10 @@ def list_people(session: Session = Depends(get_session)) -> list[PersonOut]:
             ).all()
             last = max(starts) if starts else None
         out.append(
-            PersonOut(id=p.id, name=p.name, recording_count=len(rec_ids), last_recording_at=last)  # type: ignore[arg-type]
+            PersonOut(
+                id=p.id, name=p.name, recording_count=len(rec_ids),  # type: ignore[arg-type]
+                last_recording_at=last, is_self=bool(p.is_self),
+            )
         )
     return out
 
@@ -57,7 +61,7 @@ def rename_person(person_id: int, payload: PersonUpdate, session: Session = Depe
     session.commit()
     session.refresh(p)
     rec_ids = set(session.exec(select(Speaker.recording_id).where(Speaker.person_id == p.id)).all())  # type: ignore[arg-type]
-    return PersonOut(id=p.id, name=p.name, recording_count=len(rec_ids), last_recording_at=None)  # type: ignore[arg-type]
+    return PersonOut(id=p.id, name=p.name, recording_count=len(rec_ids), last_recording_at=None, is_self=bool(p.is_self))  # type: ignore[arg-type]
 
 
 @router.delete("/{person_id}", status_code=204)

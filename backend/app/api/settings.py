@@ -141,13 +141,14 @@ def reveal_data_dir() -> dict[str, bool]:
     path.mkdir(parents=True, exist_ok=True)
     try:
         if sys.platform == "darwin":
-            # The data dir ends in ".app" (it's named after the bundle id, com.sirina.app),
-            # so a bare `open <dir>` treats it as an application bundle and tries to LAUNCH it
-            # ("the application cannot be opened because its executable is missing") instead of
-            # revealing the folder. `-a Finder` forces Finder to open it and show its contents.
-            # Run (not fire-and-forget) and check the result so a failure surfaces, not silent.
+            # The data dir is named after the bundle id (com.sirina.app), so its ".app"
+            # suffix makes macOS treat it as an application bundle: a bare `open <dir>` — and
+            # even `open -a Finder <dir>` once the real app is registered with LaunchServices —
+            # tries to LAUNCH it ("can't open the application … it may be damaged or
+            # incomplete"). `-R` reveals the folder (selected in its parent) instead of opening
+            # it, sidestepping the bundle interpretation. Check the result so failures surface.
             proc = subprocess.run(
-                ["/usr/bin/open", "-a", "Finder", str(path)],
+                ["/usr/bin/open", "-R", str(path)],
                 capture_output=True, text=True, timeout=10,
             )
             if proc.returncode != 0:

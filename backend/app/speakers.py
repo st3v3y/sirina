@@ -6,6 +6,21 @@ from sqlmodel import Session, select
 from .models import Person, Speaker
 
 
+SELF_LABEL = "You"
+
+
+def get_or_create_self_person(session: Session) -> Person:
+    """The singleton Person representing the app user (the mic / "You" speaker). Created
+    on first use with the default name "You"; reused across all recordings so renaming it
+    once applies everywhere."""
+    p = session.exec(select(Person).where(Person.is_self == True)).first()  # noqa: E712
+    if p is None:
+        p = Person(name=SELF_LABEL, is_self=True)
+        session.add(p)
+        session.flush()  # assign id
+    return p
+
+
 def display_name(speaker: Speaker, persons: dict[int, str]) -> str:
     if speaker.person_id is not None:
         return persons.get(speaker.person_id, speaker.label)

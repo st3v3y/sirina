@@ -113,6 +113,7 @@ export type Person = {
   name: string;
   recording_count: number;
   last_recording_at: string | null;
+  is_self?: boolean; // the app user ("You")
 };
 
 export type SummarySection = { title: string; content: string };

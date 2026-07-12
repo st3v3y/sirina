@@ -58,7 +58,7 @@ def test_process_advances_to_done_and_writes_segments(tmp_path, monkeypatch):
     assert prog["elapsed_s"] is not None
     with Session(eng) as s:
         segs = s.exec(select(Segment).where(Segment.recording_id == rid)).all()
-        assert len(segs) == 2  # mic "You" + system "Others", one line each
+        assert len(segs) == 2  # mic "You" + system "Speaker 1", one line each
         rec = s.get(Recording, rid)
         assert rec.status == "ready"
 
@@ -128,7 +128,7 @@ def test_cancel_diarization_keeps_baseline_and_skips_diarize(tmp_path, monkeypat
     with Session(eng) as s:
         from app.models import Speaker
         labels = sorted(sp.label for sp in s.exec(select(Speaker).where(Speaker.recording_id == rid)).all())
-        assert labels == ["Others", "You"]  # baseline two-track split
+        assert labels == ["Speaker 1", "You"]  # baseline two-track split
         rec = s.get(Recording, rid)
         assert rec.status == "ready"
 

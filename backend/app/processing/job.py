@@ -17,6 +17,7 @@ from sqlmodel import Session, delete, select
 from ..config import settings
 from ..db import engine
 from ..models import Recording, Segment, Speaker
+from ..speakers import SELF_LABEL, get_or_create_self_person
 from ..transcribe.whisper import FasterWhisperWorker
 from .diarize import Diarizer, diarize_lines
 
@@ -288,7 +289,7 @@ class TranscriptionProcessor:
                         system_path, word_timestamps=use_diar, progress_cb=self._progress_cb(recording_id, lo, hi)  # type: ignore[arg-type]
                     )
                     language = language or lang
-                    baseline.append(("Others", _color(1), sys_lines))
+                    baseline.append(("Speaker 1", _color(1), sys_lines))
         elif _is_silent(audio_path):  # type: ignore[arg-type]
             log.info("recording %d: single track is silent — no transcript", recording_id)
             baseline = []
@@ -319,7 +320,7 @@ class TranscriptionProcessor:
                         groups.append(("You", _color(0), mic_lines))
                     groups.extend(
                         await self._speaker_groups(
-                            system_path, sys_lines, base_idx=1, single_label="Others", use_diar=True  # type: ignore[arg-type]
+                            system_path, sys_lines, base_idx=1, single_label="Speaker 1", use_diar=True  # type: ignore[arg-type]
                         )
                     )
                     return groups
@@ -383,8 +384,15 @@ class TranscriptionProcessor:
         with Session(engine) as s:
             s.exec(delete(Segment).where(Segment.recording_id == recording_id))  # type: ignore[arg-type]
             s.exec(delete(Speaker).where(Speaker.recording_id == recording_id))  # type: ignore[arg-type]
+            self_person_id: int | None = None
             for speaker_label, color, lines in tracks:
                 speaker = Speaker(recording_id=recording_id, label=speaker_label, color=color)
+                # Bind the mic ("You") speaker to the singleton self-Person so the app user
+                # shows up in People and a rename of "You" propagates everywhere.
+                if speaker_label == SELF_LABEL:
+                    if self_person_id is None:
+                        self_person_id = get_or_create_self_person(s).id
+                    speaker.person_id = self_person_id
                 s.add(speaker)
                 s.flush()  # assign speaker.id
                 for line in lines:

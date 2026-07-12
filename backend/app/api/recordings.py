@@ -16,7 +16,7 @@ from ..db import get_session
 from ..exporters import export_markdown, export_text
 from ..models import Person, QAMessage, Recording, RecordingTag, Segment, Speaker, Summary, Tag
 from ..runtime import runtime
-from ..speakers import display_name
+from ..speakers import SELF_LABEL, display_name
 
 log = logging.getLogger(__name__)
 
@@ -408,6 +408,19 @@ def rename_speaker(
     if not sp or sp.recording_id != recording_id:
         raise HTTPException(404)
     name = payload.name.strip()
+    # The "You" speaker is bound to the singleton self-Person: rename THAT (an empty value
+    # reverts it to "You"), so the app user is one reusable Person, never unlinked or
+    # duplicated into a second "Stefan" entry.
+    if sp.person_id is not None:
+        linked = session.get(Person, sp.person_id)
+        if linked is not None and linked.is_self:
+            linked.name = name or SELF_LABEL
+            session.add(linked)
+            session.commit()
+            session.refresh(sp)
+            return SpeakerOut(
+                id=sp.id, label=sp.label, name=linked.name, person_id=sp.person_id, color=sp.color  # type: ignore[arg-type]
+            )
     # Empty or the speaker's own default label means "no real name": never create
     # a Person from a default label (that produced junk "Speaker 1"/"You" People).
     # Treat it as clearing any existing link, reverting to the default label.
