@@ -20,6 +20,7 @@ from ..models import Recording, Segment, Speaker
 from ..speakers import SELF_LABEL, get_or_create_self_person
 from ..transcribe.whisper import FasterWhisperWorker
 from .diarize import Diarizer, diarize_lines
+from .segment import resegment_lines
 
 if TYPE_CHECKING:
     from ..pipeline import Pipeline
@@ -413,7 +414,9 @@ class TranscriptionProcessor:
                     speaker.person_id = self_person_id
                 s.add(speaker)
                 s.flush()  # assign speaker.id
-                for line in lines:
+                # Break long monologue-sized lines into turns/sentences so the two tracks
+                # interleave by timestamp into a readable back-and-forth (see segment.py).
+                for line in resegment_lines(lines):
                     s.add(
                         Segment(
                             recording_id=recording_id,
