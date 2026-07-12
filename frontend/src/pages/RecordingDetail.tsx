@@ -191,6 +191,7 @@ export default function RecordingDetail() {
   const [qa, setQa] = useState<QAMessage[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [peopleNames, setPeopleNames] = useState<string[]>([]);
+  const [diarOn, setDiarOn] = useState<boolean | null>(null);
   // Share the sidebar's tag list so a tag created here shows up there immediately.
   const { tags: allTags, reloadTags } = useShell();
   const [tab, setTab] = useState<Tab>("summary");
@@ -214,6 +215,7 @@ export default function RecordingDetail() {
 
   useEffect(() => {
     api.listPeople().then((p) => setPeopleNames(p.map((x) => x.name))).catch(() => {});
+    api.status().then((s) => setDiarOn(s.diarization)).catch(() => {});
   }, [recordingId]);
 
   useEffect(() => {
@@ -584,6 +586,20 @@ export default function RecordingDetail() {
                 <Icon name="download" size={12} /> Export
               </a>
             </div>
+            {diarOn === false && (rec.tracks ?? []).includes("system") && (
+              <div className="px-7 pb-1 shrink-0">
+                <div className="flex items-center gap-2 text-[12px] text-muted bg-surface-2 border border-line-2 rounded-field px-3 py-1.5">
+                  <Icon name="users" size={13} className="shrink-0" />
+                  <span>
+                    Everyone but you is grouped as one speaker. Turn on{" "}
+                    <Link to="/settings" className="text-ink-2 underline underline-offset-2 hover:text-ink">
+                      Speaker diarization
+                    </Link>{" "}
+                    (Settings) to split them into Speaker 1, 2, 3… then Re-process.
+                  </span>
+                </div>
+              </div>
+            )}
             <div className="flex-1 min-h-0">
               <TranscriptChat items={transcriptItems} speakers={speakerMap} peopleNames={peopleNames} onRename={renameSpeaker} mode="transcript" />
             </div>

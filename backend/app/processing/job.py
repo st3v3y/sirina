@@ -120,6 +120,9 @@ class TranscriptionProcessor:
         self._cancel_diar: set[int] = set()
         # Recordings the user asked to stop processing entirely (keep any transcript so far).
         self._cancel_processing: set[int] = set()
+        # A per-recording note explaining why speaker splitting didn't run (surfaced to the
+        # user as a warning, so "only You + Speaker 1" isn't a silent mystery).
+        self._diar_note: dict[int, str] = {}
 
     def is_busy(self) -> bool:
         """True while a recording is actively being processed."""
@@ -225,6 +228,7 @@ class TranscriptionProcessor:
                 self._started.pop(recording_id, None)
                 self._cancel_diar.discard(recording_id)
                 self._cancel_processing.discard(recording_id)
+                self._diar_note.pop(recording_id, None)
                 self._queue.task_done()
 
     async def _process(self, recording_id: int) -> None:
@@ -327,12 +331,14 @@ class TranscriptionProcessor:
                         groups.append(("You", _color(0), mic_lines))
                     groups.extend(
                         await self._speaker_groups(
-                            system_path, sys_lines, base_idx=1, single_label="Speaker 1", use_diar=True  # type: ignore[arg-type]
+                            system_path, sys_lines, base_idx=1, single_label="Speaker 1", use_diar=True,  # type: ignore[arg-type]
+                            recording_id=recording_id,
                         )
                     )
                     return groups
                 return await self._speaker_groups(
-                    audio_path, lines, base_idx=0, single_label="Speaker 1", use_diar=True
+                    audio_path, lines, base_idx=0, single_label="Speaker 1", use_diar=True,
+                    recording_id=recording_id,
                 )
 
             # pyannote runs as one blocking executor call and can't be preempted, so we
@@ -373,11 +379,16 @@ class TranscriptionProcessor:
 
         self._set_progress(recording_id, "done", 1.0)
 
+        diar_note = self._diar_note.pop(recording_id, None)
         with Session(engine) as s:
             rec = s.get(Recording, recording_id)
             if rec is not None:
                 rec.status = "ready"
                 rec.error = None
+                # Surface a diarization failure so a lone "Speaker 1" isn't a silent mystery.
+                # Don't clobber a capture warning already on the recording — append to it.
+                if diar_note:
+                    rec.warning = f"{rec.warning} {diar_note}".strip() if rec.warning else diar_note
                 s.add(rec)
                 s.commit()
         log.info("recording %d ready", recording_id)
@@ -445,10 +456,12 @@ class TranscriptionProcessor:
         base_idx: int,
         single_label: str,
         use_diar: bool,
+        recording_id: int | None = None,
     ) -> list[tuple[str, str, list]]:
         """Return (label, color, lines) groups for a track. With diarization enabled,
         split the track into Speaker 1..N by cluster; otherwise a single group.
-        Any diarization failure falls back to the single-group baseline."""
+        Any diarization failure falls back to the single-group baseline (and records a
+        note on `recording_id` so the user learns why speakers weren't separated)."""
         if not use_diar or not lines:
             return [(single_label, _color(base_idx), lines)]
         try:
@@ -472,8 +485,14 @@ class TranscriptionProcessor:
                 (f"Speaker {i + 1}", _color(base_idx + i), by_cluster[c])
                 for i, c in enumerate(order)
             ]
-        except Exception:
+        except Exception as e:
             log.exception("diarization failed for %s; falling back to baseline split", Path(path).name)
+            if recording_id is not None:
+                self._diar_note[recording_id] = (
+                    f"Speaker splitting couldn't run ({type(e).__name__}), so everyone else is "
+                    "shown as one speaker. Check your HuggingFace token and that you've accepted "
+                    "the pyannote model terms in Settings → Speaker diarization."
+                )
             return [(single_label, _color(base_idx), lines)]
 
     def _match_speakers_to_people(self, recording_id: int) -> list[tuple[int, int]]:
