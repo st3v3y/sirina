@@ -23,6 +23,10 @@ class Recording(SQLModel, table=True):
     audio_path: str | None = None  # mixed/primary track used for playback + transcription
     error: str | None = None
     warning: str | None = None  # non-fatal capture issue, e.g. a source track ended short
+    # When set (JSON: {"leading_s": x, "trailing_s": y}), the recording was stopped with a
+    # long stretch of leading/trailing silence and is HELD awaiting the user's trim decision
+    # (not yet enqueued for transcription). Cleared once they choose Trim or Keep.
+    pending_trim: str | None = None
 
 
 class Person(SQLModel, table=True):

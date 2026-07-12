@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     # cross-recording chat sends. Match your model's (or Ollama's) configured window.
     llm_context_tokens: int = 8192
 
+    # After stopping, offer to trim leading/trailing silence when it totals at least this
+    # many seconds (the "forgot to stop the recording" case). 0 disables the prompt.
+    silence_trim_min_seconds: float = 60.0
+
     diarization_enabled: bool = False
     hf_token: str = ""  # HuggingFace read token (gates the one-time pyannote download)
     diarization_model: str = "pyannote/speaker-diarization-community-1"

@@ -69,7 +69,7 @@ def _add_missing_columns() -> None:
     so this is idempotent."""
     additive = {
         "summarytemplate": [("general_context", "TEXT")],
-        "recording": [("warning", "TEXT")],
+        "recording": [("warning", "TEXT"), ("pending_trim", "TEXT")],
         "person": [("is_self", "BOOLEAN DEFAULT 0")],
     }
     with engine.connect() as conn:

@@ -7,7 +7,9 @@ finished files.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 import subprocess
 import threading
 import time
@@ -22,6 +24,7 @@ from sqlmodel import Session
 from ..audio import system_capture
 from ..audio.local import find_device
 from ..audio.power import SleepBlocker
+from ..audio.trim import detect_trim, trim_wav_window
 from ..config import settings
 from ..db import engine
 from ..models import Recording
@@ -444,13 +447,20 @@ class Recorder:
             log.info("recording %d started (tracks=%s)", recording_id, [t.name for t in active.tracks])
             return recording_id
 
-    async def stop(self, recording_id: int | None = None) -> None:
+    async def stop(self, recording_id: int | None = None) -> dict | None:
+        """Stop the active recording, finalize its files, and flip it to `processing`.
+
+        Returns a trim suggestion ({"leading_s", "trailing_s", ...}) when the take has a
+        long stretch of leading/trailing silence — in that case the recording is HELD
+        (pending_trim set, not yet enqueued) awaiting the user's decision. Returns None
+        when there's no significant silence (the caller enqueues it for transcription).
+        """
         async with self._lock:
             active = self._active
             if active is None:
-                return
+                return None
             if recording_id is not None and active.recording_id != recording_id:
-                return
+                return None
             self._active = None
 
         active.end_monitoring()
@@ -473,19 +483,45 @@ class Recorder:
         else:
             audio_path = mic_path
 
+        # Offer to trim a long stretch of leading/trailing silence (e.g. a recording left
+        # running long after the meeting ended) before spending time transcribing dead air.
+        suggestion: dict | None = None
+        min_s = settings.silence_trim_min_seconds
+        if min_s > 0:
+            try:
+                suggestion = detect_trim(
+                    mic_path if mic_path.exists() else None,
+                    system_path if has_system else None,
+                    min_silence_s=min_s,
+                )
+            except Exception:
+                log.exception("silence detection failed for recording %d", active.recording_id)
+
         with Session(engine) as s:
             rec = s.get(Recording, recording_id or active.recording_id)
             if rec is None:
-                return
+                return None
             rec.ended_at = datetime.now(timezone.utc)
             rec.duration_s = duration_s
             rec.audio_path = str(audio_path)
             rec.system_path = str(system_path) if has_system else None
             rec.warning = warning
             rec.status = "processing"
+            # A trim suggestion HOLDS the recording (not enqueued) until the user decides;
+            # the API layer only enqueues when this returns None.
+            rec.pending_trim = json.dumps(suggestion) if suggestion else None
             s.add(rec)
             s.commit()
-        log.info("recording %d stopped (%.1fs) -> processing", active.recording_id, duration_s)
+        log.info(
+            "recording %d stopped (%.1fs)%s",
+            active.recording_id, duration_s,
+            " -> awaiting trim decision" if suggestion else " -> processing",
+        )
+        return suggestion
+
+    def active_id(self) -> int | None:
+        """The id of the currently-active recording, or None when idle."""
+        return self._active.recording_id if self._active else None
 
 
 def _wav_duration_s(path: Path) -> float:
@@ -540,6 +576,52 @@ def recover_orphaned(recording_id: int) -> bool:
         s.commit()
     log.info("recovered orphaned recording %d (%.1fs) -> processing", recording_id, duration_s)
     return True
+
+
+def apply_trim(recording_id: int, start_s: float, end_s: float) -> float:
+    """Trim every on-disk track of a recording to the absolute window [start_s, end_s],
+    re-mix, and update the stored duration. Clears `pending_trim`. Returns the new duration.
+
+    Tracks share a common start (t=0) so the same window applies to all; trim_wav_window
+    clamps to each file's own length. The trimmed files replace the originals in place."""
+    rec_dir = settings.recordings_dir / str(recording_id)
+    mic_path = rec_dir / "mic.wav"
+    system_path = rec_dir / "system.wav"
+
+    def _trim_in_place(path: Path) -> bool:
+        if not path.exists():
+            return False
+        tmp = path.with_suffix(".trim.wav")
+        trim_wav_window(path, tmp, start_s, end_s)
+        os.replace(tmp, path)
+        return True
+
+    has_mic = _trim_in_place(mic_path)
+    has_system = _trim_in_place(system_path)
+
+    if has_mic and has_system:
+        audio_path = rec_dir / "mixed.wav"
+        try:
+            _mix_wavs(mic_path, system_path, audio_path)
+        except Exception:
+            log.exception("trim %d: re-mix failed; falling back to mic track", recording_id)
+            audio_path = mic_path
+    else:
+        audio_path = mic_path if has_mic else system_path
+
+    new_duration = max(0.0, end_s - start_s)
+    with Session(engine) as s:
+        rec = s.get(Recording, recording_id)
+        if rec is not None:
+            rec.duration_s = new_duration
+            rec.audio_path = str(audio_path)
+            rec.mic_path = str(mic_path) if has_mic else None
+            rec.system_path = str(system_path) if has_system else None
+            rec.pending_trim = None
+            s.add(rec)
+            s.commit()
+    log.info("trimmed recording %d to %.1fs (window %.1f–%.1f)", recording_id, new_duration, start_s, end_s)
+    return new_duration
 
 
 def _fmt_minutes(seconds: float) -> str:

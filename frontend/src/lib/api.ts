@@ -199,9 +199,20 @@ export type ReloadEngineResult = {
   engine?: string;
 };
 
+export type TrimSuggestion = {
+  leading_s: number;
+  trailing_s: number;
+  start_s: number;
+  end_s: number;
+  duration_s: number;
+};
+
 export type RecordingDetail = Recording & {
   language: string | null;
   warning?: string | null; // non-fatal capture issue, e.g. a source track ended short
+  // Set when the recording was stopped with long leading/trailing silence and is HELD
+  // (not transcribing) awaiting the user's trim decision.
+  pending_trim?: TrimSuggestion | null;
   tags: Tag[];
   tracks: string[]; // available audio tracks: mixed | mic | system
   speakers: Speaker[];
@@ -248,7 +259,14 @@ export const api = {
       body: JSON.stringify(body),
     }),
   stopRecording: (id: number) =>
-    request<{ ok: true }>(`/api/recordings/${id}/stop`, { method: "POST" }),
+    request<{ ok: boolean; trim?: TrimSuggestion | null }>(`/api/recordings/${id}/stop`, {
+      method: "POST",
+    }),
+  trimDecision: (id: number, trim: boolean) =>
+    request<{ ok: boolean }>(`/api/recordings/${id}/trim-decision`, {
+      method: "POST",
+      body: JSON.stringify({ trim }),
+    }),
   renameRecording: (id: number, title: string) =>
     request<Recording>(`/api/recordings/${id}`, {
       method: "PATCH",

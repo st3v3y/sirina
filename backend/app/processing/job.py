@@ -191,9 +191,16 @@ class TranscriptionProcessor:
         await self._queue.put(recording_id)
 
     async def requeue_pending(self) -> None:
-        """Re-enqueue any recordings left in `processing` (e.g. after a restart)."""
+        """Re-enqueue any recordings left in `processing` (e.g. after a restart). Recordings
+        held awaiting a trim decision (pending_trim set) are skipped — they stay held so the
+        prompt survives a restart instead of the dead air being transcribed anyway."""
         with Session(engine) as s:
-            ids = s.exec(select(Recording.id).where(Recording.status == "processing")).all()  # type: ignore[arg-type]
+            ids = s.exec(
+                select(Recording.id).where(
+                    Recording.status == "processing",
+                    Recording.pending_trim == None,  # noqa: E711
+                )
+            ).all()  # type: ignore[arg-type]
         for rid in ids:
             if rid is not None:
                 await self._queue.put(rid)

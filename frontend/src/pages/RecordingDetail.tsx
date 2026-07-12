@@ -31,6 +31,15 @@ function fmtDuration(s: number | null) {
   const ss = (total % 60).toString().padStart(2, "0");
   return h > 0 ? `${h}:${m.toString().padStart(2, "0")}:${ss}` : `${m}:${ss}`;
 }
+// Human phrase for a silence gap, e.g. "2 h 5 min", "3 min", "45 sec".
+function fmtGap(s: number) {
+  const total = Math.round(s);
+  const h = Math.floor(total / 3600);
+  const m = Math.round((total % 3600) / 60);
+  if (h > 0) return m > 0 ? `${h} h ${m} min` : `${h} h`;
+  if (m > 0) return `${m} min`;
+  return `${total} sec`;
+}
 
 async function copyToClipboard(text: string) {
   try {
@@ -192,6 +201,7 @@ export default function RecordingDetail() {
   const [pollNonce, setPollNonce] = useState(0);
   const [cancellingDiar, setCancellingDiar] = useState(false);
   const [stoppingProc, setStoppingProc] = useState(false);
+  const [trimming, setTrimming] = useState<null | "trim" | "keep">(null);
   const [asking, setAsking] = useState(false);
 
   async function load() {
@@ -294,6 +304,16 @@ export default function RecordingDetail() {
       setStoppingProc(false);
     }
   }
+  async function decideTrim(trim: boolean) {
+    setTrimming(trim ? "trim" : "keep");
+    try {
+      await api.trimDecision(recordingId, trim);
+      await load();
+      setPollNonce((n) => n + 1);
+    } finally {
+      setTrimming(null);
+    }
+  }
 
   const transcriptItems = useMemo(() => {
     if (!rec) return [];
@@ -328,7 +348,8 @@ export default function RecordingDetail() {
 
   if (!rec) return <div className="p-7 text-sm text-muted">Loading…</div>;
 
-  const isProcessing = rec.status === "processing";
+  const awaitingTrim = rec.pending_trim != null;
+  const isProcessing = rec.status === "processing" && !awaitingTrim;
   const hasTranscript = rec.segments.length > 0;
   const p = rec.progress;
   const pct = p?.fraction != null ? Math.round(p.fraction * 100) : null;
@@ -414,7 +435,7 @@ export default function RecordingDetail() {
               <Button onClick={stopProcessing} disabled={stoppingProc} title="Stop processing (keeps any transcript so far)">
                 <Icon name="square" size={14} /> {stoppingProc ? "Stopping…" : "Stop"}
               </Button>
-            ) : (
+            ) : awaitingTrim ? null : (
               <Button onClick={reprocess}>Re-process</Button>
             )}
             <Button onClick={del} title="Delete recording" className="!px-2.5">
@@ -428,6 +449,43 @@ export default function RecordingDetail() {
       <div className="px-7 mt-4 shrink-0">
         <AudioPlayer recordingId={rec.id} tracks={rec.tracks ?? []} />
       </div>
+
+      {/* trim-silence prompt (recording held before transcription) */}
+      {awaitingTrim && rec.pending_trim && (
+        <div className="px-7 mt-3 shrink-0">
+          <div className="rounded-field bg-signal/[0.06] border border-signal/25 px-4 py-3">
+            <div className="flex items-start gap-2.5">
+              <Icon name="clock" size={16} className="text-signal shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <div className="text-[13.5px] font-semibold text-ink">
+                  Trim {fmtGap(rec.pending_trim.leading_s + rec.pending_trim.trailing_s)} of silence?
+                </div>
+                <div className="text-[12.5px] text-muted mt-0.5">
+                  {[
+                    rec.pending_trim.leading_s >= 1 && `${fmtGap(rec.pending_trim.leading_s)} at the start`,
+                    rec.pending_trim.trailing_s >= 1 && `${fmtGap(rec.pending_trim.trailing_s)} at the end`,
+                  ]
+                    .filter(Boolean)
+                    .join(" and ")}
+                  {" "}was detected — likely dead air. Trimming skips transcribing it and shortens the recording.
+                </div>
+                <div className="flex flex-wrap gap-2 mt-2.5">
+                  <Button onClick={() => decideTrim(true)} disabled={trimming != null}>
+                    <Icon name="check" size={14} /> {trimming === "trim" ? "Trimming…" : "Trim & transcribe"}
+                  </Button>
+                  <button
+                    onClick={() => decideTrim(false)}
+                    disabled={trimming != null}
+                    className="h-9 px-3.5 rounded-field border border-line text-[13px] text-ink-2 hover:bg-surface-2 disabled:opacity-50"
+                  >
+                    {trimming === "keep" ? "Keeping…" : "Keep full recording"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* processing / failed banners */}
       {isProcessing && (

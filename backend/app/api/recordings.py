@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import shutil
 from datetime import datetime
@@ -15,7 +17,7 @@ from ..config import settings
 from ..db import get_session
 from ..exporters import export_markdown, export_text
 from ..models import Person, QAMessage, Recording, RecordingTag, Segment, Speaker, Summary, Tag
-from ..recording.recorder import recover_orphaned
+from ..recording.recorder import apply_trim, recover_orphaned
 from ..runtime import runtime
 from ..speakers import SELF_LABEL, display_name
 
@@ -73,6 +75,7 @@ class RecordingDetail(BaseModel):
     status: str
     error: str | None
     warning: str | None = None  # non-fatal capture issue, e.g. a source track ended short
+    pending_trim: dict | None = None  # {leading_s, trailing_s, ...} when awaiting a trim decision
     progress: ProgressOut | None = None
     language: str | None
     tags: list[Tag]
@@ -134,12 +137,56 @@ async def start_recording(payload: StartRequest) -> dict[str, int]:
     return {"id": recording_id}
 
 
-@router.post("/{recording_id}/stop")
-async def stop_recording(recording_id: int) -> dict[str, bool]:
+class StopResult(BaseModel):
+    ok: bool = True
+    # Present when the recording has a long stretch of leading/trailing silence: it is HELD
+    # (not yet transcribing) until the client calls /trim-decision. Absent → already enqueued.
+    trim: dict | None = None
+
+
+@router.post("/{recording_id}/stop", response_model=StopResult)
+async def stop_recording(recording_id: int) -> StopResult:
     if runtime.recorder is None:
         raise HTTPException(503, "recorder not running")
-    await runtime.recorder.stop(recording_id)
-    # Hand off to the background transcription processor (recording is now `processing`).
+    suggestion = await runtime.recorder.stop(recording_id)
+    # With a trim suggestion the recording is held awaiting the user's decision; otherwise
+    # hand off to the background transcription processor (recording is now `processing`).
+    if suggestion is None and runtime.processor is not None:
+        await runtime.processor.enqueue(recording_id)
+    return StopResult(trim=suggestion)
+
+
+class TrimDecision(BaseModel):
+    trim: bool  # True = trim the detected silence, False = keep the full recording
+
+
+@router.post("/{recording_id}/trim-decision")
+async def trim_decision(
+    recording_id: int, payload: TrimDecision, session: Session = Depends(get_session)
+) -> dict[str, bool]:
+    """Resolve a held recording (one stopped with long leading/trailing silence): either
+    trim the detected window or keep the full take, then enqueue it for transcription."""
+    r = session.get(Recording, recording_id)
+    if not r:
+        raise HTTPException(404)
+    if not r.pending_trim:
+        raise HTTPException(400, "recording is not awaiting a trim decision")
+    if payload.trim:
+        window = json.loads(r.pending_trim)
+        # Rewriting the (possibly gigabyte-sized) WAVs is blocking CPU/IO — off the loop.
+        await asyncio.to_thread(
+            apply_trim, recording_id, float(window["start_s"]), float(window["end_s"])
+        )
+        session.expire(r)  # apply_trim updated the row (incl. clearing pending_trim) elsewhere
+    else:
+        r.pending_trim = None
+        session.add(r)
+        session.commit()
+    r = session.get(Recording, recording_id)
+    r.status = "processing"  # type: ignore[union-attr]
+    r.error = None  # type: ignore[union-attr]
+    session.add(r)
+    session.commit()
     if runtime.processor is not None:
         await runtime.processor.enqueue(recording_id)
     return {"ok": True}
@@ -161,7 +208,8 @@ async def reprocess_recording(
         active = runtime.recorder.active_info() if runtime.recorder is not None else None
         if active is not None and active.get("id") == recording_id:
             raise HTTPException(400, "recording is still in progress")
-        if not recover_orphaned(recording_id):
+        # Mixing the recovered tracks is blocking CPU/IO — run it off the event loop.
+        if not await asyncio.to_thread(recover_orphaned, recording_id):
             raise HTTPException(400, "this recording captured no audio to process")
         session.expire(r)  # recover_orphaned updated the row in its own session
     if runtime.processor is None:
@@ -286,6 +334,7 @@ def get_recording(recording_id: int, session: Session = Depends(get_session)) ->
         status=r.status,
         error=r.error,
         warning=r.warning,
+        pending_trim=json.loads(r.pending_trim) if r.pending_trim else None,
         progress=_progress_for(r.id),
         language=r.language,
         tags=tags,
