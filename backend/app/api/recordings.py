@@ -15,6 +15,7 @@ from ..config import settings
 from ..db import get_session
 from ..exporters import export_markdown, export_text
 from ..models import Person, QAMessage, Recording, RecordingTag, Segment, Speaker, Summary, Tag
+from ..recording.recorder import recover_orphaned
 from ..runtime import runtime
 from ..speakers import SELF_LABEL, display_name
 
@@ -154,7 +155,15 @@ async def reprocess_recording(
     if not r:
         raise HTTPException(404)
     if r.status == "recording":
-        raise HTTPException(400, "recording is still in progress")
+        # Distinguish a genuinely live capture from one orphaned by a crash/force-quit
+        # (its files are on disk but were never finalized). Only the recorder's currently
+        # active recording is truly in progress; anything else is stale and recoverable.
+        active = runtime.recorder.active_info() if runtime.recorder is not None else None
+        if active is not None and active.get("id") == recording_id:
+            raise HTTPException(400, "recording is still in progress")
+        if not recover_orphaned(recording_id):
+            raise HTTPException(400, "this recording captured no audio to process")
+        session.expire(r)  # recover_orphaned updated the row in its own session
     if runtime.processor is None:
         raise HTTPException(503, "processor not running")
     r.status = "processing"

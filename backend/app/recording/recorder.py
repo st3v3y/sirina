@@ -488,6 +488,60 @@ class Recorder:
         log.info("recording %d stopped (%.1fs) -> processing", active.recording_id, duration_s)
 
 
+def _wav_duration_s(path: Path) -> float:
+    """Duration of a mono PCM WAV from its frame count, or 0.0 if unreadable/empty."""
+    try:
+        with wave.open(str(path), "rb") as wf:
+            return wf.getnframes() / float(wf.getframerate() or CAPTURE_SR)
+    except Exception:
+        return 0.0
+
+
+def recover_orphaned(recording_id: int) -> bool:
+    """Finalize a recording left stuck in `recording` by a crash/force-quit before `stop()`
+    ever ran: mix the on-disk tracks, set duration/paths/ended_at, and flip it to
+    `processing` so it can be (re)transcribed. Returns True if any audio was recovered,
+    False if the recording captured nothing to process.
+
+    This is the recovery path behind Re-process for a recording whose files exist on disk
+    but were never finalized (no mixed track, no duration). It mirrors the tail of `stop()`.
+    """
+    rec_dir = settings.recordings_dir / str(recording_id)
+    mic_path = rec_dir / "mic.wav"
+    system_path = rec_dir / "system.wav"
+    has_mic = _wav_duration_s(mic_path) > 0
+    has_system = _wav_duration_s(system_path) > 0
+    if not has_mic and not has_system:
+        return False
+    duration_s = max(_wav_duration_s(mic_path), _wav_duration_s(system_path))
+
+    if has_mic and has_system:
+        audio_path = rec_dir / "mixed.wav"
+        try:
+            _mix_wavs(mic_path, system_path, audio_path)
+        except Exception:
+            log.exception("recover %d: mixing failed; falling back to mic track", recording_id)
+            audio_path = mic_path
+    else:
+        audio_path = mic_path if has_mic else system_path
+
+    with Session(engine) as s:
+        rec = s.get(Recording, recording_id)
+        if rec is None:
+            return False
+        rec.mic_path = str(mic_path) if has_mic else None
+        rec.system_path = str(system_path) if has_system else None
+        rec.audio_path = str(audio_path)
+        rec.duration_s = duration_s
+        rec.ended_at = rec.ended_at or datetime.now(timezone.utc)
+        rec.status = "processing"
+        rec.error = None
+        s.add(rec)
+        s.commit()
+    log.info("recovered orphaned recording %d (%.1fs) -> processing", recording_id, duration_s)
+    return True
+
+
 def _fmt_minutes(seconds: float) -> str:
     return f"{seconds / 60:.1f} min"
 
