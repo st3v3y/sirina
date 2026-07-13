@@ -7,11 +7,11 @@ from app.pipeline import Pipeline
 from sqlmodel import Session, SQLModel, create_engine, select
 
 
-class FakeOllama:
+class FakeLLM:
     def __init__(self):
         self.prompts = []
 
-    async def generate(self, prompt, *, model=None):
+    async def generate(self, prompt, *, model=None, system=None):
         self.prompts.append(prompt)
         return "answer"
 
@@ -40,8 +40,8 @@ def _run(engine, session_id, question):
     orig = pipeline_mod.engine
     pipeline_mod.engine = engine
     try:
-        fake = FakeOllama()
-        p = Pipeline(whisper=None, ollama=fake)  # type: ignore[arg-type]
+        fake = FakeLLM()
+        p = Pipeline(whisper=None, llm=fake)  # type: ignore[arg-type]
         answer = asyncio.run(p.cross_ask(session_id=session_id, question=question))
         return answer, fake.prompts
     finally:
@@ -77,7 +77,9 @@ def test_context_includes_all_transcripts():
 def test_omission_note_when_over_budget(monkeypatch):
     from datetime import datetime, timezone
 
-    monkeypatch.setattr(pipeline_mod, "CROSS_CONTEXT_CHAR_BUDGET", 50)
+    # Force a tiny context budget so the older recording is dropped (the real budget has
+    # a 4000-char floor, so patch the accessor rather than a setting).
+    monkeypatch.setattr(pipeline_mod, "_cross_context_budget", lambda: 50)
     eng = _engine()
     with Session(eng) as s:
         _add_recording(s, "Old", "x" * 100, datetime(2026, 1, 1, tzinfo=timezone.utc))

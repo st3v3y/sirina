@@ -4,11 +4,11 @@ from app.models import Recording, Segment, Speaker, SummaryTemplate
 from app.pipeline import Pipeline
 
 
-class FakeOllama:
+class FakeLLM:
     def __init__(self):
         self.prompts = []
 
-    async def generate(self, prompt, *, model=None):
+    async def generate(self, prompt, *, model=None, system=None):
         self.prompts.append(prompt)
         return "ok"
 
@@ -43,8 +43,8 @@ async def _run(engine, template):
     orig = pipeline_mod.engine
     pipeline_mod.engine = engine
     try:
-        fake = FakeOllama()
-        p = Pipeline(whisper=None, ollama=fake)  # type: ignore[arg-type]
+        fake = FakeLLM()
+        p = Pipeline(whisper=None, llm=fake)  # type: ignore[arg-type]
         await p.summarize(recording_id=rid, template_id=tid)
         return fake.prompts
     finally:

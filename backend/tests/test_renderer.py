@@ -1,4 +1,4 @@
-from app.llm.ollama_client import render
+from app.llm.provider import render
 
 
 def test_render_substitutes_known_placeholders():
