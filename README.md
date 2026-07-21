@@ -124,6 +124,8 @@ All settings live in `backend/.env` (see `.env.example`). The interesting ones:
 | `OLLAMA_MODEL` | `llama3.1:8b-instruct` | any local Ollama model |
 | `DIARIZATION_ENABLED` | `false` | Split a track into multiple speakers (see below) |
 | `HF_TOKEN` | *(empty)* | HuggingFace read token, required when diarization is on |
+| `VOICE_MATCH_THRESHOLD` | `0.5` | Auto-recognise recurring people by voice fingerprint (cosine similarity 0..1); `0` disables |
+| `COMPRESS_AUDIO` | `true` | Compress finished recordings from WAV to AAC (`.m4a`, ~10-15× smaller) via macOS `afconvert` |
 
 ## Speaker diarization (optional)
 
@@ -141,6 +143,14 @@ One-time setup:
 (The model is configurable via `DIARIZATION_MODEL` if you prefer a different pyannote pipeline.)
 
 When enabled, the mic track stays "You" and the other track is split into `Speaker 1`, `Speaker 2`, … which you can rename into People in the transcript. If the token is missing or diarization fails, it silently falls back to the track-based split — recordings always complete.
+
+### Voice fingerprints (recognising recurring people)
+
+Renaming a diarized speaker to a person enrolls that speaker's voice embedding as the person's **voice fingerprint** (People with one show a "Voice" badge). In later recordings, diarized speakers are automatically linked to the closest enrolled person when their voice similarity is at least `VOICE_MATCH_THRESHOLD`. Only manual renames update a fingerprint — an automatic match never feeds back, so a wrong match is fixed by simply renaming the speaker. The "You" speaker needs no fingerprint: your mic track is always you, and renaming "You" once (e.g. to your name) applies to every recording.
+
+## Audio storage
+
+Recordings are captured as 48 kHz WAV; once processing finishes they're compressed to AAC (`.m4a`, ~10-15× smaller) using macOS's built-in `afconvert` (`COMPRESS_AUDIO=false` keeps the WAVs). **Re-process** transparently decodes compressed audio back to WAV first. On a recording's detail page you can also **delete just the audio** (the small trash button next to the player) to free disk space — the transcript, summary and chat are kept, but playback and re-processing become unavailable.
 
 ## Prompt templates
 

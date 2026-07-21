@@ -10,6 +10,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlmodel import Session, delete, select
 
 from ..audio import system_capture
@@ -17,9 +18,11 @@ from ..config import settings
 from ..db import get_session
 from ..exporters import export_markdown, export_text
 from ..models import Person, QAMessage, Recording, RecordingTag, Segment, Speaker, Summary, Tag
+from ..llm.provider import LLMError
 from ..recording.recorder import apply_trim, recover_orphaned
 from ..runtime import runtime
 from ..speakers import SELF_LABEL, display_name
+from .. import voiceprints
 
 log = logging.getLogger(__name__)
 
@@ -183,8 +186,10 @@ async def trim_decision(
         session.add(r)
         session.commit()
     r = session.get(Recording, recording_id)
-    r.status = "processing"  # type: ignore[union-attr]
-    r.error = None  # type: ignore[union-attr]
+    if r is None:  # deleted concurrently — a 404 beats a 500 here
+        raise HTTPException(404)
+    r.status = "processing"
+    r.error = None
     session.add(r)
     session.commit()
     if runtime.processor is not None:
@@ -201,6 +206,8 @@ async def reprocess_recording(
     r = session.get(Recording, recording_id)
     if not r:
         raise HTTPException(404)
+    if r.status != "recording" and not r.audio_path:
+        raise HTTPException(400, "this recording's audio was deleted — re-processing is unavailable")
     if r.status == "recording":
         # Distinguish a genuinely live capture from one orphaned by a crash/force-quit
         # (its files are on disk but were never finalized). Only the recorder's currently
@@ -214,6 +221,10 @@ async def reprocess_recording(
         session.expire(r)  # recover_orphaned updated the row in its own session
     if runtime.processor is None:
         raise HTTPException(503, "processor not running")
+    # Double-click / already-running guard: enqueue() also dedupes, but reject loudly
+    # when the job is mid-flight so the UI can say why nothing new happened.
+    if runtime.processor.current_id() == recording_id:
+        raise HTTPException(409, "this recording is already being processed")
     r.status = "processing"
     r.error = None
     session.add(r)
@@ -277,9 +288,15 @@ def list_recordings(
         )
     recs = session.exec(stmt.order_by(Recording.started_at.desc())).all()  # type: ignore[attr-defined]
     tags_map = _tags_by_recording(session, [r.id for r in recs if r.id is not None])
+    # One grouped COUNT for all recordings — a per-recording query that materialized
+    # every segment id was an N+1 that transferred hundreds of thousands of rows.
+    counts = dict(
+        session.exec(
+            select(Segment.recording_id, func.count()).group_by(Segment.recording_id)  # type: ignore[arg-type]
+        ).all()
+    )
     out: list[RecordingListItem] = []
     for r in recs:
-        count = session.exec(select(Segment.id).where(Segment.recording_id == r.id)).all()  # type: ignore[arg-type]
         out.append(
             RecordingListItem(
                 id=r.id,  # type: ignore[arg-type]
@@ -290,7 +307,7 @@ def list_recordings(
                 status=r.status,
                 error=r.error,
                 progress=_progress_for(r.id),
-                segment_count=len(count),
+                segment_count=counts.get(r.id, 0),
                 tags=tags_map.get(r.id, []),  # type: ignore[arg-type]
             )
         )
@@ -363,7 +380,9 @@ def update_recording(
     session.add(r)
     session.commit()
     session.refresh(r)
-    count = session.exec(select(Segment.id).where(Segment.recording_id == recording_id)).all()  # type: ignore[arg-type]
+    count = session.exec(
+        select(func.count()).select_from(Segment).where(Segment.recording_id == recording_id)  # type: ignore[arg-type]
+    ).one()
     tags = _tags_by_recording(session, [recording_id]).get(recording_id, [])
     return RecordingListItem(
         id=r.id,  # type: ignore[arg-type]
@@ -374,9 +393,33 @@ def update_recording(
         status=r.status,
         error=r.error,
         progress=_progress_for(r.id),
-        segment_count=len(count),
+        segment_count=count,
         tags=tags,
     )
+
+
+@router.delete("/{recording_id}/audio", status_code=204)
+def delete_recording_audio(recording_id: int, session: Session = Depends(get_session)) -> None:
+    """Delete only the on-disk audio for a recording, keeping its transcript, summary,
+    Q&A and tags. Irreversible: playback and Re-process become unavailable."""
+    r = session.get(Recording, recording_id)
+    if not r:
+        raise HTTPException(404)
+    if r.status in {"recording", "processing"}:
+        raise HTTPException(400, "wait until the recording has finished processing")
+    for p in (r.mic_path, r.system_path, r.audio_path):
+        if p:
+            Path(p).unlink(missing_ok=True)
+    # The per-recording directory only ever holds audio tracks — remove it wholesale so
+    # nothing lingers (e.g. a stray WAV left behind after compression).
+    rec_dir = settings.recordings_dir / str(recording_id)
+    if rec_dir.exists():
+        shutil.rmtree(rec_dir, ignore_errors=True)
+    r.mic_path = None
+    r.system_path = None
+    r.audio_path = None
+    session.add(r)
+    session.commit()
 
 
 @router.delete("/{recording_id}", status_code=204)
@@ -386,6 +429,11 @@ def delete_recording(recording_id: int, session: Session = Depends(get_session))
         raise HTTPException(404)
     if r.status == "recording":
         raise HTTPException(400, "stop the recording before deleting")
+    # Deleting mid-job would yank rows and audio out from under the processor (its next
+    # _write_tracks re-inserts speakers/segments for the gone recording). Same guard as
+    # delete_recording_audio: stop processing first, then delete.
+    if r.status == "processing":
+        raise HTTPException(400, "stop processing before deleting (use Stop, then delete)")
     session.exec(delete(Segment).where(Segment.recording_id == recording_id))  # type: ignore[arg-type]
     session.exec(delete(Speaker).where(Speaker.recording_id == recording_id))  # type: ignore[arg-type]
     session.exec(delete(Summary).where(Summary.recording_id == recording_id))  # type: ignore[arg-type]
@@ -433,7 +481,12 @@ class SummarizeRequest(BaseModel):
 async def summarize_recording(recording_id: int, payload: SummarizeRequest) -> Summary:
     if runtime.pipeline is None:
         raise HTTPException(503, "pipeline not running")
-    return await runtime.pipeline.summarize(recording_id=recording_id, template_id=payload.template_id)
+    try:
+        return await runtime.pipeline.summarize(
+            recording_id=recording_id, template_id=payload.template_id
+        )
+    except LLMError as e:
+        raise HTTPException(502, str(e)) from e
 
 
 class AskRequest(BaseModel):
@@ -445,14 +498,32 @@ class AskRequest(BaseModel):
 async def ask_recording(recording_id: int, payload: AskRequest) -> dict[str, str]:
     if runtime.pipeline is None:
         raise HTTPException(503, "pipeline not running")
-    answer = await runtime.pipeline.ask(
-        recording_id=recording_id, question=payload.question, template_id=payload.template_id
-    )
+    try:
+        answer = await runtime.pipeline.ask(
+            recording_id=recording_id, question=payload.question, template_id=payload.template_id
+        )
+    except LLMError as e:
+        raise HTTPException(502, str(e)) from e
     return {"answer": answer}
 
 
 class SpeakerRenameRequest(BaseModel):
     name: str
+
+
+def _withdraw_enrollment(session: Session, sp: Speaker) -> None:
+    """Undo this speaker's contribution to its linked Person's voiceprint (used when
+    the link is cleared or moved to a different person — a corrected rename must not
+    leave the mis-attributed voice sample in the old fingerprint)."""
+    if not sp.enrolled:
+        return
+    old = session.get(Person, sp.person_id) if sp.person_id else None
+    embedding = voiceprints.decode(sp.embedding)
+    if old is not None and embedding is not None:
+        voiceprints.withdraw(old, embedding)
+        session.add(old)
+    sp.enrolled = False
+    session.add(sp)
 
 
 @router.put("/{recording_id}/speakers/{speaker_id}", response_model=SpeakerOut)
@@ -483,6 +554,7 @@ def rename_speaker(
     # a Person from a default label (that produced junk "Speaker 1"/"You" People).
     # Treat it as clearing any existing link, reverting to the default label.
     if not name or name == sp.label:
+        _withdraw_enrollment(session, sp)
         sp.person_id = None
         session.add(sp)
         session.commit()
@@ -491,17 +563,28 @@ def rename_speaker(
         return SpeakerOut(
             id=sp.id, label=sp.label, name=display_name(sp, persons), person_id=None, color=sp.color  # type: ignore[arg-type]
         )
-    # Find-or-create the Person (case-insensitive match on existing names).
-    person = session.exec(select(Person).where(Person.name == name)).first()
-    if person is None:
-        existing = session.exec(select(Person)).all()
-        person = next((p for p in existing if p.name.lower() == name.lower()), None)
+    # Find-or-create the Person (case-insensitive match, done in SQL).
+    person = session.exec(
+        select(Person).where(func.lower(Person.name) == name.lower())
+    ).first()
     if person is None:
         person = Person(name=name)
         session.add(person)
         session.flush()
+    if sp.person_id is not None and sp.person_id != person.id:
+        _withdraw_enrollment(session, sp)  # corrected rename: pull the sample back out
     sp.person_id = person.id
     session.add(sp)
+    # A manual rename is confirmed ground truth: enroll this speaker's voice embedding
+    # into the person's fingerprint so they're auto-recognised in future recordings.
+    # At most once per speaker (`enrolled`) — a repeated or corrected rename must not
+    # double-count the same sample in the running mean.
+    embedding = voiceprints.decode(sp.embedding)
+    if embedding is not None and not person.is_self and not sp.enrolled:
+        voiceprints.enroll(person, embedding)
+        sp.enrolled = True
+        session.add(person)
+        session.add(sp)
     session.commit()
     session.refresh(sp)
     return SpeakerOut(id=sp.id, label=sp.label, name=name, person_id=sp.person_id, color=sp.color)  # type: ignore[arg-type]
@@ -522,10 +605,11 @@ def get_audio(recording_id: int, track: str = "mixed", session: Session = Depend
     # `inline` (not the default `attachment`): WebKit/WKWebView — the Tauri webview —
     # refuses to play <audio>/<video> served with `Content-Disposition: attachment`,
     # so the player would render but produce no sound. Inline keeps it seekable.
+    suffix = Path(path).suffix.lower()  # .wav, or .m4a once compressed
     return FileResponse(
         path,
-        media_type="audio/wav",
-        filename=f"recording-{recording_id}-{track}.wav",
+        media_type="audio/mp4" if suffix == ".m4a" else "audio/wav",
+        filename=f"recording-{recording_id}-{track}{suffix}",
         content_disposition_type="inline",
     )
 

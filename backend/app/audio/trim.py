@@ -77,7 +77,11 @@ def detect_trim(
     tracks = [p for p in (mic_path, system_path) if p and Path(p).exists()]
     if not tracks:
         return None
-    total_s = max((_wav_frames_rate(p)[0] / _wav_frames_rate(p)[1]) for p in tracks)
+    def _seconds(p: Path) -> float:
+        frames, rate = _wav_frames_rate(p)
+        return frames / rate
+
+    total_s = max(_seconds(p) for p in tracks)
 
     # Prefer the system track for detection; fall back to mic if there's no system track
     # or it's entirely silent (e.g. the far side never came through).

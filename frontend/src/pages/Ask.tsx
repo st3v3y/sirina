@@ -64,7 +64,14 @@ export default function Ask() {
             : s
         )
       );
-      const { answer } = await api.askChatSession(sessionId, question);
+      let answerText: string;
+      try {
+        const { answer } = await api.askChatSession(sessionId, question);
+        answerText = answer || "_(The AI returned an empty answer.)_";
+      } catch (e) {
+        // Surface the failure in the chat instead of leaving a dangling question bubble.
+        answerText = `⚠️ Couldn't get an answer: ${e instanceof Error ? e.message : String(e)}`;
+      }
       setSessions((prev) =>
         prev.map((s) =>
           s.id === sessionId
@@ -72,7 +79,7 @@ export default function Ask() {
                 ...s,
                 messages: [
                   ...s.messages,
-                  { id: Date.now() + 1, session_id: sessionId!, role: "assistant", content: answer, created_at: new Date().toISOString() },
+                  { id: Date.now() + 1, session_id: sessionId!, role: "assistant", content: answerText, created_at: new Date().toISOString() },
                 ],
               }
             : s

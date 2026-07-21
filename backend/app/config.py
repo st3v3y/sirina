@@ -64,9 +64,18 @@ class Settings(BaseSettings):
     # many seconds (the "forgot to stop the recording" case). 0 disables the prompt.
     silence_trim_min_seconds: float = 60.0
 
+    # Compress a recording's WAV tracks to AAC (.m4a, ~10-15× smaller) once processing
+    # finishes, via macOS's built-in `afconvert`. Re-processing transparently decodes
+    # them back to WAV first. Disable to keep the original PCM WAVs forever.
+    compress_audio: bool = True
+
     diarization_enabled: bool = False
     hf_token: str = ""  # HuggingFace read token (gates the one-time pyannote download)
     diarization_model: str = "pyannote/speaker-diarization-community-1"
+    # Auto-link a recording's diarized speakers to known People whose enrolled voice
+    # fingerprint is at least this similar (cosine, 0..1). Voiceprints are enrolled by
+    # manually renaming a speaker to a person. 0 disables automatic matching.
+    voice_match_threshold: float = 0.5
 
     db_path: str = "./data/transcripts.db"
 

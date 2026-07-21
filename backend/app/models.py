@@ -36,6 +36,11 @@ class Person(SQLModel, table=True):
     # speaker. Renaming the "You" speaker renames this Person (it is never duplicated).
     is_self: bool = Field(default=False)
     created_at: datetime = Field(default_factory=_utcnow)
+    # Voice fingerprint (JSON float list): running mean of the diarization embeddings of
+    # speakers the user manually linked to this Person. Only manual renames enroll here —
+    # automatic matches never feed back, so one wrong match can't drift the fingerprint.
+    voiceprint: str | None = None
+    voiceprint_n: int = Field(default=0)  # samples merged into the running mean
 
 
 class Speaker(SQLModel, table=True):
@@ -47,6 +52,12 @@ class Speaker(SQLModel, table=True):
     label: str
     person_id: int | None = Field(default=None, foreign_key="person.id")
     color: str | None = None
+    # This speaker's diarization embedding (JSON float list), when diarization produced
+    # one. Used to auto-link the speaker to a known Person by voiceprint similarity.
+    embedding: str | None = None
+    # True once this speaker's embedding has been merged into a Person's voiceprint —
+    # a repeated rename must not double-count the same sample in the running mean.
+    enrolled: bool = Field(default=False)
 
 
 class Segment(SQLModel, table=True):

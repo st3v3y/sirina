@@ -13,6 +13,15 @@ def _format_ts(seconds: float) -> str:
     return f"{m:02d}:{s:02d}"
 
 
+def _speaker_name(names: dict[int, str], speaker_id: int | None) -> str:
+    """Distinct fallbacks per unknown speaker id so two unlabeled speakers don't
+    collapse into one 'Speaker' in exports."""
+    got = names.get(speaker_id) if speaker_id is not None else None
+    if got:
+        return got
+    return f"Speaker {speaker_id}" if speaker_id is not None else "Speaker"
+
+
 def export_markdown(recording_id: int) -> str:
     with Session(engine) as s:
         r = s.get(Recording, recording_id)
@@ -46,7 +55,7 @@ def export_markdown(recording_id: int) -> str:
     lines.append("## Transcript")
     lines.append("")
     for seg in segs:
-        who = names.get(seg.speaker_id, "Speaker")
+        who = _speaker_name(names, seg.speaker_id)
         lines.append(f"**[{_format_ts(seg.start_ts)}] {who}:** {seg.text}")
     return "\n".join(lines) + "\n"
 
@@ -63,6 +72,6 @@ def export_text(recording_id: int) -> str:
 
     lines = [r.title or f"Recording #{r.id}", ""]
     for seg in segs:
-        who = names.get(seg.speaker_id, "Speaker")
+        who = _speaker_name(names, seg.speaker_id)
         lines.append(f"[{_format_ts(seg.start_ts)}] {who}: {seg.text}")
     return "\n".join(lines) + "\n"

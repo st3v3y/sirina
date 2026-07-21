@@ -67,6 +67,14 @@ export default function People() {
                           You
                         </span>
                       )}
+                      {p.has_voiceprint && (
+                        <span
+                          title="Voice enrolled — this person is recognised automatically in new recordings"
+                          className="text-[10px] font-bold uppercase tracking-wide text-ok-deep bg-ok/10 rounded-full px-1.5 py-0.5"
+                        >
+                          Voice
+                        </span>
+                      )}
                     </span>
                   )}
                   <span className="text-xs text-muted w-24 text-right font-mono">

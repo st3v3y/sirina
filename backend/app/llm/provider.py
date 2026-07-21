@@ -8,6 +8,7 @@ a key is required, and the model. The app talks to it through one seam: `generat
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -18,11 +19,19 @@ from ..config import settings
 log = logging.getLogger(__name__)
 
 
+class LLMError(RuntimeError):
+    """The AI provider failed (down, timed out, rejected the request). Distinct from a
+    legitimately empty completion so callers can surface it instead of saving ''."""
+
+
 def render(template: str, vars: dict[str, str]) -> str:
-    out = template
-    for k, v in vars.items():
-        out = out.replace("{{" + k + "}}", v)
-    return out
+    # Single pass over the template: a placeholder-looking string INSIDE a substituted
+    # value (e.g. '{{question}}' quoted in a transcript) must not be re-expanded.
+    return re.sub(
+        r"\{\{(\w+)\}\}",
+        lambda m: vars.get(m.group(1), m.group(0)),
+        template,
+    )
 
 
 @dataclass(frozen=True)
@@ -133,6 +142,9 @@ class OpenAICompatProvider:
         return chosen
 
     async def generate(self, prompt: str, *, model: str | None = None, system: str | None = None) -> str:
+        """Run one completion. Raises LLMError on provider failure — callers decide
+        whether that's fatal (interactive summarize/ask surface it to the user) or
+        best-effort (the auto-summary after transcription just logs it)."""
         try:
             use = model or await self._resolve_model()
             messages: list[dict[str, str]] = []
@@ -155,9 +167,22 @@ class OpenAICompatProvider:
             if not choices:
                 return ""
             return (choices[0].get("message", {}).get("content") or "").strip()
-        except Exception:
+        except LLMError:
+            raise
+        except httpx.HTTPStatusError as e:
             log.exception("llm generate failed (base_url=%s)", self.base_url)
-            return ""
+            detail = ""
+            try:
+                detail = (e.response.text or "")[:200]
+            except Exception:
+                pass
+            raise LLMError(f"AI provider returned {e.response.status_code}: {detail}") from e
+        except Exception as e:
+            log.exception("llm generate failed (base_url=%s)", self.base_url)
+            raise LLMError(
+                f"AI provider unreachable ({type(e).__name__}) — is it running? "
+                f"(base_url={self.base_url})"
+            ) from e
 
     async def _generate_ollama(self, model: str, messages: list[dict[str, str]]) -> str:
         """Ollama's native /api/chat, which honors options.num_ctx — unlike its

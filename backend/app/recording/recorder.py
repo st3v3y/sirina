@@ -243,6 +243,7 @@ class _SidecarTrack:
 
     def _pump(self) -> None:
         chunk = (CAPTURE_SR // 50) * 2  # ~20 ms of mono s16le bytes
+        carry = b""  # a short pipe read can split a 16-bit sample across two reads
         while not self._stop.is_set():
             with self._proc_lock:
                 proc = self._proc
@@ -256,7 +257,14 @@ class _SidecarTrack:
                 # Sidecar exited or its pipe closed (stop error, permission loss, kill).
                 if self._stop.is_set() or not self._restart():
                     break
+                carry = b""  # new process, new byte stream — a stale half-sample is garbage
                 continue  # restarted; keep appending to the same WAV (gap = recovery time)
+            data = carry + data
+            usable = len(data) - (len(data) % 2)
+            carry = data[usable:]
+            data = data[:usable]
+            if not data:
+                continue
             try:
                 arr = np.frombuffer(data, dtype=np.int16)
                 if arr.size:
@@ -646,38 +654,56 @@ def _incompleteness_warning(
     return None
 
 
-def _read_mono_int16(path: Path) -> np.ndarray:
+# One minute of 48 kHz mono int16 per block (~5.5 MB): bounded memory no matter how
+# long the recording is. The old whole-file mix needed gigabytes for multi-hour takes.
+_MIX_BLOCK_FRAMES = CAPTURE_SR * 60
+
+
+def _wav_peak(path: Path) -> float:
+    """Peak |amplitude| of a mono 16-bit WAV, read block-wise."""
+    peak = 0
     with wave.open(str(path), "rb") as wf:
-        n = wf.getnframes()
-        raw = wf.readframes(n)
-    return np.frombuffer(raw, dtype=np.int16)
+        while True:
+            raw = wf.readframes(_MIX_BLOCK_FRAMES)
+            if not raw:
+                break
+            arr = np.frombuffer(raw, dtype=np.int16)
+            if arr.size:
+                peak = max(peak, int(np.abs(arr).max()))
+    return float(peak)
 
 
-def _balance_gain(x: np.ndarray) -> float:
+def _balance_gain(peak: float) -> float:
     """Gain bringing a track's peak up to MIX_TARGET_PEAK, capped at MIX_MAX_GAIN.
     A silent track is left untouched so its noise floor isn't amplified."""
-    peak = float(np.abs(x).max()) if x.size else 0.0
     if peak <= MIX_SILENCE_PEAK:
         return 1.0
     return min(MIX_MAX_GAIN, (MIX_TARGET_PEAK * 32767.0) / peak)
 
 
 def _mix_wavs(a: Path, b: Path, out: Path) -> None:
-    """Mix two mono 16-bit WAVs (same rate) into one. Each track is level-balanced to
-    comparable loudness before summing so the (quieter) mic isn't buried under
-    full-scale system audio; the sum is hard-clipped to int16 as a final safety net."""
-    xa = _read_mono_int16(a).astype(np.float32)
-    xb = _read_mono_int16(b).astype(np.float32)
-    n = max(xa.size, xb.size)
-    if xa.size < n:
-        xa = np.pad(xa, (0, n - xa.size))
-    if xb.size < n:
-        xb = np.pad(xb, (0, n - xb.size))
-    xa *= _balance_gain(xa)
-    xb *= _balance_gain(xb)
-    mixed = np.clip(xa + xb, -32768, 32767).astype(np.int16)
-    with wave.open(str(out), "wb") as wf:
+    """Mix two mono 16-bit WAVs (same rate) into one, block-wise (bounded memory on
+    multi-hour recordings). Each track is level-balanced to comparable loudness before
+    summing so the (quieter) mic isn't buried under full-scale system audio; the sum is
+    hard-clipped to int16 as a final safety net. The shorter track is padded with
+    silence to the longer one's length."""
+    gain_a = _balance_gain(_wav_peak(a))
+    gain_b = _balance_gain(_wav_peak(b))
+    with wave.open(str(a), "rb") as wa, wave.open(str(b), "rb") as wb, wave.open(str(out), "wb") as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
         wf.setframerate(CAPTURE_SR)
-        wf.writeframes(mixed.tobytes())
+        while True:
+            raw_a = wa.readframes(_MIX_BLOCK_FRAMES)
+            raw_b = wb.readframes(_MIX_BLOCK_FRAMES)
+            if not raw_a and not raw_b:
+                break
+            xa = np.frombuffer(raw_a, dtype=np.int16).astype(np.float32)
+            xb = np.frombuffer(raw_b, dtype=np.int16).astype(np.float32)
+            n = max(xa.size, xb.size)
+            if xa.size < n:
+                xa = np.pad(xa, (0, n - xa.size))
+            if xb.size < n:
+                xb = np.pad(xb, (0, n - xb.size))
+            mixed = np.clip(xa * gain_a + xb * gain_b, -32768, 32767).astype(np.int16)
+            wf.writeframes(mixed.tobytes())

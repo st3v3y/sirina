@@ -5,6 +5,7 @@ import app.processing.job as job_mod
 from app.models import Recording, Speaker
 from app.processing.job import TranscriptionProcessor
 from app.transcribe.whisper import TLine
+from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 
@@ -35,7 +36,7 @@ class FailingDiarizer:
 
 
 def _setup(tmp_path):
-    eng = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     SQLModel.metadata.create_all(eng)
     for name in ("mic.wav", "system.wav", "mixed.wav"):
         (tmp_path / name).write_bytes(b"x")

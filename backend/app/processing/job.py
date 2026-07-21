@@ -7,6 +7,7 @@ offline-quality whisper path, writes Segment rows, and flips the recording to
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from pathlib import Path
@@ -19,6 +20,8 @@ from ..db import engine
 from ..models import Recording, Segment, Speaker
 from ..speakers import SELF_LABEL, get_or_create_self_person
 from ..transcribe.whisper import FasterWhisperWorker
+from ..voiceprints import match_speakers
+from .compress import compress_recording, restore_wavs
 from .diarize import Diarizer, diarize_lines
 from .segment import resegment_lines
 
@@ -110,6 +113,9 @@ class TranscriptionProcessor:
         self._pipeline = pipeline
         self._diarizer = diarizer
         self._queue: asyncio.Queue[int] = asyncio.Queue()
+        # Ids currently sitting in the queue — enqueue() dedupes against this (and the
+        # running job), so a double "Re-process" click can't run the job twice.
+        self._pending: set[int] = set()
         self._task: asyncio.Task | None = None
         # In-memory, ephemeral per-recording progress and start time (monotonic).
         self._progress: dict[int, dict] = {}
@@ -191,6 +197,10 @@ class TranscriptionProcessor:
             self._task = None
 
     async def enqueue(self, recording_id: int) -> None:
+        if recording_id in self._pending or recording_id == self._current_id:
+            log.info("recording %d already queued/processing; skipping enqueue", recording_id)
+            return
+        self._pending.add(recording_id)
         self._set_progress(recording_id, "queued", None)
         await self._queue.put(recording_id)
 
@@ -215,6 +225,7 @@ class TranscriptionProcessor:
         while True:
             recording_id = await self._queue.get()
             self._current_id = recording_id
+            self._pending.discard(recording_id)  # after _current_id is set — no dedupe gap
             try:
                 await self._process(recording_id)
             except asyncio.CancelledError:
@@ -246,6 +257,23 @@ class TranscriptionProcessor:
             mic_path = rec.mic_path
             system_path = rec.system_path
             duration_s = rec.duration_s or 0.0
+
+        # Compressed (.m4a) tracks must be decoded back to WAV before anything reads
+        # them — the transcription/diarization/silence stack is PCM-WAV-only. Doing it
+        # here (not in the reprocess endpoint) means it is serialized with the job and
+        # also covers a crash that left a recording half-compressed.
+        if any((p or "").lower().endswith(".m4a") for p in (audio_path, mic_path, system_path)):
+            self._set_progress(recording_id, "queued", None)
+            if not await asyncio.to_thread(restore_wavs, recording_id, engine):
+                self._mark_failed(recording_id, "couldn't decode this recording's compressed audio")
+                return
+            with Session(engine) as s:
+                rec = s.get(Recording, recording_id)
+                if rec is None:
+                    return
+                audio_path = rec.audio_path
+                mic_path = rec.mic_path
+                system_path = rec.system_path
 
         if not audio_path or not Path(audio_path).exists():
             self._mark_failed(recording_id, "audio file missing")
@@ -313,8 +341,9 @@ class TranscriptionProcessor:
             baseline = [("Speaker 1", _color(0), lines)]
 
         # 2) Persist the baseline transcript immediately so it's visible while the
-        #    (slower) diarization and summary stages still run.
-        total = self._write_tracks(recording_id, baseline, language)
+        #    (slower) diarization and summary stages still run. Row-by-row insert of a
+        #    long transcript is blocking DB work — off the event loop.
+        total = await asyncio.to_thread(self._write_tracks, recording_id, baseline, language)
         lines_present = total > 0
         log.info("recording %d transcribed (%d segments, lang=%s)", recording_id, total, language)
 
@@ -325,18 +354,17 @@ class TranscriptionProcessor:
         if use_diar and lines_present and diar_target and not self._diar_cancelled(recording_id):
             self._set_progress(recording_id, "diarizing", None)
 
-            async def _compute_diarized() -> list[tuple[str, str, list]]:
+            async def _compute_diarized() -> tuple[list[tuple[str, str, list]], dict[str, list[float]]]:
                 if two_track:
                     groups: list[tuple[str, str, list]] = []
                     if mic_lines:
                         groups.append(("You", _color(0), mic_lines))
-                    groups.extend(
-                        await self._speaker_groups(
-                            system_path, sys_lines, base_idx=1, single_label="Speaker 1", use_diar=True,  # type: ignore[arg-type]
-                            recording_id=recording_id,
-                        )
+                    sys_groups, embeddings = await self._speaker_groups(
+                        system_path, sys_lines, base_idx=1, single_label="Speaker 1", use_diar=True,  # type: ignore[arg-type]
+                        recording_id=recording_id,
                     )
-                    return groups
+                    groups.extend(sys_groups)
+                    return groups, embeddings
                 return await self._speaker_groups(
                     audio_path, lines, base_idx=0, single_label="Speaker 1", use_diar=True,
                     recording_id=recording_id,
@@ -357,7 +385,11 @@ class TranscriptionProcessor:
                 diar_task.add_done_callback(_swallow)
                 log.info("recording %d diarization cancelled; keeping baseline split", recording_id)
             else:
-                self._write_tracks(recording_id, await diar_task, language)
+                diar_groups, diar_embeddings = await diar_task
+                await asyncio.to_thread(
+                    self._write_tracks, recording_id, diar_groups, language,
+                    embeddings=diar_embeddings,
+                )
                 log.info("recording %d diarized", recording_id)
 
         # Best-effort: try to auto-link this recording's speakers to known People.
@@ -378,6 +410,17 @@ class TranscriptionProcessor:
             except Exception:
                 log.exception("auto-summary failed for recording %d (transcript intact)", recording_id)
 
+        # Shrink the audio (WAV → AAC) BEFORE flipping to `ready`: while the status is
+        # `processing`, the delete/reprocess endpoints are blocked, so compression can't
+        # race them. The transcript/summary are already persisted and visible by now.
+        # Best-effort: a failure just keeps the WAVs.
+        if settings.compress_audio:
+            try:
+                self._set_progress(recording_id, "compressing", None)
+                await asyncio.to_thread(compress_recording, recording_id, engine)
+            except Exception:
+                log.exception("audio compression failed for recording %d (WAVs kept)", recording_id)
+
         self._set_progress(recording_id, "done", 1.0)
 
         diar_note = self._diar_note.pop(recording_id, None)
@@ -395,17 +438,28 @@ class TranscriptionProcessor:
         log.info("recording %d ready", recording_id)
 
     def _write_tracks(
-        self, recording_id: int, tracks: list[tuple[str, str, list]], language: str | None
+        self,
+        recording_id: int,
+        tracks: list[tuple[str, str, list]],
+        language: str | None,
+        embeddings: dict[str, list[float]] | None = None,
     ) -> int:
         """Replace a recording's speakers/segments with `tracks` (idempotent clear-then-write).
-        Returns the number of segments written."""
+        `embeddings` maps a track label to its diarization voice embedding, stored on the
+        Speaker row for cross-recording person matching. Returns the number of segments written."""
         total = 0
         with Session(engine) as s:
             s.exec(delete(Segment).where(Segment.recording_id == recording_id))  # type: ignore[arg-type]
             s.exec(delete(Speaker).where(Speaker.recording_id == recording_id))  # type: ignore[arg-type]
             self_person_id: int | None = None
             for speaker_label, color, lines in tracks:
-                speaker = Speaker(recording_id=recording_id, label=speaker_label, color=color)
+                embedding = (embeddings or {}).get(speaker_label)
+                speaker = Speaker(
+                    recording_id=recording_id,
+                    label=speaker_label,
+                    color=color,
+                    embedding=json.dumps(embedding) if embedding else None,
+                )
                 # Bind the mic ("You") speaker to the singleton self-Person so the app user
                 # shows up in People and a rename of "You" propagates everywhere.
                 if speaker_label == SELF_LABEL:
@@ -460,34 +514,50 @@ class TranscriptionProcessor:
         single_label: str,
         use_diar: bool,
         recording_id: int | None = None,
-    ) -> list[tuple[str, str, list]]:
-        """Return (label, color, lines) groups for a track. With diarization enabled,
-        split the track into Speaker 1..N by cluster; otherwise a single group.
-        Any diarization failure falls back to the single-group baseline (and records a
-        note on `recording_id` so the user learns why speakers weren't separated)."""
+    ) -> tuple[list[tuple[str, str, list]], dict[str, list[float]]]:
+        """Return (label, color, lines) groups for a track plus a label -> voice-embedding
+        map. With diarization enabled, split the track into Speaker 1..N by cluster;
+        otherwise a single group. Any diarization failure falls back to the single-group
+        baseline (and records a note on `recording_id` so the user learns why speakers
+        weren't separated)."""
         if not use_diar or not lines:
-            return [(single_label, _color(base_idx), lines)]
+            return [(single_label, _color(base_idx), lines)], {}
         try:
             assert self._diarizer is not None
-            turns = await self._diarizer.diarize(path)
+            result = await self._diarizer.diarize(path)
+            # Test doubles may return a bare turn list; the real Diarizer returns a
+            # DiarizationResult with per-cluster embeddings.
+            turns = getattr(result, "turns", result)
+            cluster_embeddings: dict[str, list[float]] = getattr(result, "embeddings", {}) or {}
             if not turns:
-                return [(single_label, _color(base_idx), lines)]
+                return [(single_label, _color(base_idx), lines)], {}
+
             # Word-level re-segmentation: a single whisper line can span a speaker
-            # change, so assign at word granularity and regroup by speaker.
-            cluster_lines = diarize_lines(lines, turns)
-            order: list[str] = []
-            by_cluster: dict[str, list] = {}
-            for cluster, tline in cluster_lines:
-                if cluster not in by_cluster:
-                    by_cluster[cluster] = []
-                    order.append(cluster)
-                by_cluster[cluster].append(tline)
-            order = _prune_clusters(order, by_cluster)
+            # change, so assign at word granularity and regroup by speaker. On a long
+            # meeting this is real CPU work — run it off the event loop.
+            def _regroup() -> tuple[list[str], dict[str, list]]:
+                cluster_lines = diarize_lines(lines, turns)
+                order: list[str] = []
+                by_cluster: dict[str, list] = {}
+                for cluster, tline in cluster_lines:
+                    if cluster not in by_cluster:
+                        by_cluster[cluster] = []
+                        order.append(cluster)
+                    by_cluster[cluster].append(tline)
+                return _prune_clusters(order, by_cluster), by_cluster
+
+            order, by_cluster = await asyncio.to_thread(_regroup)
             log.info("diarization split %s into %d speaker(s)", Path(path).name, len(order))
-            return [
+            groups = [
                 (f"Speaker {i + 1}", _color(base_idx + i), by_cluster[c])
                 for i, c in enumerate(order)
             ]
+            embeddings = {
+                f"Speaker {i + 1}": cluster_embeddings[c]
+                for i, c in enumerate(order)
+                if c in cluster_embeddings
+            }
+            return groups, embeddings
         except Exception as e:
             log.exception("diarization failed for %s; falling back to baseline split", Path(path).name)
             if recording_id is not None:
@@ -496,17 +566,19 @@ class TranscriptionProcessor:
                     "shown as one speaker. Check your HuggingFace token and that you've accepted "
                     "the pyannote model terms in Settings → Speaker diarization."
                 )
-            return [(single_label, _color(base_idx), lines)]
+            return [(single_label, _color(base_idx), lines)], {}
 
     def _match_speakers_to_people(self, recording_id: int) -> list[tuple[int, int]]:
-        """Extension point for automatic speaker→Person matching across recordings.
-
-        Real recognition needs per-speaker voice embeddings (a future change). For
-        now this returns no matches and links nothing — crucially it MUST NOT create
-        any People, so the directory stays clean until the user renames a speaker.
-        Returns the (speaker_id, person_id) pairs it linked (currently always empty).
-        """
-        return []
+        """Auto-link this recording's speakers to known People by voice fingerprint
+        (see app.voiceprints). Only links to People with an enrolled voiceprint —
+        it never creates People, so the directory stays clean until the user renames
+        a speaker. Best-effort: a failure must not fail the recording."""
+        try:
+            with Session(engine) as s:
+                return match_speakers(s, recording_id)
+        except Exception:
+            log.exception("voice matching failed for recording %d", recording_id)
+            return []
 
     def _mark_failed(self, recording_id: int, message: str) -> None:
         with Session(engine) as s:

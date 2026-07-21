@@ -24,7 +24,12 @@ def _load_wav_as_mono_16k(path: Path) -> np.ndarray:
     if ch == 2:
         pcm = pcm.reshape(-1, 2).mean(axis=1)
     if sr != 16000:
-        from scipy.signal import resample_poly
+        try:
+            from scipy.signal import resample_poly
+        except ImportError as e:  # scipy isn't bundled in the default (no-MLX) build
+            raise HTTPException(
+                400, "resampling unavailable in this build — supply a 16 kHz wav"
+            ) from e
         from math import gcd
 
         g = gcd(sr, 16000)

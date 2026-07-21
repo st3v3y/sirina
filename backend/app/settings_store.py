@@ -97,7 +97,16 @@ FIELDS: list[FieldSpec] = [
         ],
         help="pyannote pipeline.",
     ),
+    FieldSpec(
+        "voice_match_threshold", "Voice match threshold", "diarization", "float",
+        help="Recognise recurring people by voice: rename a speaker once, and future "
+             "recordings auto-link speakers whose voice similarity (0..1) is at least "
+             "this. Lower = more matches (riskier). 0 disables.",
+    ),
     # --- Advanced ---
+    FieldSpec("compress_audio", "Compress finished audio", "advanced", "bool",
+              help="Convert WAV recordings to AAC (~10-15× smaller) after processing. "
+                   "Re-processing decodes them back automatically."),
     FieldSpec("transcribe_chunk_seconds", "Chunk seconds", "advanced", "int",
               help="Window size for chunked transcription (MLX). 0 disables chunking."),
     FieldSpec("silence_peak_threshold", "Silence threshold", "advanced", "float",

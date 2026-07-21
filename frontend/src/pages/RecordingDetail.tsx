@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { api, type RecordingDetail as TR, type Speaker, type Summary, type QAMessage, type SummaryTemplate } from "../lib/api";
 import TranscriptChat from "../components/TranscriptChat";
@@ -15,6 +15,7 @@ const STAGE_LABEL: Record<string, string> = {
   transcribing: "Transcribing…",
   diarizing: "Identifying speakers…",
   summarizing: "Generating summary…",
+  compressing: "Compressing audio…",
   done: "Finishing up…",
 };
 
@@ -205,8 +206,14 @@ export default function RecordingDetail() {
   const [trimming, setTrimming] = useState<null | "trim" | "keep">(null);
   const [asking, setAsking] = useState(false);
 
+  // Guards against a stale response landing after navigation: a slow fetch for
+  // recording A must not overwrite the view once the route points at B.
+  const currentIdRef = useRef(recordingId);
+  currentIdRef.current = recordingId;
+
   async function load() {
     const r = await api.getRecording(recordingId);
+    if (recordingId !== currentIdRef.current) return r;
     setRec(r);
     setQa(r.qa);
     setSummary(r.summaries[0] ?? null);
@@ -281,7 +288,11 @@ export default function RecordingDetail() {
   }
 
   async function reprocess() {
-    await api.reprocessRecording(recordingId);
+    try {
+      await api.reprocessRecording(recordingId);
+    } catch {
+      // Most likely already queued/processing (409) — the poll below shows the truth.
+    }
     await load();
     setPollNonce((n) => n + 1);
   }
@@ -289,6 +300,15 @@ export default function RecordingDetail() {
     if (!(await confirmDialog("Delete this recording and all its data?"))) return;
     await api.deleteRecording(recordingId);
     nav("/");
+  }
+  async function delAudio() {
+    const ok = await confirmDialog(
+      "Delete the audio files for this recording? This frees disk space but is permanent — " +
+        "playback and re-processing will no longer be possible. The transcript, summary and chat are kept."
+    );
+    if (!ok) return;
+    await api.deleteRecordingAudio(recordingId);
+    await load();
   }
   async function cancelDiarization() {
     setCancellingDiar(true);
@@ -338,7 +358,14 @@ export default function RecordingDetail() {
       const { answer } = await api.ask(recordingId, question);
       setQa((q) => [
         ...q,
-        { id: Date.now() + 1, recording_id: recordingId, role: "assistant", content: answer, created_at: new Date().toISOString() },
+        { id: Date.now() + 1, recording_id: recordingId, role: "assistant", content: answer || "_(The AI returned an empty answer.)_", created_at: new Date().toISOString() },
+      ]);
+    } catch (e) {
+      // Surface the failure in the chat instead of leaving a dangling question bubble.
+      const detail = e instanceof Error ? e.message : String(e);
+      setQa((q) => [
+        ...q,
+        { id: Date.now() + 1, recording_id: recordingId, role: "assistant", content: `⚠️ Couldn't get an answer: ${detail}`, created_at: new Date().toISOString() },
       ]);
     } finally {
       setAsking(false);
@@ -353,6 +380,7 @@ export default function RecordingDetail() {
   const awaitingTrim = rec.pending_trim != null;
   const isProcessing = rec.status === "processing" && !awaitingTrim;
   const hasTranscript = rec.segments.length > 0;
+  const hasAudio = (rec.tracks ?? []).length > 0;
   const p = rec.progress;
   const pct = p?.fraction != null ? Math.round(p.fraction * 100) : null;
 
@@ -437,10 +465,15 @@ export default function RecordingDetail() {
               <Button onClick={stopProcessing} disabled={stoppingProc} title="Stop processing (keeps any transcript so far)">
                 <Icon name="square" size={14} /> {stoppingProc ? "Stopping…" : "Stop"}
               </Button>
-            ) : awaitingTrim ? null : (
+            ) : awaitingTrim || !hasAudio ? null : (
               <Button onClick={reprocess}>Re-process</Button>
             )}
-            <Button onClick={del} title="Delete recording" className="!px-2.5">
+            <Button
+              onClick={del}
+              disabled={isProcessing}
+              title={isProcessing ? "Stop processing first, then delete" : "Delete recording"}
+              className="!px-2.5 disabled:opacity-50"
+            >
               <Icon name="trash-2" size={15} />
             </Button>
           </div>
@@ -448,9 +481,22 @@ export default function RecordingDetail() {
       </div>
 
       {/* audio player */}
-      <div className="px-7 mt-4 shrink-0">
-        <AudioPlayer recordingId={rec.id} tracks={rec.tracks ?? []} />
-      </div>
+      {hasAudio && (
+        <div className="px-7 mt-4 shrink-0 flex items-center gap-2">
+          <div className="flex-1 min-w-0">
+            <AudioPlayer recordingId={rec.id} tracks={rec.tracks ?? []} />
+          </div>
+          {(rec.status === "ready" || rec.status === "failed") && (
+            <button
+              onClick={delAudio}
+              title="Delete audio files — frees disk space; transcript & summary are kept"
+              className="h-9 px-2.5 rounded-field border border-line text-muted hover:text-signal hover:bg-surface-2 inline-flex items-center gap-1.5 text-[12px] shrink-0"
+            >
+              <Icon name="trash-2" size={13} /> Audio
+            </button>
+          )}
+        </div>
+      )}
 
       {/* trim-silence prompt (recording held before transcription) */}
       {awaitingTrim && rec.pending_trim && (

@@ -32,7 +32,7 @@ export type LlmTestResult = {
   models?: string[];
 };
 
-export type ProcessingStage = "queued" | "transcribing" | "diarizing" | "summarizing" | "done";
+export type ProcessingStage = "queued" | "transcribing" | "diarizing" | "summarizing" | "compressing" | "done";
 
 export type Progress = {
   stage: ProcessingStage;
@@ -114,6 +114,7 @@ export type Person = {
   recording_count: number;
   last_recording_at: string | null;
   is_self?: boolean; // the app user ("You")
+  has_voiceprint?: boolean; // voice enrolled — auto-recognised in future recordings
 };
 
 export type SummarySection = { title: string; content: string };
@@ -280,6 +281,8 @@ export const api = {
     request<{ ok: true }>(`/api/recordings/${id}/cancel-processing`, { method: "POST" }),
   deleteRecording: (id: number) =>
     request<void>(`/api/recordings/${id}`, { method: "DELETE" }),
+  deleteRecordingAudio: (id: number) =>
+    request<void>(`/api/recordings/${id}/audio`, { method: "DELETE" }),
   activeRecording: () => request<ActiveInfo | null>("/api/recordings/active"),
 
   summarize: (id: number, template_id: number) =>

@@ -82,7 +82,7 @@ def test_no_double_transcript_when_placeholder_present():
     assert prompts[0].count("hello world") == 1
 
 
-def test_general_context_prepended():
+def test_general_context_included_before_instruction():
     import asyncio
 
     eng = _engine()
@@ -92,4 +92,18 @@ def test_general_context_prepended():
         sections=[{"title": "S", "prompt": "Summarise."}],
     )
     prompts = asyncio.run(_run(eng, tmpl))
-    assert prompts[0].startswith("You are a terse assistant.")
+    p = prompts[0]
+    assert "CONTEXT: You are a terse assistant." in p
+    # Transcript first, framing+instruction after (local models weight the prompt tail).
+    assert p.index("TRANSCRIPT:") < p.index("CONTEXT:") < p.index("INSTRUCTION: Summarise.")
+
+
+def test_instruction_follows_transcript():
+    import asyncio
+
+    eng = _engine()
+    tmpl = SummaryTemplate(name="t", sections=[{"title": "S", "prompt": "Summarise."}])
+    prompts = asyncio.run(_run(eng, tmpl))
+    p = prompts[0]
+    assert p.index("TRANSCRIPT:") < p.index("INSTRUCTION: Summarise.")
+    assert "RULES:" in p

@@ -8,9 +8,21 @@
 #   - Node >= 18:        nvm use 22
 #
 # This script is scaffolding — adjust paths/targets as needed; it has not been run here.
+#
+# Flags:
+#   --mlx   Bundle the Apple-GPU (MLX) transcription engine. Adds ~480 MB to the app;
+#           without it the app uses faster-whisper (CPU) and says so in Settings.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+WITH_MLX=0
+for arg in "$@"; do
+  case "$arg" in
+    --mlx) WITH_MLX=1 ;;
+    *) echo "unknown flag: $arg (supported: --mlx)"; exit 1 ;;
+  esac
+done
 
 # --- Preflight: check the toolchain and explain how to install anything missing ---
 missing=0
@@ -58,9 +70,16 @@ SIDECAR_DIR="$ROOT/frontend/src-tauri/binaries"
 echo "==> Building frontend"
 cd "$ROOT/frontend" && npm run build
 
-echo "==> Freezing backend with PyInstaller"
-cd "$ROOT/backend"
-uv run python -m PyInstaller packaging/backend.spec --noconfirm --distpath dist --workpath build
+if [ "$WITH_MLX" = "1" ]; then
+  echo "==> Freezing backend with PyInstaller (WITH MLX — large bundle)"
+  cd "$ROOT/backend"
+  uv sync --extra mlx   # make sure mlx-whisper is importable for collect_all
+  SIRINA_BUNDLE_MLX=1 uv run python -m PyInstaller packaging/backend.spec --noconfirm --distpath dist --workpath build
+else
+  echo "==> Freezing backend with PyInstaller (default: no MLX; pass --mlx to include it)"
+  cd "$ROOT/backend"
+  uv run python -m PyInstaller packaging/backend.spec --noconfirm --distpath dist --workpath build
+fi
 
 echo "==> Placing onedir backend into Tauri resources"
 RES_DIR="$ROOT/frontend/src-tauri/resources"

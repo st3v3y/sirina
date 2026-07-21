@@ -6,7 +6,7 @@ from sqlalchemy.engine import Engine
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from .config import settings
-from .llm.default_templates import QA_TEMPLATE, SUMMARY_TEMPLATES
+from .llm.default_templates import _LEGACY_QA_BODIES, QA_TEMPLATE, SUMMARY_TEMPLATES
 from .models import PromptTemplate, SummaryTemplate
 
 engine = create_engine(
@@ -70,7 +70,12 @@ def _add_missing_columns() -> None:
     additive = {
         "summarytemplate": [("general_context", "TEXT")],
         "recording": [("warning", "TEXT"), ("pending_trim", "TEXT")],
-        "person": [("is_self", "BOOLEAN DEFAULT 0")],
+        "person": [
+            ("is_self", "BOOLEAN DEFAULT 0"),
+            ("voiceprint", "TEXT"),
+            ("voiceprint_n", "INTEGER DEFAULT 0"),
+        ],
+        "speaker": [("embedding", "TEXT"), ("enrolled", "BOOLEAN DEFAULT 0")],
     }
     with engine.connect() as conn:
         for table, columns in additive.items():
@@ -106,8 +111,14 @@ def init_db() -> None:
                 if cur is not None and cur.builtin:
                     cur.sections = t["sections"]
                     session.add(cur)
-        if session.exec(select(PromptTemplate)).first() is None:
+        qa = session.exec(select(PromptTemplate)).first()
+        if qa is None:
             session.add(PromptTemplate(**QA_TEMPLATE))
+        elif qa.body.strip() in {b.strip() for b in _LEGACY_QA_BODIES}:
+            # The stored Q&A prompt is an unmodified previous default — upgrade it.
+            # A user-customised prompt never matches and is left untouched.
+            qa.body = QA_TEMPLATE["body"]
+            session.add(qa)
         session.commit()
         _backfill_self_person(session)
 
