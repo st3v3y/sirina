@@ -67,25 +67,38 @@ There's no paid Apple Developer signing, so Gatekeeper blocks the app the first 
 Grant the **Microphone** prompt on first record. The app also expects a local **Ollama**
 (`http://localhost:11434`) for summaries/chat.
 
-## Freezing the ML stack — verified, with caveats
+## Bundle variants & app size
 
-The minimal `backend.spec` **builds and boots** (verified: `./dist/backend --port 8000`
-→ `/api/status` returns 200). It bundles the transcription core (faster-whisper,
-ctranslate2, av, sounddevice) — ~260 MB. Notes from the verified run:
+The backend bundle has two variants, chosen at build time:
 
-- **Engine falls back to faster-whisper (CPU).** `mlx`/`mlx-whisper` are **not** bundled,
-  so the packaged app uses faster-whisper even on Apple Silicon. To get MLX speed, uncomment
-  the `mlx`, `mlx_whisper` packages in `backend.spec` and rebuild (larger, may need tuning).
-- **Diarization is not bundled.** `torch`/`pyannote` are commented out; if `DIARIZATION_ENABLED=true`
-  the frozen app can't import pyannote and gracefully falls back to the baseline speaker split.
-  Uncomment `torch`/`pyannote`/`lightning_fabric` to include it (adds hundreds of MB).
-- **Cold start is slow** (~tens of seconds first run): a onefile binary extracts to a temp dir
-  each launch, and models download to `APP_DATA_DIR/models` on first use. Subsequent runs are
-  faster (warm model cache) but the extraction cost remains — acceptable for a desktop app.
-- Models are never bundled — they download on first run, exactly as in dev.
+- **Default (`./scripts/build-macos-app.sh`)** — transcription via **faster-whisper (CPU)**.
+  MLX and its dependency chain are excluded (`mlx` dylibs + two copies of the 150 MB Metal
+  kernel library + `numba`→`llvmlite` + `scipy` + `tiktoken` ≈ **480 MB**), leaving a
+  backend bundle of roughly **270 MB**. On Apple Silicon the engine chooser logs the
+  fallback and Settings shows an `engine_note`.
+- **`--mlx` (`./scripts/build-macos-app.sh --mlx`)** — bundles the Apple-GPU (MLX)
+  engine for faster transcription; sets `SIRINA_BUNDLE_MLX=1` for `backend.spec` and
+  `uv sync --extra mlx` first. Roughly triples the backend bundle.
 
-Recommended path: ship the minimal (faster-whisper) binary first, then enable `mlx` (speed)
-and/or `torch`+`pyannote` (diarization) one at a time, re-testing the frozen binary after each.
+Dev is unaffected: `mlx-whisper` is in the dev dependency group, so `uv sync` keeps MLX
+available when running from source.
+
+Other notes:
+
+- **Diarization is not bundled** in either variant. `torch`/`pyannote` are excluded; if
+  `DIARIZATION_ENABLED=true` the frozen app can't import pyannote and gracefully falls back
+  to the baseline speaker split (and now tells the user why in a recording warning).
+  Uncomment `torch`/`pyannote`/`lightning_fabric` in `backend.spec` to include it
+  (adds hundreds of MB).
+- **Cold start**: onedir (not onefile), so there is no per-launch extraction; models
+  download to `APP_DATA_DIR/models` on first use. Models are never bundled.
+- Further size candidates spotted in the current bundle (verify the frozen app still boots
+  after excluding): `onnxruntime` (~62 MB, needed by faster-whisper's VAD — keep),
+  `grpc` (~19 MB), `sklearn` (~18 MB), `pandas` (~18 MB), `PIL` (~12 MB) — these look like
+  hook-dragged transitives; excluding them in `backend.spec` is worth an experiment.
+
+Recommended path: ship the default binary; offer the `--mlx` build to users who want
+Apple-GPU transcription speed.
 
 ## App icon (needed before `cargo tauri build`)
 

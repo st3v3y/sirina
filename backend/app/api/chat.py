@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, delete, select
 
 from ..db import get_session
+from ..llm.provider import LLMError
 from ..models import ChatMessage, ChatSession
 from ..runtime import runtime
 
@@ -80,6 +81,8 @@ async def ask_session(session_id: int, payload: AskRequest) -> dict[str, str]:
         answer = await runtime.pipeline.cross_ask(session_id=session_id, question=question)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
+    except LLMError as e:
+        raise HTTPException(502, str(e)) from e
     return {"answer": answer}
 
 

@@ -19,10 +19,16 @@ dependencies = [
     "ollama>=0.4",
     "httpx>=0.27",
     "sounddevice>=0.5",
-    # Apple-GPU transcription (auto-selected on Apple Silicon). Optional elsewhere:
-    # the platform marker means it is only installed/resolved on macOS arm64.
-    "mlx-whisper>=0.4; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "keyring>=25.7.0",
+]
+
+[project.optional-dependencies]
+# Apple-GPU transcription (MLX). Opt-in: it adds ~480 MB to the packaged app
+# (mlx + Metal kernels + numba/llvmlite), so the default build ships without it
+# and falls back to faster-whisper. Install with `uv sync --extra mlx`; bundle it
+# with `./scripts/build-macos-app.sh --mlx`.
+mlx = [
+    "mlx-whisper>=0.4; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 
 [build-system]
@@ -37,4 +43,7 @@ dev = [
     "pyinstaller>=6.21.0",
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
+    # Dev machines keep MLX by default (the dev group installs with `uv sync`),
+    # so `TRANSCRIPTION_ENGINE=auto` behaves in dev exactly as an --mlx build does.
+    "mlx-whisper>=0.4; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]

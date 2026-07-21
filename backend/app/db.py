@@ -6,7 +6,7 @@ from sqlalchemy.engine import Engine
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from .config import settings
-from .llm.default_templates import QA_TEMPLATE, SUMMARY_TEMPLATES
+from .llm.default_templates import _LEGACY_QA_BODIES, QA_TEMPLATE, SUMMARY_TEMPLATES
 from .models import PromptTemplate, SummaryTemplate
 
 engine = create_engine(
@@ -69,7 +69,13 @@ def _add_missing_columns() -> None:
     so this is idempotent."""
     additive = {
         "summarytemplate": [("general_context", "TEXT")],
-        "recording": [("warning", "TEXT")],
+        "recording": [("warning", "TEXT"), ("pending_trim", "TEXT")],
+        "person": [
+            ("is_self", "BOOLEAN DEFAULT 0"),
+            ("voiceprint", "TEXT"),
+            ("voiceprint_n", "INTEGER DEFAULT 0"),
+        ],
+        "speaker": [("embedding", "TEXT"), ("enrolled", "BOOLEAN DEFAULT 0")],
     }
     with engine.connect() as conn:
         for table, columns in additive.items():
@@ -91,12 +97,48 @@ def init_db() -> None:
     _add_missing_columns()
     _assert_schema_current()
     with Session(engine) as session:
-        if session.exec(select(SummaryTemplate)).first() is None:
+        existing = session.exec(select(SummaryTemplate)).all()
+        if not existing:
             for t in SUMMARY_TEMPLATES:
                 session.add(SummaryTemplate(**t))
-        if session.exec(select(PromptTemplate)).first() is None:
+        else:
+            # Refresh built-in templates' sections from code so default-template tweaks
+            # (new sections, dropped {{transcript}} clutter) reach existing installs.
+            # User-created templates and the user's chosen default are left untouched.
+            by_name = {t.name: t for t in existing}
+            for t in SUMMARY_TEMPLATES:
+                cur = by_name.get(t["name"])
+                if cur is not None and cur.builtin:
+                    cur.sections = t["sections"]
+                    session.add(cur)
+        qa = session.exec(select(PromptTemplate)).first()
+        if qa is None:
             session.add(PromptTemplate(**QA_TEMPLATE))
+        elif qa.body.strip() in {b.strip() for b in _LEGACY_QA_BODIES}:
+            # The stored Q&A prompt is an unmodified previous default — upgrade it.
+            # A user-customised prompt never matches and is left untouched.
+            qa.body = QA_TEMPLATE["body"]
+            session.add(qa)
         session.commit()
+        _backfill_self_person(session)
+
+
+def _backfill_self_person(session: Session) -> None:
+    """Bind existing "You" speakers (from recordings made before the self-Person existed)
+    to the singleton self-Person, so the app user appears in People for past recordings."""
+    from .models import Speaker
+    from .speakers import SELF_LABEL, get_or_create_self_person
+
+    orphan_you = session.exec(
+        select(Speaker).where(Speaker.label == SELF_LABEL, Speaker.person_id == None)  # noqa: E711
+    ).all()
+    if not orphan_you:
+        return
+    self_id = get_or_create_self_person(session).id
+    for sp in orphan_you:
+        sp.person_id = self_id
+        session.add(sp)
+    session.commit()
 
 
 def get_session() -> Iterator[Session]:

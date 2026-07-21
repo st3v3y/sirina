@@ -30,6 +30,39 @@ _MLX_REPOS = {
 _DEFAULT_REPO = _MLX_REPOS["medium"]
 
 
+def _load_audio_16k(path: str):
+    """Decode a recording to 16 kHz mono float32 in [-1, 1] WITHOUT the `ffmpeg` CLI.
+
+    mlx-whisper's own `load_audio` runs `ffmpeg`, which isn't bundled/on PATH in the
+    packaged app. Our recordings are 16-bit PCM WAV (written by the recorder), so we read
+    them directly with the stdlib `wave` module and resample to whisper's 16 kHz with
+    SciPy (already bundled). The array is then passed straight to `transcribe()`."""
+    import wave
+
+    import numpy as np
+
+    with wave.open(path, "rb") as w:
+        sr = w.getframerate()
+        ch = w.getnchannels()
+        sampwidth = w.getsampwidth()
+        raw = w.readframes(w.getnframes())
+
+    if sampwidth != 2:
+        raise RuntimeError(f"unsupported {sampwidth * 8}-bit WAV (expected 16-bit): {path}")
+
+    audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+    if ch > 1:  # downmix to mono
+        audio = audio.reshape(-1, ch).mean(axis=1)
+    if sr != 16000 and audio.size:
+        from math import gcd
+
+        from scipy.signal import resample_poly
+
+        g = gcd(int(sr), 16000)
+        audio = resample_poly(audio, 16000 // g, int(sr) // g)
+    return np.ascontiguousarray(audio, dtype=np.float32)
+
+
 def _repo_for_model(model: str) -> str:
     if settings.mlx_whisper_repo:
         return settings.mlx_whisper_repo
@@ -121,7 +154,7 @@ class MlxWhisperWorker:
         progress_cb: ProgressCb | None = None,
     ) -> tuple[list[TLine], str | None]:
         import mlx_whisper
-        from mlx_whisper.audio import SAMPLE_RATE, load_audio
+        from mlx_whisper.audio import SAMPLE_RATE
 
         chunk_s = settings.transcribe_chunk_seconds
         common = dict(
@@ -129,18 +162,27 @@ class MlxWhisperWorker:
             language=language,
             initial_prompt=initial_prompt,
             word_timestamps=word_timestamps,
+            # A vocabulary hint can send mlx-whisper into a repetition loop, echoing one hint
+            # word many times. Not conditioning on previously decoded text stops the loop from
+            # compounding window-to-window; compression_ratio_threshold (default) is the
+            # backstop that retriggers decoding when a window comes out degenerate.
+            condition_on_previous_text=False,
         )
+
+        # Decode ourselves (NOT mlx-whisper's load_audio, which shells out to the `ffmpeg`
+        # CLI — absent from the packaged app's PATH → "No such file or directory: 'ffmpeg'").
+        # We always hand transcribe() a 16 kHz float32 array, so it never touches ffmpeg.
+        audio = _load_audio_16k(path)
 
         # Single pass when chunking is disabled.
         if chunk_s <= 0:
-            result = mlx_whisper.transcribe(path, **common)
+            result = mlx_whisper.transcribe(audio, **common)
             if progress_cb:
                 progress_cb(1.0, 1.0)
             return self._lines_from_result(result, 0.0), (result.get("language") or language)
 
-        # Chunked: load the waveform once (16 kHz mono float32), slice into windows,
-        # transcribe each, offset timestamps, and report a real fraction per chunk.
-        audio = load_audio(path)
+        # Chunked: slice the waveform into windows, transcribe each, offset timestamps,
+        # and report a real fraction per chunk.
         total_samples = len(audio)
         total_s = total_samples / SAMPLE_RATE
         if total_s <= chunk_s:

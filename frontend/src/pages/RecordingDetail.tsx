@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { api, type RecordingDetail as TR, type Speaker, type Summary, type QAMessage, type SummaryTemplate } from "../lib/api";
 import TranscriptChat from "../components/TranscriptChat";
+import Markdown from "../components/Markdown";
 import PromptBar from "../components/PromptBar";
 import { TagChip, AddTagButton, catColor } from "../components/TagUI";
 import { Avatar, Button } from "../components/ui";
@@ -14,6 +15,7 @@ const STAGE_LABEL: Record<string, string> = {
   transcribing: "Transcribing…",
   diarizing: "Identifying speakers…",
   summarizing: "Generating summary…",
+  compressing: "Compressing audio…",
   done: "Finishing up…",
 };
 
@@ -29,6 +31,15 @@ function fmtDuration(s: number | null) {
   const m = Math.floor((total % 3600) / 60);
   const ss = (total % 60).toString().padStart(2, "0");
   return h > 0 ? `${h}:${m.toString().padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+}
+// Human phrase for a silence gap, e.g. "2 h 5 min", "3 min", "45 sec".
+function fmtGap(s: number) {
+  const total = Math.round(s);
+  const h = Math.floor(total / 3600);
+  const m = Math.round((total % 3600) / 60);
+  if (h > 0) return m > 0 ? `${h} h ${m} min` : `${h} h`;
+  if (m > 0) return `${m} min`;
+  return `${total} sec`;
 }
 
 async function copyToClipboard(text: string) {
@@ -181,6 +192,7 @@ export default function RecordingDetail() {
   const [qa, setQa] = useState<QAMessage[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [peopleNames, setPeopleNames] = useState<string[]>([]);
+  const [diarOn, setDiarOn] = useState<boolean | null>(null);
   // Share the sidebar's tag list so a tag created here shows up there immediately.
   const { tags: allTags, reloadTags } = useShell();
   const [tab, setTab] = useState<Tab>("summary");
@@ -190,10 +202,18 @@ export default function RecordingDetail() {
   const [tq, setTq] = useState("");
   const [pollNonce, setPollNonce] = useState(0);
   const [cancellingDiar, setCancellingDiar] = useState(false);
+  const [stoppingProc, setStoppingProc] = useState(false);
+  const [trimming, setTrimming] = useState<null | "trim" | "keep">(null);
   const [asking, setAsking] = useState(false);
+
+  // Guards against a stale response landing after navigation: a slow fetch for
+  // recording A must not overwrite the view once the route points at B.
+  const currentIdRef = useRef(recordingId);
+  currentIdRef.current = recordingId;
 
   async function load() {
     const r = await api.getRecording(recordingId);
+    if (recordingId !== currentIdRef.current) return r;
     setRec(r);
     setQa(r.qa);
     setSummary(r.summaries[0] ?? null);
@@ -202,6 +222,7 @@ export default function RecordingDetail() {
 
   useEffect(() => {
     api.listPeople().then((p) => setPeopleNames(p.map((x) => x.name))).catch(() => {});
+    api.status().then((s) => setDiarOn(s.diarization)).catch(() => {});
   }, [recordingId]);
 
   useEffect(() => {
@@ -267,7 +288,11 @@ export default function RecordingDetail() {
   }
 
   async function reprocess() {
-    await api.reprocessRecording(recordingId);
+    try {
+      await api.reprocessRecording(recordingId);
+    } catch {
+      // Most likely already queued/processing (409) — the poll below shows the truth.
+    }
     await load();
     setPollNonce((n) => n + 1);
   }
@@ -276,12 +301,39 @@ export default function RecordingDetail() {
     await api.deleteRecording(recordingId);
     nav("/");
   }
+  async function delAudio() {
+    const ok = await confirmDialog(
+      "Delete the audio files for this recording? This frees disk space but is permanent — " +
+        "playback and re-processing will no longer be possible. The transcript, summary and chat are kept."
+    );
+    if (!ok) return;
+    await api.deleteRecordingAudio(recordingId);
+    await load();
+  }
   async function cancelDiarization() {
     setCancellingDiar(true);
     try {
       await api.cancelDiarization(recordingId);
     } finally {
       setTimeout(() => setCancellingDiar(false), 2000);
+    }
+  }
+  async function stopProcessing() {
+    setStoppingProc(true);
+    try {
+      await api.cancelProcessing(recordingId);
+    } catch {
+      setStoppingProc(false);
+    }
+  }
+  async function decideTrim(trim: boolean) {
+    setTrimming(trim ? "trim" : "keep");
+    try {
+      await api.trimDecision(recordingId, trim);
+      await load();
+      setPollNonce((n) => n + 1);
+    } finally {
+      setTrimming(null);
     }
   }
 
@@ -306,7 +358,14 @@ export default function RecordingDetail() {
       const { answer } = await api.ask(recordingId, question);
       setQa((q) => [
         ...q,
-        { id: Date.now() + 1, recording_id: recordingId, role: "assistant", content: answer, created_at: new Date().toISOString() },
+        { id: Date.now() + 1, recording_id: recordingId, role: "assistant", content: answer || "_(The AI returned an empty answer.)_", created_at: new Date().toISOString() },
+      ]);
+    } catch (e) {
+      // Surface the failure in the chat instead of leaving a dangling question bubble.
+      const detail = e instanceof Error ? e.message : String(e);
+      setQa((q) => [
+        ...q,
+        { id: Date.now() + 1, recording_id: recordingId, role: "assistant", content: `⚠️ Couldn't get an answer: ${detail}`, created_at: new Date().toISOString() },
       ]);
     } finally {
       setAsking(false);
@@ -318,8 +377,10 @@ export default function RecordingDetail() {
 
   if (!rec) return <div className="p-7 text-sm text-muted">Loading…</div>;
 
-  const isProcessing = rec.status === "processing";
+  const awaitingTrim = rec.pending_trim != null;
+  const isProcessing = rec.status === "processing" && !awaitingTrim;
   const hasTranscript = rec.segments.length > 0;
+  const hasAudio = (rec.tracks ?? []).length > 0;
   const p = rec.progress;
   const pct = p?.fraction != null ? Math.round(p.fraction * 100) : null;
 
@@ -400,8 +461,19 @@ export default function RecordingDetail() {
             </div>
           </div>
           <div className="flex gap-2 shrink-0">
-            <Button onClick={reprocess}>Re-process</Button>
-            <Button onClick={del} title="Delete recording" className="!px-2.5">
+            {isProcessing ? (
+              <Button onClick={stopProcessing} disabled={stoppingProc} title="Stop processing (keeps any transcript so far)">
+                <Icon name="square" size={14} /> {stoppingProc ? "Stopping…" : "Stop"}
+              </Button>
+            ) : awaitingTrim || !hasAudio ? null : (
+              <Button onClick={reprocess}>Re-process</Button>
+            )}
+            <Button
+              onClick={del}
+              disabled={isProcessing}
+              title={isProcessing ? "Stop processing first, then delete" : "Delete recording"}
+              className="!px-2.5 disabled:opacity-50"
+            >
               <Icon name="trash-2" size={15} />
             </Button>
           </div>
@@ -409,9 +481,59 @@ export default function RecordingDetail() {
       </div>
 
       {/* audio player */}
-      <div className="px-7 mt-4 shrink-0">
-        <AudioPlayer recordingId={rec.id} tracks={rec.tracks ?? []} />
-      </div>
+      {hasAudio && (
+        <div className="px-7 mt-4 shrink-0 flex items-center gap-2">
+          <div className="flex-1 min-w-0">
+            <AudioPlayer recordingId={rec.id} tracks={rec.tracks ?? []} />
+          </div>
+          {(rec.status === "ready" || rec.status === "failed") && (
+            <button
+              onClick={delAudio}
+              title="Delete audio files — frees disk space; transcript & summary are kept"
+              className="h-9 px-2.5 rounded-field border border-line text-muted hover:text-signal hover:bg-surface-2 inline-flex items-center gap-1.5 text-[12px] shrink-0"
+            >
+              <Icon name="trash-2" size={13} /> Audio
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* trim-silence prompt (recording held before transcription) */}
+      {awaitingTrim && rec.pending_trim && (
+        <div className="px-7 mt-3 shrink-0">
+          <div className="rounded-field bg-signal/[0.06] border border-signal/25 px-4 py-3">
+            <div className="flex items-start gap-2.5">
+              <Icon name="clock" size={16} className="text-signal shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <div className="text-[13.5px] font-semibold text-ink">
+                  Trim {fmtGap(rec.pending_trim.leading_s + rec.pending_trim.trailing_s)} of silence?
+                </div>
+                <div className="text-[12.5px] text-muted mt-0.5">
+                  {[
+                    rec.pending_trim.leading_s >= 1 && `${fmtGap(rec.pending_trim.leading_s)} at the start`,
+                    rec.pending_trim.trailing_s >= 1 && `${fmtGap(rec.pending_trim.trailing_s)} at the end`,
+                  ]
+                    .filter(Boolean)
+                    .join(" and ")}
+                  {" "}was detected — likely dead air. Trimming skips transcribing it and shortens the recording.
+                </div>
+                <div className="flex flex-wrap gap-2 mt-2.5">
+                  <Button onClick={() => decideTrim(true)} disabled={trimming != null}>
+                    <Icon name="check" size={14} /> {trimming === "trim" ? "Trimming…" : "Trim & transcribe"}
+                  </Button>
+                  <button
+                    onClick={() => decideTrim(false)}
+                    disabled={trimming != null}
+                    className="h-9 px-3.5 rounded-field border border-line text-[13px] text-ink-2 hover:bg-surface-2 disabled:opacity-50"
+                  >
+                    {trimming === "keep" ? "Keeping…" : "Keep full recording"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* processing / failed banners */}
       {isProcessing && (
@@ -430,11 +552,11 @@ export default function RecordingDetail() {
                 {pct != null && <span>{p?.estimated ? "~" : ""}{pct}%</span>}
               </span>
             </div>
-            <div className="h-1.5 rounded-full bg-warn/15 overflow-hidden">
+            <div className="relative h-1.5 rounded-full bg-warn/15 overflow-hidden">
               {pct != null ? (
                 <div className="h-full bg-warn transition-all duration-500" style={{ width: `${pct}%` }} />
               ) : (
-                <div className="h-full w-1/3 bg-warn/70 animate-pulse" />
+                <div className="progress-indeterminate bg-warn/70" />
               )}
             </div>
           </div>
@@ -483,7 +605,7 @@ export default function RecordingDetail() {
                 {summary.sections.map((sec, i) => (
                   <div key={i}>
                     <div className="text-[11.5px] font-bold uppercase tracking-wide text-signal mb-2">{sec.title}</div>
-                    <div className="font-serif text-[16px] leading-relaxed text-ink whitespace-pre-wrap">{sec.content}</div>
+                    <Markdown content={sec.content} className="font-serif text-[16px] leading-relaxed text-ink" />
                   </div>
                 ))}
               </div>
@@ -510,8 +632,22 @@ export default function RecordingDetail() {
                 <Icon name="download" size={12} /> Export
               </a>
             </div>
+            {diarOn === false && (rec.tracks ?? []).includes("system") && (
+              <div className="px-7 pb-1 shrink-0">
+                <div className="flex items-center gap-2 text-[12px] text-muted bg-surface-2 border border-line-2 rounded-field px-3 py-1.5">
+                  <Icon name="users" size={13} className="shrink-0" />
+                  <span>
+                    Everyone but you is grouped as one speaker. Turn on{" "}
+                    <Link to="/settings" className="text-ink-2 underline underline-offset-2 hover:text-ink">
+                      Speaker diarization
+                    </Link>{" "}
+                    (Settings) to split them into Speaker 1, 2, 3… then Re-process.
+                  </span>
+                </div>
+              </div>
+            )}
             <div className="flex-1 min-h-0">
-              <TranscriptChat items={transcriptItems} speakers={speakerMap} peopleNames={peopleNames} onRename={renameSpeaker} />
+              <TranscriptChat items={transcriptItems} speakers={speakerMap} peopleNames={peopleNames} onRename={renameSpeaker} mode="transcript" />
             </div>
           </div>
         )}

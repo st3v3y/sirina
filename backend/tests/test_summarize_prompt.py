@@ -4,11 +4,11 @@ from app.models import Recording, Segment, Speaker, SummaryTemplate
 from app.pipeline import Pipeline
 
 
-class FakeOllama:
+class FakeLLM:
     def __init__(self):
         self.prompts = []
 
-    async def generate(self, prompt, *, model=None):
+    async def generate(self, prompt, *, model=None, system=None):
         self.prompts.append(prompt)
         return "ok"
 
@@ -43,8 +43,8 @@ async def _run(engine, template):
     orig = pipeline_mod.engine
     pipeline_mod.engine = engine
     try:
-        fake = FakeOllama()
-        p = Pipeline(whisper=None, ollama=fake)  # type: ignore[arg-type]
+        fake = FakeLLM()
+        p = Pipeline(whisper=None, llm=fake)  # type: ignore[arg-type]
         await p.summarize(recording_id=rid, template_id=tid)
         return fake.prompts
     finally:
@@ -82,7 +82,7 @@ def test_no_double_transcript_when_placeholder_present():
     assert prompts[0].count("hello world") == 1
 
 
-def test_general_context_prepended():
+def test_general_context_included_before_instruction():
     import asyncio
 
     eng = _engine()
@@ -92,4 +92,18 @@ def test_general_context_prepended():
         sections=[{"title": "S", "prompt": "Summarise."}],
     )
     prompts = asyncio.run(_run(eng, tmpl))
-    assert prompts[0].startswith("You are a terse assistant.")
+    p = prompts[0]
+    assert "CONTEXT: You are a terse assistant." in p
+    # Transcript first, framing+instruction after (local models weight the prompt tail).
+    assert p.index("TRANSCRIPT:") < p.index("CONTEXT:") < p.index("INSTRUCTION: Summarise.")
+
+
+def test_instruction_follows_transcript():
+    import asyncio
+
+    eng = _engine()
+    tmpl = SummaryTemplate(name="t", sections=[{"title": "S", "prompt": "Summarise."}])
+    prompts = asyncio.run(_run(eng, tmpl))
+    p = prompts[0]
+    assert p.index("TRANSCRIPT:") < p.index("INSTRUCTION: Summarise.")
+    assert "RULES:" in p

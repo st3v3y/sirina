@@ -97,7 +97,16 @@ FIELDS: list[FieldSpec] = [
         ],
         help="pyannote pipeline.",
     ),
+    FieldSpec(
+        "voice_match_threshold", "Voice match threshold", "diarization", "float",
+        help="Recognise recurring people by voice: rename a speaker once, and future "
+             "recordings auto-link speakers whose voice similarity (0..1) is at least "
+             "this. Lower = more matches (riskier). 0 disables.",
+    ),
     # --- Advanced ---
+    FieldSpec("compress_audio", "Compress finished audio", "advanced", "bool",
+              help="Convert WAV recordings to AAC (~10-15× smaller) after processing. "
+                   "Re-processing decodes them back automatically."),
     FieldSpec("transcribe_chunk_seconds", "Chunk seconds", "advanced", "int",
               help="Window size for chunked transcription (MLX). 0 disables chunking."),
     FieldSpec("silence_peak_threshold", "Silence threshold", "advanced", "float",
@@ -230,6 +239,27 @@ def _migrate_secrets_to_keyring() -> None:
             s.commit()
     if moved:
         log.info("migrated %d secret(s) from the database into the OS keyring", moved)
+
+
+# --- UI preferences: small, free-form key/value state owned by the frontend (e.g. the
+#     light/dark theme choice). Persisted in the same `setting` table but OUTSIDE the
+#     typed registry, because the packaged app runs the backend on a fresh localhost port
+#     each launch, so the webview's localStorage (partitioned by origin → port) is wiped
+#     between runs. Server-side storage is the only durable home for these. ---
+
+_UI_PREF_PREFIX = "ui."
+
+
+def get_ui_pref(key: str, default: str = "") -> str:
+    with Session(engine) as s:
+        row = s.get(Setting, _UI_PREF_PREFIX + key)
+    return row.value if row and row.value else default
+
+
+def set_ui_pref(key: str, value: str) -> None:
+    with Session(engine) as s:
+        _persist(s, _UI_PREF_PREFIX + key, value)
+        s.commit()
 
 
 def load_overrides() -> None:

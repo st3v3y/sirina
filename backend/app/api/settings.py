@@ -106,10 +106,13 @@ async def reload_engine() -> dict[str, Any]:
     while a recording is being processed (a mid-job model swap would corrupt it)."""
     proc = runtime.processor
     if proc is not None and proc.is_busy():
+        rec_id = proc.current_id()
+        where = f"Recording #{rec_id} is being processed" if rec_id else "A recording is being processed"
         return {
             "ok": False,
             "busy": True,
-            "detail": "A recording is being processed. Wait for it to finish, or restart the app.",
+            "processing_id": rec_id,
+            "detail": f"{where}. Wait for it to finish (open it to Stop processing), or restart the app.",
         }
     async with _reload_lock:
         from ..transcribe.engine import select_engine
@@ -138,11 +141,23 @@ def reveal_data_dir() -> dict[str, bool]:
     path.mkdir(parents=True, exist_ok=True)
     try:
         if sys.platform == "darwin":
-            subprocess.Popen(["open", str(path)])
+            # The data dir is named after the bundle id (com.sirina.app), so its ".app"
+            # suffix makes macOS treat it as an application bundle: a bare `open <dir>` — and
+            # even `open -a Finder <dir>` once the real app is registered with LaunchServices —
+            # tries to LAUNCH it ("can't open the application … it may be damaged or
+            # incomplete"). `-R` reveals the folder (selected in its parent) instead of opening
+            # it, sidestepping the bundle interpretation. Check the result so failures surface.
+            proc = subprocess.run(
+                ["/usr/bin/open", "-R", str(path)],
+                capture_output=True, text=True, timeout=10,
+            )
+            if proc.returncode != 0:
+                raise RuntimeError((proc.stderr or proc.stdout or f"exit {proc.returncode}").strip())
         elif os.name == "nt":
             os.startfile(str(path))  # type: ignore[attr-defined]
         else:
             subprocess.Popen(["xdg-open", str(path)])
     except Exception as e:
+        log.warning("reveal data dir failed: %s", e)
         raise HTTPException(500, f"could not open folder: {e}")
     return {"ok": True}

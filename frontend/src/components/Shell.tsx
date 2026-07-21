@@ -47,8 +47,11 @@ export default function Shell({ children }: { children: ReactNode }) {
 
   const [tags, setTags] = useState<Tag[]>([]);
   const [filterTag, setFilterTag] = useState<number | null>(null);
-  const [managing, setManaging] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [newTag, setNewTag] = useState("");
+  const [editingTag, setEditingTag] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editColor, setEditColor] = useState("neutral");
 
   const reloadTags = async () => setTags(await api.listTags());
   useEffect(() => {
@@ -57,15 +60,36 @@ export default function Shell({ children }: { children: ReactNode }) {
 
   async function createTag() {
     const name = newTag.trim();
-    if (!name) return;
+    if (!name) {
+      setAdding(false);
+      return;
+    }
     await api.createTag(name, TAG_COLORS[tags.length % TAG_COLORS.length]);
     setNewTag("");
+    setAdding(false);
     reloadTags();
+  }
+  function startEdit(t: Tag) {
+    setEditingTag(t.id);
+    setEditName(t.name);
+    setEditColor(t.color ?? "neutral");
+  }
+  async function commitEdit(t: Tag) {
+    const name = editName.trim();
+    const body: { name?: string; color?: string } = {};
+    if (name && name !== t.name) body.name = name;
+    if (editColor !== (t.color ?? "neutral")) body.color = editColor;
+    if (Object.keys(body).length) {
+      await api.updateTag(t.id, body);
+      await reloadTags();
+    }
+    setEditingTag(null);
   }
   async function deleteTag(t: Tag) {
     if (!(await confirmDialog(`Delete tag "${t.name}"?`))) return;
     await api.deleteTag(t.id);
     if (filterTag === t.id) setFilterTag(null);
+    setEditingTag(null);
     reloadTags();
   }
 
@@ -142,14 +166,6 @@ export default function Shell({ children }: { children: ReactNode }) {
           <div className="mt-6 px-1">
             <div className="flex items-center justify-between mb-3 px-2">
               <span className="text-[11px] uppercase tracking-wider text-label">Tags</span>
-              {tags.length > 0 && (
-                <button
-                  onClick={() => setManaging((m) => !m)}
-                  className="text-[11px] text-muted hover:text-ink-2"
-                >
-                  {managing ? "Done" : "Manage"}
-                </button>
-              )}
             </div>
             <div className="flex flex-col gap-0.5">
               <button
@@ -164,74 +180,96 @@ export default function Shell({ children }: { children: ReactNode }) {
                 <span className="w-2.5 h-2.5 rounded-full bg-muted/40" />
                 <span className="flex-1 text-left">All recordings</span>
               </button>
-              {tags.map((t) => (
-                <div
-                  key={t.id}
-                  className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13.5px] ${
-                    filterTag === t.id ? "bg-surface text-ink shadow-card" : "text-ink-2"
-                  }`}
-                >
-                  <span
-                    className="w-2.5 h-2.5 rounded-full shrink-0"
-                    style={{ background: catColor(t.color) }}
-                  />
-                  {managing ? (
-                    <>
-                      <input
-                        defaultValue={t.name}
-                        onBlur={async (e) => {
-                          const v = e.target.value.trim();
-                          if (v && v !== t.name) {
-                            await api.updateTag(t.id, { name: v });
-                            reloadTags();
-                          }
-                        }}
-                        className="flex-1 min-w-0 bg-paper border border-line rounded px-1.5 py-0.5 text-xs"
-                      />
-                      <select
-                        value={t.color ?? "neutral"}
-                        onChange={async (e) => {
-                          await api.updateTag(t.id, { color: e.target.value });
-                          reloadTags();
-                        }}
-                        className="bg-paper border border-line rounded px-1 py-0.5 text-[11px]"
-                      >
-                        {TAG_COLORS.map((c) => (
-                          <option key={c} value={c}>
-                            {c}
-                          </option>
-                        ))}
-                      </select>
-                      <button onClick={() => deleteTag(t)} className="text-muted hover:text-signal">
-                        <Icon name="trash-2" size={13} />
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => {
-                        setFilterTag(t.id);
-                        nav("/");
-                      }}
-                      className="flex-1 text-left truncate hover:text-ink"
-                    >
-                      {t.name}
-                    </button>
-                  )}
-                </div>
-              ))}
-              {managing ? (
+              {tags.map((t) => {
+                const selected = filterTag === t.id;
+                const editing = editingTag === t.id;
+                return (
+                  <div
+                    key={t.id}
+                    className={`flex items-center gap-2 px-2.5 py-2 rounded-lg text-[13.5px] ${
+                      selected || editing ? "bg-surface text-ink shadow-card" : "text-ink-2"
+                    }`}
+                  >
+                    {editing ? (
+                      <>
+                        <select
+                          value={editColor}
+                          onChange={(e) => setEditColor(e.target.value)}
+                          title="Colour"
+                          className="bg-paper border border-line rounded px-1 py-0.5 text-[11px] shrink-0"
+                          style={{ color: catColor(editColor) }}
+                        >
+                          {TAG_COLORS.map((c) => (
+                            <option key={c} value={c}>
+                              {c}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          autoFocus
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") commitEdit(t);
+                            if (e.key === "Escape") setEditingTag(null);
+                          }}
+                          className="flex-1 min-w-0 bg-paper border border-line rounded px-1.5 py-0.5 text-xs"
+                        />
+                        <button onClick={() => commitEdit(t)} title="Save" className="text-ok-deep hover:opacity-70 shrink-0">
+                          <Icon name="check" size={15} />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: catColor(t.color) }} />
+                        <button
+                          onClick={() => {
+                            setFilterTag(t.id);
+                            nav("/");
+                          }}
+                          className="flex-1 text-left truncate hover:text-ink"
+                        >
+                          {t.name}
+                        </button>
+                        {selected && (
+                          <>
+                            <button onClick={() => startEdit(t)} title="Edit tag" className="text-muted hover:text-ink-2 shrink-0">
+                              <Icon name="pencil" size={12} />
+                            </button>
+                            <button onClick={() => deleteTag(t)} title="Delete tag" className="text-muted hover:text-signal shrink-0">
+                              <Icon name="trash-2" size={12} />
+                            </button>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+              {adding ? (
                 <div className="flex items-center gap-2 px-2.5 py-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full border border-dashed border-line-3 shrink-0" />
                   <input
+                    autoFocus
                     value={newTag}
                     onChange={(e) => setNewTag(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && createTag()}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") createTag();
+                      if (e.key === "Escape") {
+                        setAdding(false);
+                        setNewTag("");
+                      }
+                    }}
                     placeholder="New tag…"
                     className="flex-1 min-w-0 bg-paper border border-line rounded px-1.5 py-0.5 text-xs"
                   />
+                  <button onClick={createTag} title="Add tag" className="text-ok-deep hover:opacity-70 shrink-0">
+                    <Icon name="check" size={15} />
+                  </button>
                 </div>
               ) : (
                 <button
-                  onClick={() => setManaging(true)}
+                  onClick={() => setAdding(true)}
                   className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-muted hover:text-ink-2"
                 >
                   <span className="w-2.5 h-2.5 rounded-full border border-dashed border-line-3" />
@@ -305,7 +343,7 @@ function StatusFooter() {
         className={`w-[7px] h-[7px] rounded-full ${ready ? "bg-ok" : "bg-warn"}`}
         style={{ boxShadow: ready ? "0 0 0 3px rgba(74,140,95,0.16)" : undefined }}
       />
-      {status ? (ready ? "Local · Whisper ready" : "Local · loading…") : "Connecting…"}
+      {status ? (ready ? `Local · ${status.engine} ready` : "Local · loading…") : "Connecting…"}
     </span>
   );
 }

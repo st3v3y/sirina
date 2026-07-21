@@ -7,7 +7,9 @@ finished files.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 import subprocess
 import threading
 import time
@@ -22,6 +24,7 @@ from sqlmodel import Session
 from ..audio import system_capture
 from ..audio.local import find_device
 from ..audio.power import SleepBlocker
+from ..audio.trim import detect_trim, trim_wav_window
 from ..config import settings
 from ..db import engine
 from ..models import Recording
@@ -240,6 +243,7 @@ class _SidecarTrack:
 
     def _pump(self) -> None:
         chunk = (CAPTURE_SR // 50) * 2  # ~20 ms of mono s16le bytes
+        carry = b""  # a short pipe read can split a 16-bit sample across two reads
         while not self._stop.is_set():
             with self._proc_lock:
                 proc = self._proc
@@ -253,7 +257,14 @@ class _SidecarTrack:
                 # Sidecar exited or its pipe closed (stop error, permission loss, kill).
                 if self._stop.is_set() or not self._restart():
                     break
+                carry = b""  # new process, new byte stream — a stale half-sample is garbage
                 continue  # restarted; keep appending to the same WAV (gap = recovery time)
+            data = carry + data
+            usable = len(data) - (len(data) % 2)
+            carry = data[usable:]
+            data = data[:usable]
+            if not data:
+                continue
             try:
                 arr = np.frombuffer(data, dtype=np.int16)
                 if arr.size:
@@ -444,13 +455,20 @@ class Recorder:
             log.info("recording %d started (tracks=%s)", recording_id, [t.name for t in active.tracks])
             return recording_id
 
-    async def stop(self, recording_id: int | None = None) -> None:
+    async def stop(self, recording_id: int | None = None) -> dict | None:
+        """Stop the active recording, finalize its files, and flip it to `processing`.
+
+        Returns a trim suggestion ({"leading_s", "trailing_s", ...}) when the take has a
+        long stretch of leading/trailing silence — in that case the recording is HELD
+        (pending_trim set, not yet enqueued) awaiting the user's decision. Returns None
+        when there's no significant silence (the caller enqueues it for transcription).
+        """
         async with self._lock:
             active = self._active
             if active is None:
-                return
+                return None
             if recording_id is not None and active.recording_id != recording_id:
-                return
+                return None
             self._active = None
 
         active.end_monitoring()
@@ -473,19 +491,145 @@ class Recorder:
         else:
             audio_path = mic_path
 
+        # Offer to trim a long stretch of leading/trailing silence (e.g. a recording left
+        # running long after the meeting ended) before spending time transcribing dead air.
+        suggestion: dict | None = None
+        min_s = settings.silence_trim_min_seconds
+        if min_s > 0:
+            try:
+                suggestion = detect_trim(
+                    mic_path if mic_path.exists() else None,
+                    system_path if has_system else None,
+                    min_silence_s=min_s,
+                )
+            except Exception:
+                log.exception("silence detection failed for recording %d", active.recording_id)
+
         with Session(engine) as s:
             rec = s.get(Recording, recording_id or active.recording_id)
             if rec is None:
-                return
+                return None
             rec.ended_at = datetime.now(timezone.utc)
             rec.duration_s = duration_s
             rec.audio_path = str(audio_path)
             rec.system_path = str(system_path) if has_system else None
             rec.warning = warning
             rec.status = "processing"
+            # A trim suggestion HOLDS the recording (not enqueued) until the user decides;
+            # the API layer only enqueues when this returns None.
+            rec.pending_trim = json.dumps(suggestion) if suggestion else None
             s.add(rec)
             s.commit()
-        log.info("recording %d stopped (%.1fs) -> processing", active.recording_id, duration_s)
+        log.info(
+            "recording %d stopped (%.1fs)%s",
+            active.recording_id, duration_s,
+            " -> awaiting trim decision" if suggestion else " -> processing",
+        )
+        return suggestion
+
+    def active_id(self) -> int | None:
+        """The id of the currently-active recording, or None when idle."""
+        return self._active.recording_id if self._active else None
+
+
+def _wav_duration_s(path: Path) -> float:
+    """Duration of a mono PCM WAV from its frame count, or 0.0 if unreadable/empty."""
+    try:
+        with wave.open(str(path), "rb") as wf:
+            return wf.getnframes() / float(wf.getframerate() or CAPTURE_SR)
+    except Exception:
+        return 0.0
+
+
+def recover_orphaned(recording_id: int) -> bool:
+    """Finalize a recording left stuck in `recording` by a crash/force-quit before `stop()`
+    ever ran: mix the on-disk tracks, set duration/paths/ended_at, and flip it to
+    `processing` so it can be (re)transcribed. Returns True if any audio was recovered,
+    False if the recording captured nothing to process.
+
+    This is the recovery path behind Re-process for a recording whose files exist on disk
+    but were never finalized (no mixed track, no duration). It mirrors the tail of `stop()`.
+    """
+    rec_dir = settings.recordings_dir / str(recording_id)
+    mic_path = rec_dir / "mic.wav"
+    system_path = rec_dir / "system.wav"
+    has_mic = _wav_duration_s(mic_path) > 0
+    has_system = _wav_duration_s(system_path) > 0
+    if not has_mic and not has_system:
+        return False
+    duration_s = max(_wav_duration_s(mic_path), _wav_duration_s(system_path))
+
+    if has_mic and has_system:
+        audio_path = rec_dir / "mixed.wav"
+        try:
+            _mix_wavs(mic_path, system_path, audio_path)
+        except Exception:
+            log.exception("recover %d: mixing failed; falling back to mic track", recording_id)
+            audio_path = mic_path
+    else:
+        audio_path = mic_path if has_mic else system_path
+
+    with Session(engine) as s:
+        rec = s.get(Recording, recording_id)
+        if rec is None:
+            return False
+        rec.mic_path = str(mic_path) if has_mic else None
+        rec.system_path = str(system_path) if has_system else None
+        rec.audio_path = str(audio_path)
+        rec.duration_s = duration_s
+        rec.ended_at = rec.ended_at or datetime.now(timezone.utc)
+        rec.status = "processing"
+        rec.error = None
+        s.add(rec)
+        s.commit()
+    log.info("recovered orphaned recording %d (%.1fs) -> processing", recording_id, duration_s)
+    return True
+
+
+def apply_trim(recording_id: int, start_s: float, end_s: float) -> float:
+    """Trim every on-disk track of a recording to the absolute window [start_s, end_s],
+    re-mix, and update the stored duration. Clears `pending_trim`. Returns the new duration.
+
+    Tracks share a common start (t=0) so the same window applies to all; trim_wav_window
+    clamps to each file's own length. The trimmed files replace the originals in place."""
+    rec_dir = settings.recordings_dir / str(recording_id)
+    mic_path = rec_dir / "mic.wav"
+    system_path = rec_dir / "system.wav"
+
+    def _trim_in_place(path: Path) -> bool:
+        if not path.exists():
+            return False
+        tmp = path.with_suffix(".trim.wav")
+        trim_wav_window(path, tmp, start_s, end_s)
+        os.replace(tmp, path)
+        return True
+
+    has_mic = _trim_in_place(mic_path)
+    has_system = _trim_in_place(system_path)
+
+    if has_mic and has_system:
+        audio_path = rec_dir / "mixed.wav"
+        try:
+            _mix_wavs(mic_path, system_path, audio_path)
+        except Exception:
+            log.exception("trim %d: re-mix failed; falling back to mic track", recording_id)
+            audio_path = mic_path
+    else:
+        audio_path = mic_path if has_mic else system_path
+
+    new_duration = max(0.0, end_s - start_s)
+    with Session(engine) as s:
+        rec = s.get(Recording, recording_id)
+        if rec is not None:
+            rec.duration_s = new_duration
+            rec.audio_path = str(audio_path)
+            rec.mic_path = str(mic_path) if has_mic else None
+            rec.system_path = str(system_path) if has_system else None
+            rec.pending_trim = None
+            s.add(rec)
+            s.commit()
+    log.info("trimmed recording %d to %.1fs (window %.1f–%.1f)", recording_id, new_duration, start_s, end_s)
+    return new_duration
 
 
 def _fmt_minutes(seconds: float) -> str:
@@ -510,38 +654,56 @@ def _incompleteness_warning(
     return None
 
 
-def _read_mono_int16(path: Path) -> np.ndarray:
+# One minute of 48 kHz mono int16 per block (~5.5 MB): bounded memory no matter how
+# long the recording is. The old whole-file mix needed gigabytes for multi-hour takes.
+_MIX_BLOCK_FRAMES = CAPTURE_SR * 60
+
+
+def _wav_peak(path: Path) -> float:
+    """Peak |amplitude| of a mono 16-bit WAV, read block-wise."""
+    peak = 0
     with wave.open(str(path), "rb") as wf:
-        n = wf.getnframes()
-        raw = wf.readframes(n)
-    return np.frombuffer(raw, dtype=np.int16)
+        while True:
+            raw = wf.readframes(_MIX_BLOCK_FRAMES)
+            if not raw:
+                break
+            arr = np.frombuffer(raw, dtype=np.int16)
+            if arr.size:
+                peak = max(peak, int(np.abs(arr).max()))
+    return float(peak)
 
 
-def _balance_gain(x: np.ndarray) -> float:
+def _balance_gain(peak: float) -> float:
     """Gain bringing a track's peak up to MIX_TARGET_PEAK, capped at MIX_MAX_GAIN.
     A silent track is left untouched so its noise floor isn't amplified."""
-    peak = float(np.abs(x).max()) if x.size else 0.0
     if peak <= MIX_SILENCE_PEAK:
         return 1.0
     return min(MIX_MAX_GAIN, (MIX_TARGET_PEAK * 32767.0) / peak)
 
 
 def _mix_wavs(a: Path, b: Path, out: Path) -> None:
-    """Mix two mono 16-bit WAVs (same rate) into one. Each track is level-balanced to
-    comparable loudness before summing so the (quieter) mic isn't buried under
-    full-scale system audio; the sum is hard-clipped to int16 as a final safety net."""
-    xa = _read_mono_int16(a).astype(np.float32)
-    xb = _read_mono_int16(b).astype(np.float32)
-    n = max(xa.size, xb.size)
-    if xa.size < n:
-        xa = np.pad(xa, (0, n - xa.size))
-    if xb.size < n:
-        xb = np.pad(xb, (0, n - xb.size))
-    xa *= _balance_gain(xa)
-    xb *= _balance_gain(xb)
-    mixed = np.clip(xa + xb, -32768, 32767).astype(np.int16)
-    with wave.open(str(out), "wb") as wf:
+    """Mix two mono 16-bit WAVs (same rate) into one, block-wise (bounded memory on
+    multi-hour recordings). Each track is level-balanced to comparable loudness before
+    summing so the (quieter) mic isn't buried under full-scale system audio; the sum is
+    hard-clipped to int16 as a final safety net. The shorter track is padded with
+    silence to the longer one's length."""
+    gain_a = _balance_gain(_wav_peak(a))
+    gain_b = _balance_gain(_wav_peak(b))
+    with wave.open(str(a), "rb") as wa, wave.open(str(b), "rb") as wb, wave.open(str(out), "wb") as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
         wf.setframerate(CAPTURE_SR)
-        wf.writeframes(mixed.tobytes())
+        while True:
+            raw_a = wa.readframes(_MIX_BLOCK_FRAMES)
+            raw_b = wb.readframes(_MIX_BLOCK_FRAMES)
+            if not raw_a and not raw_b:
+                break
+            xa = np.frombuffer(raw_a, dtype=np.int16).astype(np.float32)
+            xb = np.frombuffer(raw_b, dtype=np.int16).astype(np.float32)
+            n = max(xa.size, xb.size)
+            if xa.size < n:
+                xa = np.pad(xa, (0, n - xa.size))
+            if xb.size < n:
+                xb = np.pad(xb, (0, n - xb.size))
+            mixed = np.clip(xa * gain_a + xb * gain_b, -32768, 32767).astype(np.int16)
+            wf.writeframes(mixed.tobytes())

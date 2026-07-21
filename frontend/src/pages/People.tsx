@@ -60,7 +60,22 @@ export default function People() {
                       className="flex-1 bg-paper border border-line rounded-field px-2 py-1 text-sm"
                     />
                   ) : (
-                    <span className="flex-1 truncate font-semibold">{p.name}</span>
+                    <span className="flex-1 truncate font-semibold flex items-center gap-2">
+                      {p.name}
+                      {p.is_self && (
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-signal bg-signal/10 rounded-full px-1.5 py-0.5">
+                          You
+                        </span>
+                      )}
+                      {p.has_voiceprint && (
+                        <span
+                          title="Voice enrolled — this person is recognised automatically in new recordings"
+                          className="text-[10px] font-bold uppercase tracking-wide text-ok-deep bg-ok/10 rounded-full px-1.5 py-0.5"
+                        >
+                          Voice
+                        </span>
+                      )}
+                    </span>
                   )}
                   <span className="text-xs text-muted w-24 text-right font-mono">
                     {p.recording_count} {p.recording_count === 1 ? "meeting" : "meetings"}

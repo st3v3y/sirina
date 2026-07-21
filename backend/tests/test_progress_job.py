@@ -5,6 +5,7 @@ import app.processing.job as job_mod
 from app.models import Recording, Segment
 from app.processing.job import TranscriptionProcessor
 from app.transcribe.whisper import TLine
+from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 
@@ -30,7 +31,7 @@ class FakeEngine:
 
 
 def _setup(tmp_path):
-    eng = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     SQLModel.metadata.create_all(eng)
     mic = tmp_path / "mic.wav"; mic.write_bytes(b"x")
     sysf = tmp_path / "system.wav"; sysf.write_bytes(b"x")
@@ -58,7 +59,7 @@ def test_process_advances_to_done_and_writes_segments(tmp_path, monkeypatch):
     assert prog["elapsed_s"] is not None
     with Session(eng) as s:
         segs = s.exec(select(Segment).where(Segment.recording_id == rid)).all()
-        assert len(segs) == 2  # mic "You" + system "Others", one line each
+        assert len(segs) == 2  # mic "You" + system "Speaker 1", one line each
         rec = s.get(Recording, rid)
         assert rec.status == "ready"
 
@@ -128,7 +129,7 @@ def test_cancel_diarization_keeps_baseline_and_skips_diarize(tmp_path, monkeypat
     with Session(eng) as s:
         from app.models import Speaker
         labels = sorted(sp.label for sp in s.exec(select(Speaker).where(Speaker.recording_id == rid)).all())
-        assert labels == ["Others", "You"]  # baseline two-track split
+        assert labels == ["Speaker 1", "You"]  # baseline two-track split
         rec = s.get(Recording, rid)
         assert rec.status == "ready"
 
@@ -157,7 +158,7 @@ def _write_wav(path, sr, samples):
 def test_silent_system_track_skipped(tmp_path, monkeypatch):
     """A silent system track must not be transcribed (no hallucinated 'Others')."""
     import numpy as np
-    eng = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     SQLModel.metadata.create_all(eng)
     sr = 16000
     mic = tmp_path / "mic.wav"; _write_wav(mic, sr, (np.random.randn(sr) * 3000).astype(np.int16))  # has audio

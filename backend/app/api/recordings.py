@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import shutil
 from datetime import datetime
@@ -8,6 +10,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlmodel import Session, delete, select
 
 from ..audio import system_capture
@@ -15,8 +18,11 @@ from ..config import settings
 from ..db import get_session
 from ..exporters import export_markdown, export_text
 from ..models import Person, QAMessage, Recording, RecordingTag, Segment, Speaker, Summary, Tag
+from ..llm.provider import LLMError
+from ..recording.recorder import apply_trim, recover_orphaned
 from ..runtime import runtime
-from ..speakers import display_name
+from ..speakers import SELF_LABEL, display_name
+from .. import voiceprints
 
 log = logging.getLogger(__name__)
 
@@ -72,6 +78,7 @@ class RecordingDetail(BaseModel):
     status: str
     error: str | None
     warning: str | None = None  # non-fatal capture issue, e.g. a source track ended short
+    pending_trim: dict | None = None  # {leading_s, trailing_s, ...} when awaiting a trim decision
     progress: ProgressOut | None = None
     language: str | None
     tags: list[Tag]
@@ -133,12 +140,58 @@ async def start_recording(payload: StartRequest) -> dict[str, int]:
     return {"id": recording_id}
 
 
-@router.post("/{recording_id}/stop")
-async def stop_recording(recording_id: int) -> dict[str, bool]:
+class StopResult(BaseModel):
+    ok: bool = True
+    # Present when the recording has a long stretch of leading/trailing silence: it is HELD
+    # (not yet transcribing) until the client calls /trim-decision. Absent → already enqueued.
+    trim: dict | None = None
+
+
+@router.post("/{recording_id}/stop", response_model=StopResult)
+async def stop_recording(recording_id: int) -> StopResult:
     if runtime.recorder is None:
         raise HTTPException(503, "recorder not running")
-    await runtime.recorder.stop(recording_id)
-    # Hand off to the background transcription processor (recording is now `processing`).
+    suggestion = await runtime.recorder.stop(recording_id)
+    # With a trim suggestion the recording is held awaiting the user's decision; otherwise
+    # hand off to the background transcription processor (recording is now `processing`).
+    if suggestion is None and runtime.processor is not None:
+        await runtime.processor.enqueue(recording_id)
+    return StopResult(trim=suggestion)
+
+
+class TrimDecision(BaseModel):
+    trim: bool  # True = trim the detected silence, False = keep the full recording
+
+
+@router.post("/{recording_id}/trim-decision")
+async def trim_decision(
+    recording_id: int, payload: TrimDecision, session: Session = Depends(get_session)
+) -> dict[str, bool]:
+    """Resolve a held recording (one stopped with long leading/trailing silence): either
+    trim the detected window or keep the full take, then enqueue it for transcription."""
+    r = session.get(Recording, recording_id)
+    if not r:
+        raise HTTPException(404)
+    if not r.pending_trim:
+        raise HTTPException(400, "recording is not awaiting a trim decision")
+    if payload.trim:
+        window = json.loads(r.pending_trim)
+        # Rewriting the (possibly gigabyte-sized) WAVs is blocking CPU/IO — off the loop.
+        await asyncio.to_thread(
+            apply_trim, recording_id, float(window["start_s"]), float(window["end_s"])
+        )
+        session.expire(r)  # apply_trim updated the row (incl. clearing pending_trim) elsewhere
+    else:
+        r.pending_trim = None
+        session.add(r)
+        session.commit()
+    r = session.get(Recording, recording_id)
+    if r is None:  # deleted concurrently — a 404 beats a 500 here
+        raise HTTPException(404)
+    r.status = "processing"
+    r.error = None
+    session.add(r)
+    session.commit()
     if runtime.processor is not None:
         await runtime.processor.enqueue(recording_id)
     return {"ok": True}
@@ -153,10 +206,25 @@ async def reprocess_recording(
     r = session.get(Recording, recording_id)
     if not r:
         raise HTTPException(404)
+    if r.status != "recording" and not r.audio_path:
+        raise HTTPException(400, "this recording's audio was deleted — re-processing is unavailable")
     if r.status == "recording":
-        raise HTTPException(400, "recording is still in progress")
+        # Distinguish a genuinely live capture from one orphaned by a crash/force-quit
+        # (its files are on disk but were never finalized). Only the recorder's currently
+        # active recording is truly in progress; anything else is stale and recoverable.
+        active = runtime.recorder.active_info() if runtime.recorder is not None else None
+        if active is not None and active.get("id") == recording_id:
+            raise HTTPException(400, "recording is still in progress")
+        # Mixing the recovered tracks is blocking CPU/IO — run it off the event loop.
+        if not await asyncio.to_thread(recover_orphaned, recording_id):
+            raise HTTPException(400, "this recording captured no audio to process")
+        session.expire(r)  # recover_orphaned updated the row in its own session
     if runtime.processor is None:
         raise HTTPException(503, "processor not running")
+    # Double-click / already-running guard: enqueue() also dedupes, but reject loudly
+    # when the job is mid-flight so the UI can say why nothing new happened.
+    if runtime.processor.current_id() == recording_id:
+        raise HTTPException(409, "this recording is already being processed")
     r.status = "processing"
     r.error = None
     session.add(r)
@@ -172,6 +240,17 @@ async def cancel_diarization(recording_id: int) -> dict[str, bool]:
     if runtime.processor is None:
         raise HTTPException(503, "processor not running")
     runtime.processor.cancel_diarization(recording_id)
+    return {"ok": True}
+
+
+@router.post("/{recording_id}/cancel-processing")
+async def cancel_processing(recording_id: int) -> dict[str, bool]:
+    """Stop processing this recording after the current uninterruptible step. Any transcript
+    already produced is kept (it finalizes as `ready`); remaining stages are skipped. No-op if
+    it isn't being processed."""
+    if runtime.processor is None:
+        raise HTTPException(503, "processor not running")
+    runtime.processor.cancel_processing(recording_id)
     return {"ok": True}
 
 
@@ -209,9 +288,15 @@ def list_recordings(
         )
     recs = session.exec(stmt.order_by(Recording.started_at.desc())).all()  # type: ignore[attr-defined]
     tags_map = _tags_by_recording(session, [r.id for r in recs if r.id is not None])
+    # One grouped COUNT for all recordings — a per-recording query that materialized
+    # every segment id was an N+1 that transferred hundreds of thousands of rows.
+    counts = dict(
+        session.exec(
+            select(Segment.recording_id, func.count()).group_by(Segment.recording_id)  # type: ignore[arg-type]
+        ).all()
+    )
     out: list[RecordingListItem] = []
     for r in recs:
-        count = session.exec(select(Segment.id).where(Segment.recording_id == r.id)).all()  # type: ignore[arg-type]
         out.append(
             RecordingListItem(
                 id=r.id,  # type: ignore[arg-type]
@@ -222,7 +307,7 @@ def list_recordings(
                 status=r.status,
                 error=r.error,
                 progress=_progress_for(r.id),
-                segment_count=len(count),
+                segment_count=counts.get(r.id, 0),
                 tags=tags_map.get(r.id, []),  # type: ignore[arg-type]
             )
         )
@@ -266,6 +351,7 @@ def get_recording(recording_id: int, session: Session = Depends(get_session)) ->
         status=r.status,
         error=r.error,
         warning=r.warning,
+        pending_trim=json.loads(r.pending_trim) if r.pending_trim else None,
         progress=_progress_for(r.id),
         language=r.language,
         tags=tags,
@@ -294,7 +380,9 @@ def update_recording(
     session.add(r)
     session.commit()
     session.refresh(r)
-    count = session.exec(select(Segment.id).where(Segment.recording_id == recording_id)).all()  # type: ignore[arg-type]
+    count = session.exec(
+        select(func.count()).select_from(Segment).where(Segment.recording_id == recording_id)  # type: ignore[arg-type]
+    ).one()
     tags = _tags_by_recording(session, [recording_id]).get(recording_id, [])
     return RecordingListItem(
         id=r.id,  # type: ignore[arg-type]
@@ -305,9 +393,33 @@ def update_recording(
         status=r.status,
         error=r.error,
         progress=_progress_for(r.id),
-        segment_count=len(count),
+        segment_count=count,
         tags=tags,
     )
+
+
+@router.delete("/{recording_id}/audio", status_code=204)
+def delete_recording_audio(recording_id: int, session: Session = Depends(get_session)) -> None:
+    """Delete only the on-disk audio for a recording, keeping its transcript, summary,
+    Q&A and tags. Irreversible: playback and Re-process become unavailable."""
+    r = session.get(Recording, recording_id)
+    if not r:
+        raise HTTPException(404)
+    if r.status in {"recording", "processing"}:
+        raise HTTPException(400, "wait until the recording has finished processing")
+    for p in (r.mic_path, r.system_path, r.audio_path):
+        if p:
+            Path(p).unlink(missing_ok=True)
+    # The per-recording directory only ever holds audio tracks — remove it wholesale so
+    # nothing lingers (e.g. a stray WAV left behind after compression).
+    rec_dir = settings.recordings_dir / str(recording_id)
+    if rec_dir.exists():
+        shutil.rmtree(rec_dir, ignore_errors=True)
+    r.mic_path = None
+    r.system_path = None
+    r.audio_path = None
+    session.add(r)
+    session.commit()
 
 
 @router.delete("/{recording_id}", status_code=204)
@@ -317,6 +429,11 @@ def delete_recording(recording_id: int, session: Session = Depends(get_session))
         raise HTTPException(404)
     if r.status == "recording":
         raise HTTPException(400, "stop the recording before deleting")
+    # Deleting mid-job would yank rows and audio out from under the processor (its next
+    # _write_tracks re-inserts speakers/segments for the gone recording). Same guard as
+    # delete_recording_audio: stop processing first, then delete.
+    if r.status == "processing":
+        raise HTTPException(400, "stop processing before deleting (use Stop, then delete)")
     session.exec(delete(Segment).where(Segment.recording_id == recording_id))  # type: ignore[arg-type]
     session.exec(delete(Speaker).where(Speaker.recording_id == recording_id))  # type: ignore[arg-type]
     session.exec(delete(Summary).where(Summary.recording_id == recording_id))  # type: ignore[arg-type]
@@ -364,7 +481,12 @@ class SummarizeRequest(BaseModel):
 async def summarize_recording(recording_id: int, payload: SummarizeRequest) -> Summary:
     if runtime.pipeline is None:
         raise HTTPException(503, "pipeline not running")
-    return await runtime.pipeline.summarize(recording_id=recording_id, template_id=payload.template_id)
+    try:
+        return await runtime.pipeline.summarize(
+            recording_id=recording_id, template_id=payload.template_id
+        )
+    except LLMError as e:
+        raise HTTPException(502, str(e)) from e
 
 
 class AskRequest(BaseModel):
@@ -376,14 +498,32 @@ class AskRequest(BaseModel):
 async def ask_recording(recording_id: int, payload: AskRequest) -> dict[str, str]:
     if runtime.pipeline is None:
         raise HTTPException(503, "pipeline not running")
-    answer = await runtime.pipeline.ask(
-        recording_id=recording_id, question=payload.question, template_id=payload.template_id
-    )
+    try:
+        answer = await runtime.pipeline.ask(
+            recording_id=recording_id, question=payload.question, template_id=payload.template_id
+        )
+    except LLMError as e:
+        raise HTTPException(502, str(e)) from e
     return {"answer": answer}
 
 
 class SpeakerRenameRequest(BaseModel):
     name: str
+
+
+def _withdraw_enrollment(session: Session, sp: Speaker) -> None:
+    """Undo this speaker's contribution to its linked Person's voiceprint (used when
+    the link is cleared or moved to a different person — a corrected rename must not
+    leave the mis-attributed voice sample in the old fingerprint)."""
+    if not sp.enrolled:
+        return
+    old = session.get(Person, sp.person_id) if sp.person_id else None
+    embedding = voiceprints.decode(sp.embedding)
+    if old is not None and embedding is not None:
+        voiceprints.withdraw(old, embedding)
+        session.add(old)
+    sp.enrolled = False
+    session.add(sp)
 
 
 @router.put("/{recording_id}/speakers/{speaker_id}", response_model=SpeakerOut)
@@ -397,10 +537,24 @@ def rename_speaker(
     if not sp or sp.recording_id != recording_id:
         raise HTTPException(404)
     name = payload.name.strip()
+    # The "You" speaker is bound to the singleton self-Person: rename THAT (an empty value
+    # reverts it to "You"), so the app user is one reusable Person, never unlinked or
+    # duplicated into a second "Stefan" entry.
+    if sp.person_id is not None:
+        linked = session.get(Person, sp.person_id)
+        if linked is not None and linked.is_self:
+            linked.name = name or SELF_LABEL
+            session.add(linked)
+            session.commit()
+            session.refresh(sp)
+            return SpeakerOut(
+                id=sp.id, label=sp.label, name=linked.name, person_id=sp.person_id, color=sp.color  # type: ignore[arg-type]
+            )
     # Empty or the speaker's own default label means "no real name": never create
     # a Person from a default label (that produced junk "Speaker 1"/"You" People).
     # Treat it as clearing any existing link, reverting to the default label.
     if not name or name == sp.label:
+        _withdraw_enrollment(session, sp)
         sp.person_id = None
         session.add(sp)
         session.commit()
@@ -409,17 +563,28 @@ def rename_speaker(
         return SpeakerOut(
             id=sp.id, label=sp.label, name=display_name(sp, persons), person_id=None, color=sp.color  # type: ignore[arg-type]
         )
-    # Find-or-create the Person (case-insensitive match on existing names).
-    person = session.exec(select(Person).where(Person.name == name)).first()
-    if person is None:
-        existing = session.exec(select(Person)).all()
-        person = next((p for p in existing if p.name.lower() == name.lower()), None)
+    # Find-or-create the Person (case-insensitive match, done in SQL).
+    person = session.exec(
+        select(Person).where(func.lower(Person.name) == name.lower())
+    ).first()
     if person is None:
         person = Person(name=name)
         session.add(person)
         session.flush()
+    if sp.person_id is not None and sp.person_id != person.id:
+        _withdraw_enrollment(session, sp)  # corrected rename: pull the sample back out
     sp.person_id = person.id
     session.add(sp)
+    # A manual rename is confirmed ground truth: enroll this speaker's voice embedding
+    # into the person's fingerprint so they're auto-recognised in future recordings.
+    # At most once per speaker (`enrolled`) — a repeated or corrected rename must not
+    # double-count the same sample in the running mean.
+    embedding = voiceprints.decode(sp.embedding)
+    if embedding is not None and not person.is_self and not sp.enrolled:
+        voiceprints.enroll(person, embedding)
+        sp.enrolled = True
+        session.add(person)
+        session.add(sp)
     session.commit()
     session.refresh(sp)
     return SpeakerOut(id=sp.id, label=sp.label, name=name, person_id=sp.person_id, color=sp.color)  # type: ignore[arg-type]
@@ -437,7 +602,16 @@ def get_audio(recording_id: int, track: str = "mixed", session: Session = Depend
     path = {"mixed": r.audio_path, "mic": r.mic_path, "system": r.system_path}.get(track)
     if not path or not Path(path).exists():
         raise HTTPException(404, f"no {track} track for this recording")
-    return FileResponse(path, media_type="audio/wav", filename=f"recording-{recording_id}-{track}.wav")
+    # `inline` (not the default `attachment`): WebKit/WKWebView — the Tauri webview —
+    # refuses to play <audio>/<video> served with `Content-Disposition: attachment`,
+    # so the player would render but produce no sound. Inline keeps it seekable.
+    suffix = Path(path).suffix.lower()  # .wav, or .m4a once compressed
+    return FileResponse(
+        path,
+        media_type="audio/mp4" if suffix == ".m4a" else "audio/wav",
+        filename=f"recording-{recording_id}-{track}{suffix}",
+        content_disposition_type="inline",
+    )
 
 
 @router.get("/{recording_id}/export")

@@ -5,10 +5,24 @@ export type ResolvedTheme = "light" | "dark";
 
 const KEY = "sirina-theme";
 
+declare global {
+  interface Window {
+    __THEME__?: string;
+    __BACKEND_URL__?: string;
+  }
+}
+
+function isChoice(v: unknown): v is ThemeChoice {
+  return v === "light" || v === "dark" || v === "auto";
+}
+
 export function getThemeChoice(): ThemeChoice {
+  // The backend-injected value wins (durable across the packaged app's per-launch port,
+  // which wipes localStorage); localStorage is a same-session cache / dev fallback.
+  if (typeof window !== "undefined" && isChoice(window.__THEME__)) return window.__THEME__;
   try {
     const v = localStorage.getItem(KEY);
-    if (v === "light" || v === "dark" || v === "auto") return v;
+    if (isChoice(v)) return v;
   } catch {
     /* ignore */
   }
@@ -42,6 +56,18 @@ export function subscribeTheme(listener: () => void): () => void {
 export function setThemeChoice(choice: ThemeChoice): void {
   try {
     localStorage.setItem(KEY, choice);
+  } catch {
+    /* ignore */
+  }
+  if (typeof window !== "undefined") window.__THEME__ = choice;
+  // Durably persist server-side (best-effort; localStorage above covers the offline case).
+  try {
+    const base = (typeof window !== "undefined" && window.__BACKEND_URL__) || "";
+    void fetch(base + "/api/ui/preferences", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ theme: choice }),
+    }).catch(() => {});
   } catch {
     /* ignore */
   }
