@@ -17,6 +17,9 @@ from ..transcribe.whisper import TLine, Word
 
 # A pause at least this long between consecutive words starts a new line (a turn/breath).
 PAUSE_GAP_S = 0.8
+# A silence this long always splits, even into short slivers: a line spanning it would
+# sort ahead of everything the other track said in between.
+LONG_GAP_S = 5.0
 # Past this duration, split at the next sentence end; past the hard cap, split regardless.
 TARGET_DUR_S = 8.0
 HARD_DUR_S = 16.0
@@ -25,6 +28,16 @@ HARD_DUR_S = 16.0
 MIN_CHARS = 40
 
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?…])\s+")
+
+# Typical speaking rate. A line without word timestamps whose span is far longer than its
+# text could take to say (a segment-level time stretched across silence) is clamped to a
+# plausible length from its start instead of spreading its sentences over the whole span.
+CHARS_PER_S = 15.0
+_IMPLAUSIBLE_FACTOR = 3.0
+# No real word takes longer than this. With VAD, a word straddling two speech chunks is
+# restored with its end in the later chunk — minutes after its start. Its start is the
+# reliable side; the end is clamped so the line doesn't claim minutes of silence.
+MAX_WORD_S = 2.0
 
 
 def _ends_sentence(text: str) -> bool:
@@ -35,20 +48,22 @@ def _split_with_words(ln: TLine) -> list[TLine]:
     """Split a line that has word timestamps at big pauses and sentence ends."""
     subs: list[TLine] = []
     cur: list[Word] = []
+    words = [(ws, min(we, ws + MAX_WORD_S), wt) for ws, we, wt in ln.words]
 
     def flush() -> None:
         if cur:
             text = " ".join(w[2] for w in cur).strip()
             subs.append(TLine(cur[0][0], cur[-1][1], text, list(cur)))
 
-    for w in ln.words:
+    for w in words:
         if cur:
             gap = w[0] - cur[-1][1]
             dur = cur[-1][1] - cur[0][0]
             long_enough = sum(len(x[2]) + 1 for x in cur) >= MIN_CHARS
             at_sentence = _ends_sentence(cur[-1][2])
             if (
-                (gap >= PAUSE_GAP_S and long_enough)
+                gap >= LONG_GAP_S
+                or (gap >= PAUSE_GAP_S and long_enough)
                 or (dur >= TARGET_DUR_S and at_sentence and long_enough)
                 or (dur >= HARD_DUR_S)
             ):
@@ -76,6 +91,10 @@ def _split_without_words(ln: TLine) -> list[TLine]:
     anchors, so an approximate split is fine)."""
     text = ln.text.strip()
     dur = ln.end - ln.start
+    plausible = len(text) / CHARS_PER_S
+    if dur > HARD_DUR_S and dur > _IMPLAUSIBLE_FACTOR * plausible:
+        dur = plausible
+        ln = TLine(ln.start, round(ln.start + dur, 3), ln.text, [])
     # Leave normal-sized lines alone; only break up clearly long ones.
     if dur <= HARD_DUR_S and len(text) <= 180:
         return [ln]

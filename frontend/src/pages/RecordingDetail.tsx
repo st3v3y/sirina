@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
-import { api, type RecordingDetail as TR, type Speaker, type Summary, type QAMessage, type SummaryTemplate } from "../lib/api";
+import { api, type RecordingDetail as TR, type Segment, type Speaker, type Summary, type QAMessage, type SummaryTemplate } from "../lib/api";
 import TranscriptChat from "../components/TranscriptChat";
 import Markdown from "../components/Markdown";
 import PromptBar from "../components/PromptBar";
@@ -144,12 +144,137 @@ function SummaryControls({ onSummarize }: { onSummarize: (templateId: number) =>
   );
 }
 
-function SpeakerMenu({ speakers, onRename }: { speakers: Speaker[]; onRename: (id: number, name: string) => void }) {
+// Up to this many distinct clips per speaker; each press of the play button plays the
+// next one, so a short ambiguous "yeah" doesn't decide whether you recognise a voice.
+const MAX_SAMPLE_CLIPS = 5;
+const SAMPLE_CLIP_S = 8;
+
+/** Voice-sample windows for a speaker: their longest lines, preferring ones where nobody
+ *  else is talking at the same time (crosstalk makes a voice hard to recognise). */
+function sampleClips(segments: Segment[], speakerId: number): [number, number][] {
+  const mine = segments.filter((s) => s.speaker_id === speakerId && s.end_ts - s.start_ts >= 1.5);
+  const others = segments.filter((s) => s.speaker_id !== speakerId);
+  const clean = mine.filter((m) => !others.some((o) => o.start_ts < m.end_ts && o.end_ts > m.start_ts));
+  const pool = clean.length ? clean : mine.length ? mine : segments.filter((s) => s.speaker_id === speakerId);
+  return [...pool]
+    .sort((a, b) => b.end_ts - b.start_ts - (a.end_ts - a.start_ts))
+    .slice(0, MAX_SAMPLE_CLIPS)
+    .map((s) => [s.start_ts, Math.min(s.end_ts, s.start_ts + SAMPLE_CLIP_S)]);
+}
+
+function SpeakerMenu({
+  recordingId,
+  speakers,
+  segments,
+  tracks,
+  onRename,
+}: {
+  recordingId: number;
+  speakers: Speaker[];
+  segments: Segment[];
+  tracks: string[];
+  onRename: (id: number, name: string) => void;
+}) {
   const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const clipIdx = useRef<Record<number, number>>({});
+  const [playing, setPlaying] = useState<{ id: number; loading: boolean } | null>(null);
+
+  function stopSample() {
+    const a = audioRef.current;
+    audioRef.current = null;
+    if (a) {
+      a.pause();
+      a.removeAttribute("src");
+      a.load();
+    }
+    setPlaying(null);
+  }
+
+  // Close on outside click / Escape. Blur a focused rename field first so its onBlur
+  // still commits the edit (an unmounted input wouldn't fire it).
+  useEffect(() => {
+    if (!open) return;
+    const close = () => {
+      const el = document.activeElement;
+      if (el instanceof HTMLElement && rootRef.current?.contains(el)) el.blur();
+      stopSample();
+      setOpen(false);
+    };
+    const onDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) close();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  // Stop any sample when the page goes away (closing the menu stops it too).
+  useEffect(() => () => audioRef.current?.pause(), []);
+
   if (speakers.length === 0) return null;
+
+  // "You" is on the mic track, everyone else on the system track; a single-track
+  // recording only has the mixed file.
+  function trackFor(sp: Speaker): "mixed" | "mic" | "system" | null {
+    const want = sp.label === "You" ? "mic" : "system";
+    if (tracks.includes(want)) return want;
+    return tracks.includes("mixed") ? "mixed" : null;
+  }
+
+  function toggleSample(sp: Speaker) {
+    if (playing?.id === sp.id) {
+      stopSample();
+      return;
+    }
+    stopSample();
+    const track = trackFor(sp);
+    const clips = sampleClips(segments, sp.id);
+    if (!track || clips.length === 0) return;
+    const i = clipIdx.current[sp.id] ?? 0;
+    clipIdx.current[sp.id] = (i + 1) % clips.length;
+    const [start, end] = clips[i % clips.length];
+
+    const a = new Audio(api.audioUrl(recordingId, track));
+    a.preload = "auto";
+    audioRef.current = a;
+    setPlaying({ id: sp.id, loading: true });
+    const done = () => {
+      if (audioRef.current === a) stopSample();
+    };
+    a.addEventListener(
+      "loadedmetadata",
+      () => {
+        a.currentTime = start;
+        a.play()
+          .then(() => audioRef.current === a && setPlaying({ id: sp.id, loading: false }))
+          .catch(done);
+      },
+      { once: true }
+    );
+    a.addEventListener("timeupdate", () => {
+      if (a.currentTime >= end) done();
+    });
+    a.addEventListener("ended", done);
+    a.addEventListener("error", done);
+  }
+
   return (
-    <div className="relative">
-      <button onClick={() => setOpen((o) => !o)} className="flex items-center gap-2 pr-1.5 pl-0.5 py-0.5 rounded-full hover:bg-surface-2">
+    <div ref={rootRef} className="relative">
+      <button
+        onClick={() => {
+          if (open) stopSample();
+          setOpen(!open);
+        }}
+        className="flex items-center gap-2 pr-1.5 pl-0.5 py-0.5 rounded-full hover:bg-surface-2"
+      >
         <span className="flex">
           {speakers.slice(0, 4).map((s, i) => (
             <span key={s.id} style={{ marginLeft: i ? -8 : 0 }} className="ring-2 ring-paper rounded-full">
@@ -161,21 +286,45 @@ function SpeakerMenu({ speakers, onRename }: { speakers: Speaker[]; onRename: (i
         <Icon name="chevron-down" size={11} className="text-muted" />
       </button>
       {open && (
-        <div className="absolute top-9 left-0 w-64 bg-surface border border-line rounded-card shadow-pop p-2 z-10">
+        <div className="absolute top-9 left-0 w-72 bg-surface border border-line rounded-card shadow-pop p-2 z-10">
           <div className="text-[10.5px] uppercase tracking-wide text-label px-2 py-1.5">Speakers · rename to link</div>
-          {speakers.map((s) => (
-            <div key={s.id} className="flex items-center gap-2.5 p-1.5">
-              <Avatar name={s.name} color={catColor(s.color)} size={28} />
-              <input
-                defaultValue={s.name}
-                onBlur={(e) => {
-                  const v = e.target.value.trim();
-                  if (v && v !== s.name) onRename(s.id, v);
-                }}
-                className="flex-1 min-w-0 bg-paper border border-line rounded-field px-2 py-1 text-[13px]"
-              />
-            </div>
-          ))}
+          {speakers.map((s) => {
+            const canSample = trackFor(s) !== null && segments.some((x) => x.speaker_id === s.id);
+            const isPlaying = playing?.id === s.id;
+            return (
+              <div key={s.id} className="flex items-center gap-2.5 p-1.5">
+                <Avatar name={s.name} color={catColor(s.color)} size={28} />
+                <input
+                  defaultValue={s.name}
+                  onBlur={(e) => {
+                    const v = e.target.value.trim();
+                    if (v && v !== s.name) onRename(s.id, v);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") e.currentTarget.blur();
+                  }}
+                  className="flex-1 min-w-0 bg-paper border border-line rounded-field px-2 py-1 text-[13px]"
+                />
+                {canSample && (
+                  <button
+                    type="button"
+                    onClick={() => toggleSample(s)}
+                    title={isPlaying ? "Stop" : "Play a voice sample (press again for another)"}
+                    aria-label={isPlaying ? `Stop ${s.name}'s voice sample` : `Play ${s.name}'s voice sample`}
+                    className={`shrink-0 w-7 h-7 rounded-full border inline-flex items-center justify-center ${
+                      isPlaying ? "bg-ink text-paper border-ink" : "border-line text-ink-2 hover:bg-surface-2"
+                    }`}
+                  >
+                    <Icon
+                      name={isPlaying ? (playing?.loading ? "loader" : "square") : "play"}
+                      size={12}
+                      className={playing?.loading && isPlaying ? "animate-spin" : undefined}
+                    />
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -455,7 +604,13 @@ export default function RecordingDetail() {
                   </>
                 )}
               </div>
-              <SpeakerMenu speakers={rec.speakers} onRename={renameSpeaker} />
+              <SpeakerMenu
+                recordingId={rec.id}
+                speakers={rec.speakers}
+                segments={rec.segments}
+                tracks={rec.tracks ?? []}
+                onRename={renameSpeaker}
+              />
             </div>
             <div className="flex flex-wrap items-center gap-1.5 mt-3">
               {rec.tags.map((t) => (

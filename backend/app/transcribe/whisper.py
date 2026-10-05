@@ -95,7 +95,8 @@ class FasterWhisperWorker:
     ) -> tuple[list[TLine], str | None]:
         """Transcribe a whole audio file with offline-quality settings.
 
-        `word_timestamps` is only needed for diarization; skipping it is faster.
+        `word_timestamps` gives accurate line timing (needed to interleave tracks and for
+        diarization); skipping it is faster but segment times can span long silences.
         `progress_cb(done_seconds, total_seconds)` is called as segments arrive.
         Returns (lines, language). Runs in the worker's thread executor.
         """

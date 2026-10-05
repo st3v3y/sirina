@@ -337,6 +337,10 @@ class TranscriptionProcessor:
         # 1) Transcribe (no diarization yet), skipping silent tracks. A silent track
         #    (e.g. a system/BlackHole capture with nothing playing) would otherwise make
         #    MLX/Whisper hallucinate captions ("Thanks for watching.") on the silence.
+        #    Word timestamps are always on: segment-level times are unreliable across
+        #    silence (with VAD a segment straddling removed silence maps back to a span
+        #    of many minutes), and the two tracks are interleaved purely by start time —
+        #    word times are what keep "who said what when" in the right order.
         mic_lines: list = []
         sys_lines: list = []
         lines: list = []
@@ -357,13 +361,13 @@ class TranscriptionProcessor:
                 lo, hi = i / len(todo), (i + 1) / len(todo)
                 if name == "mic":
                     mic_lines, lang = await self._whisper.transcribe_file(
-                        mic_path, word_timestamps=False, progress_cb=self._progress_cb(recording_id, lo, hi)  # type: ignore[arg-type]
+                        mic_path, word_timestamps=True, progress_cb=self._progress_cb(recording_id, lo, hi)  # type: ignore[arg-type]
                     )
                     language = language or lang
                     baseline.append(("You", _color(0), mic_lines))
                 else:
                     sys_lines, lang = await self._whisper.transcribe_file(
-                        system_path, word_timestamps=use_diar, progress_cb=self._progress_cb(recording_id, lo, hi)  # type: ignore[arg-type]
+                        system_path, word_timestamps=True, progress_cb=self._progress_cb(recording_id, lo, hi)  # type: ignore[arg-type]
                     )
                     language = language or lang
                     baseline.append(("Speaker 1", _color(1), sys_lines))
@@ -373,7 +377,7 @@ class TranscriptionProcessor:
         else:
             log.info("transcribing recording %d (single track)", recording_id)
             lines, language = await self._whisper.transcribe_file(
-                audio_path, word_timestamps=use_diar, progress_cb=self._progress_cb(recording_id, 0.0, 1.0)
+                audio_path, word_timestamps=True, progress_cb=self._progress_cb(recording_id, 0.0, 1.0)
             )
             baseline = [("Speaker 1", _color(0), lines)]
 
@@ -399,7 +403,9 @@ class TranscriptionProcessor:
                     sys_groups, embeddings = await self._speaker_groups(
                         system_path, sys_lines, base_idx=1, single_label="Speaker 1", use_diar=True,  # type: ignore[arg-type]
                         recording_id=recording_id,
-                        echo_ref=mic_lines,  # suppress the user's own echo in the call audio
+                        # Suppress the user's own echo in the call audio. Compare against
+                        # word-bounded mic lines: raw segment spans can cover long silences.
+                        echo_ref=resegment_lines(mic_lines),
                     )
                     groups.extend(sys_groups)
                     return groups, embeddings

@@ -15,6 +15,7 @@ class FakeEngine:
     def __init__(self):
         self._loaded = False
         self.calls = []
+        self.word_flags = []
 
     def is_loaded(self):
         return self._loaded
@@ -24,6 +25,7 @@ class FakeEngine:
 
     async def transcribe_file(self, path, *, word_timestamps=True, progress_cb=None):
         self.calls.append(path)
+        self.word_flags.append(word_timestamps)
         if progress_cb:
             progress_cb(5.0, 10.0)  # mid
             progress_cb(10.0, 10.0)  # end
@@ -176,3 +178,18 @@ def test_silent_system_track_skipped(tmp_path, monkeypatch):
         from app.models import Speaker
         labels = [sp.label for sp in s.exec(select(Speaker).where(Speaker.recording_id == rid)).all()]
         assert labels == ["You"]  # only the mic; silent system produced no speaker
+
+
+def test_every_track_requests_word_timestamps(tmp_path, monkeypatch):
+    # Segment-level times can span minutes of silence; the two tracks are interleaved by
+    # start time, so both (not just the diarized one) need word-accurate timing.
+    eng, rid = _setup(tmp_path)
+    monkeypatch.setattr(job_mod, "engine", eng)
+    monkeypatch.setattr(job_mod, "_is_silent", lambda p: False)
+    fake = FakeEngine()
+    proc = TranscriptionProcessor(fake, pipeline=None, diarizer=None)
+
+    asyncio.run(proc._process(rid))
+
+    assert len(fake.word_flags) == 2
+    assert all(fake.word_flags)
