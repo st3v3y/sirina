@@ -37,6 +37,37 @@ for pkg in ("faster_whisper", "ctranslate2", "av"):
 # default build ships without it; the engine chooser falls back to faster-whisper and
 # tells the user via `engine_note` (see app/transcribe/engine.py).
 BUNDLE_MLX = os.environ.get("SIRINA_BUNDLE_MLX", "0") == "1"
+# Speaker diarization (pyannote + torch) — OPT-IN via SIRINA_BUNDLE_DIARIZATION=1 (the
+# build script's --diarization flag). Adds torch/torchaudio/lightning/pyannote — several
+# hundred MB — so the default build ships without it; the app then reports
+# diarization_supported=false and the UI explains how to get a diarization build.
+BUNDLE_DIARIZATION = os.environ.get("SIRINA_BUNDLE_DIARIZATION", "0") == "1"
+
+if BUNDLE_DIARIZATION:
+    for pkg in (
+        "torch",
+        "torchaudio",
+        "lightning",
+        "lightning_fabric",
+        "pytorch_lightning",
+        "pyannote.audio",
+        "pyannote.core",
+        "pyannote.database",
+        "pyannote.metrics",
+        "pyannote.pipeline",
+        "asteroid_filterbanks",
+        "torch_audiomentations",
+        "torchmetrics",
+        "pytorch_metric_learning",
+    ):
+        try:
+            d, b, h = collect_all(pkg)
+        except Exception as e:  # a missing optional sub-package must not kill the build
+            print(f"backend.spec: skipping collect_all({pkg!r}): {e}")
+            continue
+        datas += d
+        binaries += b
+        hiddenimports += h
 
 if BUNDLE_MLX:
     # `mlx` ships the Metal kernel library (mlx/lib/mlx.metallib, ~150 MB) +
@@ -81,20 +112,28 @@ hiddenimports += ["sounddevice"]
 
 hiddenimports += collect_submodules("uvicorn") + ["app.main"]
 
-# Keep torch out: mlx_whisper.torch_whisper imports it but is never used (our path is
-# the MLX transcribe()), so excluding both keeps ~430 MB of Torch off the bundle.
 excludes = [
     "tkinter",
-    "matplotlib",
-    "torch",
-    "torchaudio",  # dead stub without torch; only the unused torch_whisper.py refs it
-    "mlx_whisper.torch_whisper",
+    "mlx_whisper.torch_whisper",  # unused torch path inside mlx_whisper
+    # NEVER bundle torchcodec: its wheel vendors an incompatible libpython3.12.dylib
+    # that displaces ours and crashes the frozen app at boot ("No module named _struct").
+    # pyannote only needs it for file-path decoding; the app feeds pyannote in-memory
+    # waveforms instead (app/processing/diarize.py::_load_waveform).
+    "torchcodec",
 ]
+if not BUNDLE_DIARIZATION:
+    # Keep torch out: mlx_whisper.torch_whisper imports it but is never used (our path is
+    # the MLX transcribe()), so excluding it keeps ~430 MB of Torch off the bundle.
+    # matplotlib is only a pyannote dependency — excluded alongside it.
+    excludes += ["torch", "torchaudio", "matplotlib"]
 if not BUNDLE_MLX:
     # Belt & braces: even though nothing collects them, a stray import edge must not
-    # drag the MLX chain (incl. numba→llvmlite ~110 MB and scipy ~36 MB — only the MLX
-    # resample path uses scipy at runtime) back into the default bundle.
-    excludes += ["mlx", "mlx_whisper", "tiktoken", "numba", "llvmlite", "scipy"]
+    # drag the MLX chain (incl. numba→llvmlite ~110 MB) back into the default bundle.
+    excludes += ["mlx", "mlx_whisper", "tiktoken", "numba", "llvmlite"]
+    if not BUNDLE_DIARIZATION:
+        # scipy is only used by the MLX resample path and by pyannote — droppable
+        # (~36 MB) only when BOTH are out.
+        excludes += ["scipy"]
 
 a = Analysis(
     [ENTRY],

@@ -6,7 +6,6 @@ entirely from this, so adding a field is a registry edit, not bespoke API/UI wor
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import logging
 import os
 import subprocess
@@ -54,12 +53,11 @@ class SettingsPatch(BaseModel):
 
 
 def _diarization_supported() -> bool:
-    # Cheap presence check (no heavy import). In the packaged app pyannote isn't bundled
-    # yet, so the diarization toggle is exposed but inert until that lands.
-    try:
-        return importlib.util.find_spec("pyannote.audio") is not None
-    except Exception:
-        return False
+    # Cheap presence check (no heavy import). The default packaged app excludes pyannote;
+    # a --diarization build includes it (see scripts/build-macos-app.sh).
+    from ..processing.diarize import pyannote_bundled
+
+    return pyannote_bundled()
 
 
 def _render(reload_required: bool = False) -> SettingsResponse:

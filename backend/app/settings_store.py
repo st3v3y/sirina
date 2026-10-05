@@ -103,6 +103,12 @@ FIELDS: list[FieldSpec] = [
              "recordings auto-link speakers whose voice similarity (0..1) is at least "
              "this. Lower = more matches (riskier). 0 disables.",
     ),
+    FieldSpec(
+        "echo_speaker_overlap", "Echo suppression", "diarization", "float",
+        help="Drop a detected speaker whose speech overlaps your mic speech by at least "
+             "this fraction (0..1) — that's your own voice echoing in the call audio. "
+             "0 disables.",
+    ),
     # --- Advanced ---
     FieldSpec("compress_audio", "Compress finished audio", "advanced", "bool",
               help="Convert WAV recordings to AAC (~10-15× smaller) after processing. "

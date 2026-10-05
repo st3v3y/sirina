@@ -26,15 +26,48 @@ class DiarizationResult:
     embeddings: dict[str, list[float]] = field(default_factory=dict)
 
 
+def _load_waveform(path: str) -> dict:
+    """Load a 16-bit PCM WAV as pyannote's in-memory input ({"waveform", "sample_rate"}).
+    Bypasses pyannote's torchcodec-based file decoder (unavailable in packaged builds)."""
+    import wave
+
+    import numpy as np
+    import torch
+
+    with wave.open(path, "rb") as wf:
+        sr = wf.getframerate()
+        channels = wf.getnchannels()
+        width = wf.getsampwidth()
+        raw = wf.readframes(wf.getnframes())
+    if width != 2:
+        raise RuntimeError(f"expected 16-bit PCM wav, got sample width {width}")
+    arr = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+    if channels > 1:
+        arr = arr.reshape(-1, channels).mean(axis=1)
+    return {"waveform": torch.from_numpy(arr).unsqueeze(0), "sample_rate": sr}
+
+
+def pyannote_bundled() -> bool:
+    """Whether pyannote.audio exists in this build at all. The packaged app excludes
+    it unless built with --diarization, and enabling the setting can't conjure it."""
+    try:
+        import importlib.util
+
+        return importlib.util.find_spec("pyannote.audio") is not None
+    except Exception:
+        return False
+
+
 class Diarizer:
     def __init__(self) -> None:
         self._pipeline = None
         self._loaded = False
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="diarize")
         self._lock = asyncio.Lock()
+        self._bundled = pyannote_bundled()
 
     def is_available(self) -> bool:
-        return bool(settings.diarization_enabled and settings.hf_token)
+        return bool(self._bundled and settings.diarization_enabled and settings.hf_token)
 
     def _ensure_loaded(self) -> None:
         if self._loaded:
@@ -75,14 +108,23 @@ class Diarizer:
     def _run(self, path: str) -> DiarizationResult:
         self._ensure_loaded()
         assert self._pipeline is not None
+        # Feed pyannote an in-memory waveform instead of a file path: path decoding goes
+        # through torchcodec, which vendors an incompatible libpython that breaks the
+        # frozen app (so backend.spec excludes it — see the comment there). Our tracks
+        # are plain PCM WAVs, trivially loaded with the stdlib.
+        try:
+            audio = _load_waveform(path)
+        except Exception:
+            log.debug("in-memory wav load failed for %s; passing the path", path, exc_info=True)
+            audio = path
         # Ask for per-speaker embeddings (the clustering centroids) so recurring people
         # can be recognised across recordings. Older/other pipelines may not accept the
         # kwarg — diarization itself must never fail because of it.
         raw_embeddings = None
         try:
-            result = self._pipeline(path, return_embeddings=True)
+            result = self._pipeline(audio, return_embeddings=True)
         except TypeError:
-            result = self._pipeline(path)
+            result = self._pipeline(audio)
         # pyannote 3.x with return_embeddings returns an (Annotation, ndarray) tuple;
         # 4.x returns a DiarizeOutput object.
         if isinstance(result, tuple) and len(result) == 2:

@@ -305,7 +305,10 @@ export default function Settings() {
 
                 {sec.id === "diarization" && !data.diarization_supported && (
                   <p className="text-xs text-warn-deep bg-warn/10 border border-warn/20 rounded-field px-3 py-2 mb-2">
-                    Not bundled in this build yet — these settings are saved but won't take effect.
+                    Speaker separation is NOT included in this build — these settings are saved but
+                    won't take effect. Rebuild the app with{" "}
+                    <code className="font-mono">./scripts/build-macos-app.sh --diarization</code> (or run
+                    from source) to enable it.
                   </p>
                 )}
 

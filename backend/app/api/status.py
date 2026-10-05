@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from ..config import settings
+from ..processing.diarize import pyannote_bundled
 from ..runtime import runtime
 
 router = APIRouter(prefix="/api", tags=["status"])
@@ -17,7 +18,10 @@ class StatusResponse(BaseModel):
     engine_note: str | None = None  # set when the choice fell back (e.g. mlx unavailable)
     llm_provider: str  # active LLM provider key
     llm_model: str  # active LLM model
-    diarization: bool  # enabled AND a token is configured (i.e. will actually run)
+    diarization: bool  # bundled AND enabled AND a token is configured (will actually run)
+    # Whether pyannote exists in this build at all. False in the default packaged app —
+    # the UI uses this to say "not in this build" instead of "turn it on in Settings".
+    diarization_supported: bool = True
 
 
 @router.get("/status", response_model=StatusResponse)
@@ -33,4 +37,5 @@ async def get_status() -> StatusResponse:
         llm_provider=settings.llm_provider,
         llm_model=settings.llm_model,
         diarization=bool(runtime.diarizer and runtime.diarizer.is_available()),
+        diarization_supported=pyannote_bundled(),
     )

@@ -7,11 +7,22 @@ Application Support directory. Run frozen: `./backend --host 127.0.0.1 --port 80
 from __future__ import annotations
 
 import argparse
+import faulthandler
+import signal
 
 import uvicorn
 
 
 def main() -> None:
+    # Crash/hang diagnostics for the frozen app (its stdout is captured to a log by the
+    # shell): fatal errors dump Python stacks, and `kill -USR1 <pid>` dumps the stacks
+    # of a live process — the only practical way to debug a wedge in a bundle.
+    faulthandler.enable()
+    try:
+        faulthandler.register(signal.SIGUSR1, all_threads=True)
+    except (AttributeError, ValueError):
+        pass  # not available on this platform
+
     parser = argparse.ArgumentParser(prog="backend")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)

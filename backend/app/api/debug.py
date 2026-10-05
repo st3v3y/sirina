@@ -37,6 +37,18 @@ def _load_wav_as_mono_16k(path: Path) -> np.ndarray:
     return pcm
 
 
+@router.get("/diarization-check")
+def diarization_check() -> dict[str, str | bool]:
+    """Deep import check for the packaged app: does the pyannote stack actually load in
+    this build (not just exist on disk)? Used to validate --diarization bundles."""
+    try:
+        from pyannote.audio import Pipeline  # noqa: F401  (heavy import — takes seconds)
+
+        return {"ok": True, "detail": "pyannote.audio imports cleanly"}
+    except Exception as e:
+        return {"ok": False, "detail": f"{type(e).__name__}: {e}"}
+
+
 @router.get("/transcribe-wav")
 async def transcribe_wav(path: str) -> dict[str, str]:
     p = Path(path).expanduser().resolve()

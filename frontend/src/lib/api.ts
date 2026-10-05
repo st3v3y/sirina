@@ -9,6 +9,7 @@ export type Status = {
   llm_provider: string;
   llm_model: string;
   diarization: boolean;
+  diarization_supported?: boolean; // false when pyannote isn't in this build at all
 };
 
 export type LlmProvider = {

@@ -76,6 +76,11 @@ class Settings(BaseSettings):
     # fingerprint is at least this similar (cosine, 0..1). Voiceprints are enrolled by
     # manually renaming a speaker to a person. 0 disables automatic matching.
     voice_match_threshold: float = 0.5
+    # Drop a diarized system-track speaker whose speech overlaps the mic ("You") speech
+    # by at least this fraction — that's the user's own voice echoing in the call audio,
+    # which otherwise shows up as a phantom extra speaker made of fragments the mic
+    # already captured properly. 0 disables echo suppression.
+    echo_speaker_overlap: float = 0.75
 
     db_path: str = "./data/transcripts.db"
 

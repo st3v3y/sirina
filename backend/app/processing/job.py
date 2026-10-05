@@ -102,6 +102,43 @@ def _prune_clusters(order: list[str], by_cluster: dict[str, list]) -> list[str]:
     return [c for c in order if c in kept]
 
 
+# A genuine participant can rack up overlap by backchanneling ("mm-hm") during the
+# user's monologues, so a cluster is only treated as echo when it is ALSO a small share
+# of the track — a real speaker's own contributions push them past this cap.
+_ECHO_MAX_SHARE = 0.25
+
+
+def _overlap_seconds(a: list[tuple[float, float]], b: list[tuple[float, float]]) -> float:
+    """Total seconds where intervals of (sorted) `a` overlap intervals of (sorted) `b`."""
+    total = 0.0
+    j = 0
+    for start, end in a:
+        while j < len(b) and b[j][1] <= start:
+            j += 1
+        k = j
+        while k < len(b) and b[k][0] < end:
+            total += max(0.0, min(end, b[k][1]) - max(start, b[k][0]))
+            k += 1
+    return total
+
+
+def _is_echo_cluster(lines: list, mic_lines: list, track_total: float) -> bool:
+    """True if this system-track cluster is the user's own echo: its speech coincides
+    almost entirely with the mic ("You") speech and it's a minor share of the track.
+    The echo consists of fragmentary duplicates of words the mic already captured."""
+    threshold = settings.echo_speaker_overlap
+    if threshold <= 0 or not mic_lines or not lines:
+        return False
+    duration = sum(max(0.0, ln.end - ln.start) for ln in lines)
+    if duration <= 0:
+        return False
+    if track_total > 0 and duration / track_total > _ECHO_MAX_SHARE:
+        return False
+    mine = sorted((ln.start, ln.end) for ln in lines)
+    mic = sorted((ln.start, ln.end) for ln in mic_lines)
+    return _overlap_seconds(mine, mic) / duration >= threshold
+
+
 class TranscriptionProcessor:
     def __init__(
         self,
@@ -362,6 +399,7 @@ class TranscriptionProcessor:
                     sys_groups, embeddings = await self._speaker_groups(
                         system_path, sys_lines, base_idx=1, single_label="Speaker 1", use_diar=True,  # type: ignore[arg-type]
                         recording_id=recording_id,
+                        echo_ref=mic_lines,  # suppress the user's own echo in the call audio
                     )
                     groups.extend(sys_groups)
                     return groups, embeddings
@@ -514,12 +552,14 @@ class TranscriptionProcessor:
         single_label: str,
         use_diar: bool,
         recording_id: int | None = None,
+        echo_ref: list | None = None,
     ) -> tuple[list[tuple[str, str, list]], dict[str, list[float]]]:
         """Return (label, color, lines) groups for a track plus a label -> voice-embedding
         map. With diarization enabled, split the track into Speaker 1..N by cluster;
-        otherwise a single group. Any diarization failure falls back to the single-group
-        baseline (and records a note on `recording_id` so the user learns why speakers
-        weren't separated)."""
+        otherwise a single group. Clusters that are just the user's echo (speech that
+        coincides with `echo_ref`, the mic lines) are dropped. Any diarization failure
+        falls back to the single-group baseline (and records a note on `recording_id`
+        so the user learns why speakers weren't separated)."""
         if not use_diar or not lines:
             return [(single_label, _color(base_idx), lines)], {}
         try:
@@ -547,6 +587,21 @@ class TranscriptionProcessor:
                 return _prune_clusters(order, by_cluster), by_cluster
 
             order, by_cluster = await asyncio.to_thread(_regroup)
+            if echo_ref:
+                track_total = sum(
+                    max(0.0, ln.end - ln.start) for c in order for ln in by_cluster[c]
+                )
+                kept = []
+                for c in order:
+                    if _is_echo_cluster(by_cluster[c], echo_ref, track_total):
+                        log.info(
+                            "dropping echo speaker on %s (%.0fs coinciding with the mic)",
+                            Path(path).name,
+                            sum(max(0.0, ln.end - ln.start) for ln in by_cluster[c]),
+                        )
+                    else:
+                        kept.append(c)
+                order = kept
             log.info("diarization split %s into %d speaker(s)", Path(path).name, len(order))
             groups = [
                 (f"Speaker {i + 1}", _color(base_idx + i), by_cluster[c])
@@ -561,11 +616,19 @@ class TranscriptionProcessor:
         except Exception as e:
             log.exception("diarization failed for %s; falling back to baseline split", Path(path).name)
             if recording_id is not None:
-                self._diar_note[recording_id] = (
-                    f"Speaker splitting couldn't run ({type(e).__name__}), so everyone else is "
-                    "shown as one speaker. Check your HuggingFace token and that you've accepted "
-                    "the pyannote model terms in Settings → Speaker diarization."
-                )
+                if isinstance(e, (ImportError, ModuleNotFoundError)):
+                    # Don't send the user chasing tokens — the module isn't in this build.
+                    self._diar_note[recording_id] = (
+                        "Speaker splitting isn't included in this build of the app, so everyone "
+                        "else is shown as one speaker. Rebuild with ./scripts/build-macos-app.sh "
+                        "--diarization (or run from source) to enable it."
+                    )
+                else:
+                    self._diar_note[recording_id] = (
+                        f"Speaker splitting couldn't run ({type(e).__name__}), so everyone else is "
+                        "shown as one speaker. Check your HuggingFace token and that you've accepted "
+                        "the pyannote model terms in Settings → Speaker diarization."
+                    )
             return [(single_label, _color(base_idx), lines)], {}
 
     def _match_speakers_to_people(self, recording_id: int) -> list[tuple[int, int]]:

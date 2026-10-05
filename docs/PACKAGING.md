@@ -85,11 +85,25 @@ available when running from source.
 
 Other notes:
 
-- **Diarization is not bundled** in either variant. `torch`/`pyannote` are excluded; if
-  `DIARIZATION_ENABLED=true` the frozen app can't import pyannote and gracefully falls back
-  to the baseline speaker split (and now tells the user why in a recording warning).
-  Uncomment `torch`/`pyannote`/`lightning_fabric` in `backend.spec` to include it
-  (adds hundreds of MB).
+- **`--diarization` (`./scripts/build-macos-app.sh --diarization`)** — bundles speaker
+  diarization (pyannote + torch + lightning; sets `SIRINA_BUNDLE_DIARIZATION=1`) —
+  verified: the frozen bundle (~755 MB backend) boots and `pyannote.audio` imports
+  cleanly. Without the flag the app reports `diarization_supported=false`: the Settings
+  section, the transcript hint, and the recording warning all say diarization isn't in
+  this build (instead of pretending the toggle works). Validate a diarization build via
+  `GET /api/_debug/diarization-check` (deep pyannote import). Combinable with `--mlx`.
+
+  Two hard-won bundle facts (leave these alone):
+  - **`torchcodec` must stay excluded** — its wheel vendors an incompatible
+    `libpython3.12.dylib` that displaces ours and crashes the frozen app at boot
+    (`No module named '_struct'`). The app feeds pyannote in-memory waveforms instead of
+    file paths, so torchcodec is never needed (`app/processing/diarize.py::_load_waveform`).
+  - A frozen binary that is **ad-hoc signed** (or signed with a new identity) triggers a
+    blocking macOS **Keychain authorization dialog** on startup when reading the app's
+    stored secrets (HF token). In a GUI session the user just clicks Allow; in headless
+    testing bypass it with `PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring`.
+    Diagnose any startup wedge with `kill -USR1 <pid>` — the entrypoint registers a
+    faulthandler stack dump.
 - **Cold start**: onedir (not onefile), so there is no per-launch extraction; models
   download to `APP_DATA_DIR/models` on first use. Models are never bundled.
 - Further size candidates spotted in the current bundle (verify the frozen app still boots

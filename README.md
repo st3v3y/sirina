@@ -125,6 +125,7 @@ All settings live in `backend/.env` (see `.env.example`). The interesting ones:
 | `DIARIZATION_ENABLED` | `false` | Split a track into multiple speakers (see below) |
 | `HF_TOKEN` | *(empty)* | HuggingFace read token, required when diarization is on |
 | `VOICE_MATCH_THRESHOLD` | `0.5` | Auto-recognise recurring people by voice fingerprint (cosine similarity 0..1); `0` disables |
+| `ECHO_SPEAKER_OVERLAP` | `0.75` | Drop a diarized speaker whose speech overlaps your mic speech by at least this fraction (your own echo in the call audio); `0` disables |
 | `COMPRESS_AUDIO` | `true` | Compress finished recordings from WAV to AAC (`.m4a`, ~10-15× smaller) via macOS `afconvert` |
 
 ## Speaker diarization (optional)

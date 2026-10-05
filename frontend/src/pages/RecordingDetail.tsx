@@ -193,6 +193,7 @@ export default function RecordingDetail() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [peopleNames, setPeopleNames] = useState<string[]>([]);
   const [diarOn, setDiarOn] = useState<boolean | null>(null);
+  const [diarSupported, setDiarSupported] = useState<boolean>(true);
   // Share the sidebar's tag list so a tag created here shows up there immediately.
   const { tags: allTags, reloadTags } = useShell();
   const [tab, setTab] = useState<Tab>("summary");
@@ -222,7 +223,10 @@ export default function RecordingDetail() {
 
   useEffect(() => {
     api.listPeople().then((p) => setPeopleNames(p.map((x) => x.name))).catch(() => {});
-    api.status().then((s) => setDiarOn(s.diarization)).catch(() => {});
+    api.status().then((s) => {
+      setDiarOn(s.diarization);
+      setDiarSupported(s.diarization_supported ?? true);
+    }).catch(() => {});
   }, [recordingId]);
 
   useEffect(() => {
@@ -636,13 +640,22 @@ export default function RecordingDetail() {
               <div className="px-7 pb-1 shrink-0">
                 <div className="flex items-center gap-2 text-[12px] text-muted bg-surface-2 border border-line-2 rounded-field px-3 py-1.5">
                   <Icon name="users" size={13} className="shrink-0" />
-                  <span>
-                    Everyone but you is grouped as one speaker. Turn on{" "}
-                    <Link to="/settings" className="text-ink-2 underline underline-offset-2 hover:text-ink">
-                      Speaker diarization
-                    </Link>{" "}
-                    (Settings) to split them into Speaker 1, 2, 3… then Re-process.
-                  </span>
+                  {diarSupported ? (
+                    <span>
+                      Everyone but you is grouped as one speaker. Turn on{" "}
+                      <Link to="/settings" className="text-ink-2 underline underline-offset-2 hover:text-ink">
+                        Speaker diarization
+                      </Link>{" "}
+                      (Settings) to split them into Speaker 1, 2, 3… then Re-process.
+                    </span>
+                  ) : (
+                    <span>
+                      Everyone but you is grouped as one speaker — this build of the app doesn't
+                      include speaker separation. Rebuild with{" "}
+                      <code className="font-mono text-[11px]">./scripts/build-macos-app.sh --diarization</code>{" "}
+                      (or run from source) to enable it.
+                    </span>
+                  )}
                 </div>
               </div>
             )}
