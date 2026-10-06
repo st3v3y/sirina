@@ -22,7 +22,7 @@ import sounddevice as sd
 from sqlmodel import Session
 
 from ..audio import system_capture
-from ..audio.local import find_device
+from ..audio.local import find_device, refresh_devices
 from ..audio.power import SleepBlocker
 from ..audio.trim import detect_trim, trim_wav_window
 from ..config import settings
@@ -45,6 +45,13 @@ MAX_SIDECAR_RESTARTS = 5
 RESTART_BASE_BACKOFF = 0.5  # seconds; doubles each attempt
 RESTART_MAX_BACKOFF = 8.0
 
+# PortAudio (mic / loopback-device) recovery: retry reopening until the recording stops,
+# backing off to this cap. A device that stalls again this soon after being reopened is
+# treated as unreliable and the mic switches to the default input instead.
+PA_REOPEN_BASE_BACKOFF = 1.0
+PA_REOPEN_MAX_BACKOFF = 10.0
+PA_REPEAT_STALL_S = 60.0
+
 # A source track ending shorter than the recording by more than this leaves a warning.
 SHORT_TRACK_ABS_S = 2.0
 SHORT_TRACK_FRACTION = 0.01
@@ -65,24 +72,60 @@ def _recordings_dir() -> Path:
     return base
 
 
+def _fmt_clock(seconds: float) -> str:
+    """Recording-relative time as m:ss (or h:mm:ss)."""
+    total = max(0, int(seconds))
+    h, rem = divmod(total, 3600)
+    m, sec = divmod(rem, 60)
+    return f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
+
+
+def _write_silence(wav: wave.Wave_write, frames: int) -> None:
+    """Append `frames` of digital silence, in bounded blocks (an outage can be minutes)."""
+    block = np.zeros(CAPTURE_SR * 10, dtype=np.int16).tobytes()
+    while frames > 0:
+        n = min(frames, CAPTURE_SR * 10)
+        wav.writeframes(block[: n * 2])
+        frames -= n
+
+
+def _gap_frames(anchor: float, frames: int, pending: int = 0) -> int:
+    """Frames of silence needed so a track that lost audio realigns with the wall clock:
+    the track should hold (now - anchor) seconds of audio, `pending` of which are about
+    to be written. Tracks share a common t=0, so a gap that isn't filled shifts every
+    later line of this track earlier than the other track's."""
+    return max(0, int((time.monotonic() - anchor) * CAPTURE_SR) - frames - pending)
+
+
 class _Track:
-    """One input device -> mono 16-bit PCM WAV writer, with a running input level."""
+    """One input device -> mono 16-bit PCM WAV writer, with a running input level.
+
+    PortAudio input doesn't recover on its own when its device drops out (a Bluetooth
+    headset disconnecting, an iPhone Continuity mic going away): callbacks simply stop.
+    The recording's watchdog then calls `_Active.recover_portaudio`, which reopens the
+    stream via `reopen()` — padding the outage with silence so the timeline stays aligned."""
 
     def __init__(self, name: str, device: int | None, path: Path) -> None:
         self.name = name
         self.device = device
+        self.device_name: str | None = None
         self.path = path
         self.level = 0.0
         self.frames = 0
-        self.restarts = 0  # PortAudio tracks don't auto-restart; kept for a uniform interface
+        self.restarts = 0  # successful reopens after a stall
         self.health = "healthy"  # healthy | stalled | stopped
         self.last_progress = time.monotonic()
+        self.anchor = time.monotonic()  # wall-clock time of this track's frame 0
+        self.events: list[str] = []  # user-facing notes (dropouts), surfaced on the recording
+        self.last_reopen_at: float | None = None
         self._wav: wave.Wave_write | None = None
         self._stream: sd.InputStream | None = None
+        self._lock = threading.Lock()  # serializes stream swaps against stop()
+        self._closed = False
 
     def on_stall(self) -> None:
-        """Called by the watchdog when this track stops producing data. PortAudio input
-        rarely recovers on its own; we just surface the state (no restart here)."""
+        """Watchdog hook. Recovery needs every PortAudio track (re-enumerating devices
+        tears down all streams), so it's driven by `_Active`, not here."""
 
     def _note_progress(self) -> None:
         self.last_progress = time.monotonic()
@@ -90,56 +133,99 @@ class _Track:
             self.health = "healthy"
             log.info("track '%s' recovered", self.name)
 
-    def start(self) -> None:
+    def _callback(self, indata: np.ndarray, frames: int, time_info, status) -> None:  # PortAudio thread
+        if status:
+            log.debug("portaudio status (%s): %s", self.name, status)
+        try:
+            if indata.ndim == 2 and indata.shape[1] > 1:
+                mono = indata.mean(axis=1)
+            else:
+                mono = indata[:, 0] if indata.ndim == 2 else indata
+            self.level = float(np.abs(mono).max())
+            pcm16 = np.clip(mono * 32767.0, -32768, 32767).astype(np.int16)
+            if self._wav is not None:
+                self._wav.writeframes(pcm16.tobytes())
+                self.frames += pcm16.size
+                self._note_progress()
+        except Exception:
+            log.exception("track %s write failed", self.name)
+
+    def _make_stream(self, device: int | None) -> tuple[sd.InputStream, str]:
         info = (
-            sd.query_devices(self.device, kind="input")
-            if self.device is not None
+            sd.query_devices(device, kind="input")
+            if device is not None
             else sd.query_devices(kind="input")
         )
         channels = max(1, min(2, int(info["max_input_channels"])))
+        stream = sd.InputStream(
+            device=device,
+            samplerate=CAPTURE_SR,
+            channels=channels,
+            dtype="float32",
+            blocksize=CAPTURE_SR // 50,  # ~20 ms
+            callback=self._callback,
+        )
+        return stream, str(info["name"])
 
+    def start(self) -> None:
         wav = wave.open(str(self.path), "wb")
         wav.setnchannels(1)
         wav.setsampwidth(2)
         wav.setframerate(CAPTURE_SR)
         self._wav = wav
+        stream, name = self._make_stream(self.device)
+        stream.start()
+        self.anchor = time.monotonic()
+        self._stream = stream
+        self.device_name = name
+        log.info("track '%s' capturing %s -> %s", self.name, name, self.path.name)
 
-        def callback(indata: np.ndarray, frames: int, time_info, status) -> None:  # PortAudio thread
-            if status:
-                log.debug("portaudio status (%s): %s", self.name, status)
-            try:
-                if indata.ndim == 2 and indata.shape[1] > 1:
-                    mono = indata.mean(axis=1)
-                else:
-                    mono = indata[:, 0] if indata.ndim == 2 else indata
-                self.level = float(np.abs(mono).max())
-                pcm16 = np.clip(mono * 32767.0, -32768, 32767).astype(np.int16)
-                if self._wav is not None:
-                    self._wav.writeframes(pcm16.tobytes())
-                    self.frames += pcm16.size
-                    self._note_progress()
-            except Exception:
-                log.exception("track %s write failed", self.name)
+    def close_stream(self) -> None:
+        """Tear down the (possibly dead) stream, keeping the WAV open for a reopen."""
+        with self._lock:
+            stream, self._stream = self._stream, None
+        if stream is not None:
+            for op in (stream.abort, stream.close):
+                try:
+                    op()
+                except Exception:
+                    log.debug("track %s stream %s failed", self.name, op.__name__, exc_info=True)
 
-        self._stream = sd.InputStream(
-            device=self.device,
-            samplerate=CAPTURE_SR,
-            channels=channels,
-            dtype="float32",
-            blocksize=CAPTURE_SR // 50,  # ~20 ms
-            callback=callback,
-        )
-        self._stream.start()
-        log.info("track '%s' capturing %s -> %s", self.name, info["name"], self.path.name)
+    def reopen(self, *, allow_fallback: bool, avoid_current: bool = False) -> str:
+        """Reopen capture after a dropout and return the device name now in use. Must run
+        after PortAudio was re-initialized (device indices change). Looks the original
+        device up by name; if it's gone (or `avoid_current`, because it keeps stalling)
+        and `allow_fallback`, uses the system default input instead. The outage is padded
+        with silence before the new stream starts. Raises when nothing could be opened."""
+        with self._lock:
+            if self._closed or self._wav is None:
+                raise RuntimeError("track closed")
+            device: int | None = None
+            found = False
+            if self.device_name and not avoid_current:
+                for i, d in enumerate(sd.query_devices()):
+                    if int(d.get("max_input_channels", 0) or 0) > 0 and d["name"] == self.device_name:
+                        device, found = i, True
+                        break
+            if not found and not allow_fallback:
+                raise RuntimeError(f"input device {self.device_name!r} is not available")
+            stream, name = self._make_stream(device)
+            pad = _gap_frames(self.anchor, self.frames)
+            if pad:
+                _write_silence(self._wav, pad)
+                self.frames += pad
+            stream.start()
+            self._stream = stream
+            self.device = device
+            self.device_name = name
+            self.restarts += 1
+            self.last_reopen_at = time.monotonic()
+            return name
 
     def stop(self) -> None:
-        if self._stream is not None:
-            try:
-                self._stream.stop()
-                self._stream.close()
-            except Exception:
-                log.exception("track %s stream close failed", self.name)
-            self._stream = None
+        with self._lock:
+            self._closed = True
+        self.close_stream()
         if self._wav is not None:
             try:
                 self._wav.close()
@@ -161,6 +247,8 @@ class _SidecarTrack:
         self.restarts = 0
         self.health = "healthy"  # healthy | stalled | stopped
         self.last_progress = time.monotonic()
+        self.anchor = time.monotonic()  # wall-clock time of this track's frame 0
+        self.events: list[str] = []  # user-facing notes (dropouts), surfaced on the recording
         self._wav: wave.Wave_write | None = None
         self._proc: subprocess.Popen | None = None
         self._proc_lock = threading.Lock()
@@ -174,6 +262,7 @@ class _SidecarTrack:
         wav.setframerate(CAPTURE_SR)
         self._wav = wav
         self._spawn()
+        self.anchor = time.monotonic()
         self._thread = threading.Thread(target=self._pump, name=f"sidecar-{self.name}", daemon=True)
         self._thread.start()
         log.info("track '%s' capturing native system audio -> %s", self.name, self.path.name)
@@ -244,6 +333,7 @@ class _SidecarTrack:
     def _pump(self) -> None:
         chunk = (CAPTURE_SR // 50) * 2  # ~20 ms of mono s16le bytes
         carry = b""  # a short pipe read can split a 16-bit sample across two reads
+        lost_at: float | None = None  # last audio before a restart; the gap is filled on resume
         while not self._stop.is_set():
             with self._proc_lock:
                 proc = self._proc
@@ -255,10 +345,12 @@ class _SidecarTrack:
                 data = b""
             if not data:
                 # Sidecar exited or its pipe closed (stop error, permission loss, kill).
+                if lost_at is None:
+                    lost_at = self.last_progress
                 if self._stop.is_set() or not self._restart():
                     break
                 carry = b""  # new process, new byte stream — a stale half-sample is garbage
-                continue  # restarted; keep appending to the same WAV (gap = recovery time)
+                continue  # restarted; keep appending to the same WAV (gap filled on resume)
             data = carry + data
             usable = len(data) - (len(data) % 2)
             carry = data[usable:]
@@ -270,6 +362,18 @@ class _SidecarTrack:
                 if arr.size:
                     self.level = float(np.abs(arr).max()) / 32768.0
                 if self._wav is not None:
+                    if lost_at is not None:
+                        # First audio after a restart: pad the outage with silence so later
+                        # system lines stay aligned with the mic track.
+                        pad = _gap_frames(self.anchor, self.frames, pending=arr.size)
+                        if pad:
+                            _write_silence(self._wav, pad)
+                            self.frames += pad
+                        self.events.append(
+                            f"System audio dropped out at {_fmt_clock(lost_at - self.anchor)} "
+                            f"for {time.monotonic() - lost_at:.0f} s (filled with silence)."
+                        )
+                        lost_at = None
                     self._wav.writeframes(data)
                     self.frames += arr.size
                     self.last_progress = time.monotonic()
@@ -314,6 +418,11 @@ class _Active:
         self.sleep_blocker = SleepBlocker()
         self._watch_stop = threading.Event()
         self._watch_thread: threading.Thread | None = None
+        self._recover_thread: threading.Thread | None = None
+        self._recover_lock = threading.Lock()
+        # track -> (last audio before the dropout, device it was on). Reported once the
+        # track is delivering again, so a reopen that needs several passes is one note.
+        self._outages: dict[_Track, tuple[float, str | None]] = {}
 
     def begin_monitoring(self) -> None:
         """Start the liveness watchdog and prevent idle sleep for this recording."""
@@ -338,15 +447,101 @@ class _Active:
                         "track '%s' stalled: no audio for %.1fs", t.name, now - t.last_progress
                     )
                     try:
-                        t.on_stall()
+                        if isinstance(t, _Track):
+                            self._start_recovery()
+                        else:
+                            t.on_stall()
                     except Exception:
                         log.exception("on_stall failed for track %s", t.name)
+
+    def _start_recovery(self) -> None:
+        with self._recover_lock:
+            if self._recover_thread is not None and self._recover_thread.is_alive():
+                return  # the running pass picks up every stalled PortAudio track
+            self._recover_thread = threading.Thread(
+                target=self.recover_portaudio, name=f"recover-{self.recording_id}", daemon=True
+            )
+            self._recover_thread.start()
+
+    def recover_portaudio(self) -> None:
+        """Bring stalled PortAudio tracks back, retrying with backoff until the recording
+        stops. A dropped device (Bluetooth headset, iPhone mic) may come back under a new
+        index, so PortAudio is re-initialized to see it — which tears down EVERY PortAudio
+        stream, so healthy PortAudio tracks are reopened too (their few ms are gap-filled).
+        The mic falls back to the default input when its device is gone: capturing the
+        user's voice on another mic beats losing the rest of the meeting."""
+        backoff = PA_REOPEN_BASE_BACKOFF
+        outages = self._outages
+        while not self._watch_stop.is_set():
+            pa_tracks = [t for t in self.tracks if isinstance(t, _Track)]
+            self._flush_outages()
+            stalled = [t for t in pa_tracks if t.health == "stalled"]
+            if not stalled:
+                return
+            for t in stalled:
+                outages.setdefault(t, (t.last_progress, t.device_name))
+            try:
+                for t in pa_tracks:
+                    t.close_stream()
+                refresh_devices()
+                for t in pa_tracks:
+                    if t.health == "stalled":
+                        continue
+                    try:
+                        t.reopen(allow_fallback=False)
+                    except Exception:
+                        # It will stall in turn and be retried by the next pass.
+                        log.warning("couldn't reopen healthy track '%s'", t.name, exc_info=True)
+                for t in stalled:
+                    # Reopened before and stalled again without delivering (or soon after):
+                    # that device is unreliable — the mic moves to the default input.
+                    repeat = t.last_reopen_at is not None and (
+                        t.last_progress <= t.last_reopen_at
+                        or t.last_progress - t.last_reopen_at < PA_REPEAT_STALL_S
+                    )
+                    is_mic = t.name == "mic"
+                    name = t.reopen(allow_fallback=is_mic, avoid_current=repeat and is_mic)
+                    log.warning(
+                        "track '%s' reopened on %s after %.1fs without audio",
+                        t.name, name, time.monotonic() - outages[t][0],
+                    )
+                backoff = PA_REOPEN_BASE_BACKOFF
+                # Give the reopened streams a moment to deliver before checking again.
+                if self._watch_stop.wait(STALL_SECONDS):
+                    return
+            except Exception:
+                log.warning(
+                    "reopening stalled audio input failed; retrying in %.0fs", backoff, exc_info=True
+                )
+                if self._watch_stop.wait(backoff):
+                    return
+                backoff = min(PA_REOPEN_MAX_BACKOFF, backoff * 2)
+
+    def _flush_outages(self) -> None:
+        """Turn dropouts of tracks that are delivering again into recording notes."""
+        for t, (lost_at, old) in list(self._outages.items()):
+            if t.health == "healthy":
+                del self._outages[t]
+                self._note_outage(t, lost_at, old)
+
+    @staticmethod
+    def _note_outage(t: "_Track", lost_at: float, old: str | None) -> None:
+        resumed = t.last_reopen_at or time.monotonic()
+        switched = f", continued on {t.device_name}" if t.device_name != old else ""
+        t.events.append(
+            f"{t.name.capitalize()} ({old}) dropped out at {_fmt_clock(lost_at - t.anchor)} "
+            f"for {max(0.0, resumed - lost_at):.0f} s{switched}; the gap is silent."
+        )
 
     def end_monitoring(self) -> None:
         self._watch_stop.set()
         if self._watch_thread is not None:
             self._watch_thread.join(timeout=2)
             self._watch_thread = None
+        if self._recover_thread is not None:
+            self._recover_thread.join(timeout=5)
+            self._recover_thread = None
+        self._flush_outages()  # a reconnect that landed just before stop is still reported
         self.sleep_blocker.release()
 
 
@@ -479,7 +674,10 @@ class Recorder:
         mic_path = active.dir / "mic.wav"
         system_path = active.dir / "system.wav"
         has_system = system_path.exists() and any(t.name == "system" for t in active.tracks)
-        warning = _incompleteness_warning(active.tracks, duration_s)
+        # Dropouts that were bridged (gap filled, maybe on another mic) and any shortfall
+        # that wasn't, so a partial track is never presented as complete.
+        notes = [e for t in active.tracks for e in t.events]
+        warning = " ".join(filter(None, [*notes, _incompleteness_warning(active.tracks, duration_s)])) or None
 
         if has_system:
             audio_path = active.dir / "mixed.wav"

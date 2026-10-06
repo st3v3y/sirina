@@ -20,6 +20,20 @@ While a recording is active, the system SHALL monitor each captured track for on
 - **WHEN** the microphone source stops delivering data mid-recording (e.g. the input device disconnects)
 - **THEN** the mic track is marked unhealthy and logged, and the recording continues with the remaining track(s)
 
+### Requirement: Dropped input is reopened and the gap kept aligned
+
+When a stalled input device track (mic or loopback device) can be reopened, the system SHALL resume capturing into the same track, retrying with backoff until the recording stops. The mic SHALL fall back to the system default input when its device is gone or keeps stalling; a loopback system track MUST NOT fall back to another input. Any outage (on any track, including a restarted native system-audio capture) SHALL be filled with silence so the track stays time-aligned with the others, and SHALL be noted on the recording.
+
+#### Scenario: Mic device disconnects and another input is available
+
+- **WHEN** the mic's device disappears mid-recording (e.g. Bluetooth earbuds disconnect) and a default input exists
+- **THEN** capture resumes on the default input, the outage is filled with silence, and the recording notes when the mic dropped, for how long, and which device it continued on
+
+#### Scenario: Mic device briefly glitches
+
+- **WHEN** the mic stops delivering but its device is still present
+- **THEN** capture is reopened on the same device and the gap is filled with silence
+
 ### Requirement: Track health surfaced to clients live
 
 The system SHALL expose per-track health for the active recording so clients can show the user, during recording, that a source has stopped delivering audio.
