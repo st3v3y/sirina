@@ -11,7 +11,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from ..config import settings
-from .whisper import ProgressCb, TLine, Word
+from .whisper import ProgressCb, TLine, Word, line_from, make_word
 
 log = logging.getLogger(__name__)
 
@@ -139,9 +139,9 @@ class MlxWhisperWorker:
                 wt = (w.get("word") or "").strip()
                 ws, we = w.get("start"), w.get("end")
                 if wt and ws is not None and we is not None:
-                    words.append((float(ws) + offset, float(we) + offset, wt))
+                    words.append(make_word(float(ws) + offset, float(we) + offset, wt))
             lines.append(
-                TLine(float(seg.get("start", 0.0)) + offset, float(seg.get("end", 0.0)) + offset, text, words)
+                line_from(float(seg.get("start", 0.0)) + offset, float(seg.get("end", 0.0)) + offset, text, words)
             )
         return lines
 

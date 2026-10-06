@@ -9,7 +9,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 from sqlalchemy import func
 from sqlmodel import Session, delete, select
 
@@ -35,6 +35,12 @@ class SpeakerOut(BaseModel):
     name: str  # resolved display name (Person name or label)
     person_id: int | None
     color: str | None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def is_self(self) -> bool:
+        """The app user (captured on the mic track); everyone else is on system/mixed."""
+        return self.label == SELF_LABEL
 
 
 class StartRequest(BaseModel):

@@ -51,6 +51,9 @@ RESTART_MAX_BACKOFF = 8.0
 PA_REOPEN_BASE_BACKOFF = 1.0
 PA_REOPEN_MAX_BACKOFF = 10.0
 PA_REPEAT_STALL_S = 60.0
+# Failed passes (~35 s of backoff) before a track that can't be reopened is given up on —
+# only when retrying keeps disturbing another healthy PortAudio track.
+PA_MAX_FAILED_PASSES = 6
 
 # A source track ending shorter than the recording by more than this leaves a warning.
 SHORT_TRACK_ABS_S = 2.0
@@ -118,6 +121,7 @@ class _Track:
         self.anchor = time.monotonic()  # wall-clock time of this track's frame 0
         self.events: list[str] = []  # user-facing notes (dropouts), surfaced on the recording
         self.last_reopen_at: float | None = None
+        self.failed_reopens = 0  # consecutive failed recovery passes
         self._wav: wave.Wave_write | None = None
         self._stream: sd.InputStream | None = None
         self._lock = threading.Lock()  # serializes stream swaps against stop()
@@ -125,7 +129,7 @@ class _Track:
 
     def on_stall(self) -> None:
         """Watchdog hook. Recovery needs every PortAudio track (re-enumerating devices
-        tears down all streams), so it's driven by `_Active`, not here."""
+        tears down all streams), so `_Active` drives it for any stalled `_Track`."""
 
     def _note_progress(self) -> None:
         self.last_progress = time.monotonic()
@@ -209,6 +213,21 @@ class _Track:
                         break
             if not found and not allow_fallback:
                 raise RuntimeError(f"input device {self.device_name!r} is not available")
+            if not found and avoid_current:
+                # The default input is often the very device that keeps stalling (macOS
+                # makes a connected headset the default) — pick another input then.
+                default = sd.query_devices(kind="input")
+                if default["name"] == self.device_name:
+                    device = next(
+                        (
+                            i for i, d in enumerate(sd.query_devices())
+                            if int(d.get("max_input_channels", 0) or 0) > 0
+                            and d["name"] != self.device_name
+                        ),
+                        None,
+                    )
+                    if device is None:
+                        raise RuntimeError(f"no input other than {self.device_name!r}")
             stream, name = self._make_stream(device)
             pad = _gap_frames(self.anchor, self.frames)
             if pad:
@@ -423,6 +442,7 @@ class _Active:
         # track -> (last audio before the dropout, device it was on). Reported once the
         # track is delivering again, so a reopen that needs several passes is one note.
         self._outages: dict[_Track, tuple[float, str | None]] = {}
+        self._outage_lock = threading.Lock()
 
     def begin_monitoring(self) -> None:
         """Start the liveness watchdog and prevent idle sleep for this recording."""
@@ -447,12 +467,13 @@ class _Active:
                         "track '%s' stalled: no audio for %.1fs", t.name, now - t.last_progress
                     )
                     try:
-                        if isinstance(t, _Track):
-                            self._start_recovery()
-                        else:
-                            t.on_stall()
+                        t.on_stall()
                     except Exception:
                         log.exception("on_stall failed for track %s", t.name)
+            # Checked every tick, not only on a fresh stall: a track that stalls while a
+            # recovery pass is finishing up would otherwise never be picked up again.
+            if any(isinstance(t, _Track) and t.health == "stalled" for t in self.tracks):
+                self._start_recovery()
 
     def _start_recovery(self) -> None:
         with self._recover_lock:
@@ -478,8 +499,9 @@ class _Active:
             stalled = [t for t in pa_tracks if t.health == "stalled"]
             if not stalled:
                 return
-            for t in stalled:
-                outages.setdefault(t, (t.last_progress, t.device_name))
+            with self._outage_lock:
+                for t in stalled:
+                    outages.setdefault(t, (t.last_progress, t.device_name))
             try:
                 for t in pa_tracks:
                     t.close_stream()
@@ -492,37 +514,56 @@ class _Active:
                     except Exception:
                         # It will stall in turn and be retried by the next pass.
                         log.warning("couldn't reopen healthy track '%s'", t.name, exc_info=True)
+                failed = False
                 for t in stalled:
                     # Reopened before and stalled again without delivering (or soon after):
-                    # that device is unreliable — the mic moves to the default input.
+                    # that device is unreliable — the mic moves to another input.
                     repeat = t.last_reopen_at is not None and (
                         t.last_progress <= t.last_reopen_at
                         or t.last_progress - t.last_reopen_at < PA_REPEAT_STALL_S
                     )
                     is_mic = t.name == "mic"
-                    name = t.reopen(allow_fallback=is_mic, avoid_current=repeat and is_mic)
+                    try:
+                        name = t.reopen(allow_fallback=is_mic, avoid_current=repeat and is_mic)
+                    except Exception:
+                        failed = True
+                        t.failed_reopens += 1
+                        log.warning("couldn't reopen track '%s'", t.name, exc_info=True)
+                        # Every pass tears down the other PortAudio tracks too. Once this one
+                        # looks permanently gone (e.g. a removed loopback device), stop
+                        # retrying rather than chopping a healthy mic every few seconds.
+                        others_live = any(o is not t and o.health == "healthy" for o in pa_tracks)
+                        if others_live and t.failed_reopens >= PA_MAX_FAILED_PASSES:
+                            t.health = "stopped"
+                            log.warning("giving up on track '%s'; it ends here", t.name)
+                        continue
+                    t.failed_reopens = 0
                     log.warning(
                         "track '%s' reopened on %s after %.1fs without audio",
                         t.name, name, time.monotonic() - outages[t][0],
                     )
+            except Exception:
+                failed = True
+                log.warning("re-initializing audio input failed", exc_info=True)
+            if failed:
+                log.info("retrying stalled audio input in %.0fs", backoff)
+                if self._watch_stop.wait(backoff):
+                    return
+                backoff = min(PA_REOPEN_MAX_BACKOFF, backoff * 2)
+            else:
                 backoff = PA_REOPEN_BASE_BACKOFF
                 # Give the reopened streams a moment to deliver before checking again.
                 if self._watch_stop.wait(STALL_SECONDS):
                     return
-            except Exception:
-                log.warning(
-                    "reopening stalled audio input failed; retrying in %.0fs", backoff, exc_info=True
-                )
-                if self._watch_stop.wait(backoff):
-                    return
-                backoff = min(PA_REOPEN_MAX_BACKOFF, backoff * 2)
 
     def _flush_outages(self) -> None:
-        """Turn dropouts of tracks that are delivering again into recording notes."""
-        for t, (lost_at, old) in list(self._outages.items()):
-            if t.health == "healthy":
-                del self._outages[t]
-                self._note_outage(t, lost_at, old)
+        """Turn dropouts of tracks that are delivering again into recording notes. Locked:
+        stop() flushes too, and may run while a slow reopen is still in progress."""
+        with self._outage_lock:
+            for t, (lost_at, old) in list(self._outages.items()):
+                if t.health == "healthy":
+                    del self._outages[t]
+                    self._note_outage(t, lost_at, old)
 
     @staticmethod
     def _note_outage(t: "_Track", lost_at: float, old: str | None) -> None:

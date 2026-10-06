@@ -34,10 +34,6 @@ _SENTENCE_SPLIT = re.compile(r"(?<=[.!?…])\s+")
 # plausible length from its start instead of spreading its sentences over the whole span.
 CHARS_PER_S = 15.0
 _IMPLAUSIBLE_FACTOR = 3.0
-# No real word takes longer than this. With VAD, a word straddling two speech chunks is
-# restored with its end in the later chunk — minutes after its start. Its start is the
-# reliable side; the end is clamped so the line doesn't claim minutes of silence.
-MAX_WORD_S = 2.0
 
 
 def _ends_sentence(text: str) -> bool:
@@ -48,14 +44,13 @@ def _split_with_words(ln: TLine) -> list[TLine]:
     """Split a line that has word timestamps at big pauses and sentence ends."""
     subs: list[TLine] = []
     cur: list[Word] = []
-    words = [(ws, min(we, ws + MAX_WORD_S), wt) for ws, we, wt in ln.words]
 
     def flush() -> None:
         if cur:
             text = " ".join(w[2] for w in cur).strip()
             subs.append(TLine(cur[0][0], cur[-1][1], text, list(cur)))
 
-    for w in words:
+    for w in ln.words:
         if cur:
             gap = w[0] - cur[-1][1]
             dur = cur[-1][1] - cur[0][0]

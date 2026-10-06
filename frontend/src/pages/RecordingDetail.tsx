@@ -192,21 +192,25 @@ function SpeakerMenu({
     setPlaying(null);
   }
 
-  // Close on outside click / Escape. Blur a focused rename field first so its onBlur
-  // still commits the edit (an unmounted input wouldn't fire it).
+  // Close on outside click / Escape. On outside click, blur a focused rename field first
+  // so its onBlur still commits the edit (an unmounted input wouldn't fire it).
   useEffect(() => {
     if (!open) return;
-    const close = () => {
+    const close = (cancelEdit: boolean) => {
       const el = document.activeElement;
-      if (el instanceof HTMLElement && rootRef.current?.contains(el)) el.blur();
+      if (el instanceof HTMLElement && rootRef.current?.contains(el)) {
+        // Escape abandons a half-typed rename: restore it so onBlur sees no change.
+        if (cancelEdit && el instanceof HTMLInputElement) el.value = el.defaultValue;
+        el.blur();
+      }
       stopSample();
       setOpen(false);
     };
     const onDown = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) close();
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) close(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
+      if (e.key === "Escape") close(true);
     };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
@@ -224,7 +228,7 @@ function SpeakerMenu({
   // "You" is on the mic track, everyone else on the system track; a single-track
   // recording only has the mixed file.
   function trackFor(sp: Speaker): "mixed" | "mic" | "system" | null {
-    const want = sp.label === "You" ? "mic" : "system";
+    const want = sp.is_self ? "mic" : "system";
     if (tracks.includes(want)) return want;
     return tracks.includes("mixed") ? "mixed" : null;
   }

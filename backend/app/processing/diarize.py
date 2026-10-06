@@ -26,25 +26,43 @@ class DiarizationResult:
     embeddings: dict[str, list[float]] = field(default_factory=dict)
 
 
+_DIAR_SR = 16_000  # pyannote's native rate
+
+
 def _load_waveform(path: str) -> dict:
     """Load a 16-bit PCM WAV as pyannote's in-memory input ({"waveform", "sample_rate"}).
-    Bypasses pyannote's torchcodec-based file decoder (unavailable in packaged builds)."""
+    Bypasses pyannote's torchcodec-based file decoder (unavailable in packaged builds).
+
+    Read in blocks and resampled to 16 kHz as we go: a multi-hour 48 kHz track held whole
+    as int16 + float32 (and resampled again inside pyannote) peaks at several GB."""
     import wave
+    from math import gcd
 
     import numpy as np
     import torch
+    from scipy.signal import resample_poly
 
+    parts: list[np.ndarray] = []
     with wave.open(path, "rb") as wf:
         sr = wf.getframerate()
         channels = wf.getnchannels()
-        width = wf.getsampwidth()
-        raw = wf.readframes(wf.getnframes())
-    if width != 2:
-        raise RuntimeError(f"expected 16-bit PCM wav, got sample width {width}")
-    arr = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
-    if channels > 1:
-        arr = arr.reshape(-1, channels).mean(axis=1)
-    return {"waveform": torch.from_numpy(arr).unsqueeze(0), "sample_rate": sr}
+        if wf.getsampwidth() != 2:
+            raise RuntimeError(f"expected 16-bit PCM wav, got sample width {wf.getsampwidth()}")
+        g = gcd(int(sr), _DIAR_SR)
+        up, down = _DIAR_SR // g, int(sr) // g
+        block = sr * 60  # one minute per block; boundary effects are inaudible to embeddings
+        while True:
+            raw = wf.readframes(block)
+            if not raw:
+                break
+            arr = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+            if channels > 1:
+                arr = arr.reshape(-1, channels).mean(axis=1)
+            if up != down:
+                arr = resample_poly(arr, up, down).astype(np.float32)
+            parts.append(arr)
+    audio = np.concatenate(parts) if parts else np.zeros(0, dtype=np.float32)
+    return {"waveform": torch.from_numpy(audio).unsqueeze(0), "sample_rate": _DIAR_SR}
 
 
 def pyannote_bundled() -> bool:
@@ -222,6 +240,7 @@ def diarize_lines(lines, turns: list[Turn]):
     with the same cluster are regrouped into a new line. Falls back to whole-line
     units when a line lacks word timestamps. Returns a list of (cluster, TLine)."""
     from ..transcribe.whisper import TLine  # local import avoids a cycle
+    from .segment import LONG_GAP_S
 
     # Flatten to (start, end, text) units, remembering which line each came from.
     units: list[tuple[float, float, str]] = []
@@ -245,7 +264,10 @@ def diarize_lines(lines, turns: list[Turn]):
             groups.append((cur_cluster, TLine(cur[0][0], cur[-1][1], text, list(cur))))
 
     for unit, cluster in zip(units, clusters):
-        if cluster != cur_cluster:
+        # Also break at a long silence: consecutive same-cluster words are often minutes
+        # apart (the user talked on the mic meanwhile), and a line spanning that gap
+        # inflates the cluster's duration and its overlap with the mic (echo detection).
+        if cluster != cur_cluster or (cur and unit[0] - cur[-1][1] >= LONG_GAP_S):
             flush()
             cur_cluster = cluster
             cur = [unit]

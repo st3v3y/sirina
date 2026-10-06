@@ -192,3 +192,57 @@ def test_sidecar_restart_fills_the_gap(tmp_path, monkeypatch):
     # that much silence is filled in, giving ~2.5 s.
     assert _wav_seconds(t.path) >= 2.4
     assert len(t.events) == 1 and "System audio dropped out" in t.events[0]
+
+
+def test_avoid_current_skips_a_default_that_is_the_dead_device(tmp_path, monkeypatch):
+    # macOS made the earbuds the default input; "use the default" would reopen them.
+    t, sd = _started_track(tmp_path, monkeypatch)
+    t.close_stream()
+    sd.default = 1  # earbuds are the default
+    assert t.reopen(allow_fallback=True, avoid_current=True) == "MacBook Pro Microphone"
+    t.stop()
+
+
+def test_missing_loopback_device_is_given_up_without_churning_the_mic(tmp_path, monkeypatch):
+    sd = FakeSD([SPEAKER, EARBUDS, BUILTIN, {"name": "BlackHole 2ch", "max_input_channels": 2}], default=2)
+    monkeypatch.setattr(rec_mod, "sd", sd)
+    monkeypatch.setattr(rec_mod, "refresh_devices", lambda: None)
+    monkeypatch.setattr(rec_mod, "STALL_SECONDS", 0.01)
+    monkeypatch.setattr(rec_mod, "PA_REOPEN_BASE_BACKOFF", 0.01)
+    monkeypatch.setattr(rec_mod, "PA_REOPEN_MAX_BACKOFF", 0.01)
+    mic = _Track("mic", 1, tmp_path / "mic.wav")
+    loop = _Track("system", 3, tmp_path / "system.wav")
+    mic.start()
+    loop.start()
+    sd.devices = sd.devices[:3]  # BlackHole removed
+    loop.health = "stalled"
+
+    active = _Active(1, tmp_path, time.monotonic())
+    active.tracks += [mic, loop]
+    worker = threading.Thread(target=active.recover_portaudio)
+    worker.start()
+    worker.join(timeout=5)
+    assert not worker.is_alive()  # gave up instead of retrying forever
+    active.end_monitoring()
+    mic.stop()
+    loop.stop()
+
+    assert loop.health == "stopped"
+    assert mic.health == "healthy"
+    assert loop.failed_reopens == rec_mod.PA_MAX_FAILED_PASSES
+
+
+def test_watchdog_restarts_recovery_for_a_track_left_stalled(tmp_path, monkeypatch):
+    t, sd = _started_track(tmp_path, monkeypatch)
+    monkeypatch.setattr(rec_mod, "WATCHDOG_INTERVAL", 0.01)
+    active = _Active(1, tmp_path, time.monotonic())
+    active.tracks.append(t)
+    started = threading.Event()
+    monkeypatch.setattr(active, "_start_recovery", started.set)
+    t.health = "stalled"  # already flagged earlier; no fresh stall will happen
+    monkeypatch.setattr(active.sleep_blocker, "acquire", lambda: None)
+    monkeypatch.setattr(active.sleep_blocker, "release", lambda: None)
+    active.begin_monitoring()
+    assert started.wait(2)
+    active.end_monitoring()
+    t.stop()

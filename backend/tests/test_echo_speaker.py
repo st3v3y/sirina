@@ -60,3 +60,42 @@ def test_stefans_meeting_shape(monkeypatch):
     real = _lines([(i * 100.0 + 55.0, i * 100.0 + 90.0) for i in range(20)])  # in the gaps
     assert _is_echo_cluster(echo, mic, track_total=4800.0) is True
     assert _is_echo_cluster(real, mic, track_total=4800.0) is False
+
+
+def test_rare_speaker_replying_across_your_monologue_is_not_echo(monkeypatch):
+    """Speaker A speaks at 100s, the user talks on the mic 101-400s, A replies at 400s.
+    A's two utterances are adjacent in the system track's word list; grouping them into
+    one 100-405s line made A look like it coincided with the mic → dropped as echo."""
+    from app.processing.diarize import diarize_lines
+
+    monkeypatch.setattr(settings, "echo_speaker_overlap", 0.75)
+    a_words = [(100.0, 100.5, "Question?"), (400.0, 400.5, "Thanks,"), (400.5, 401.0, "great.")]
+    b_words = [(float(t), t + 0.5, "blah") for t in range(1000, 2000, 2)]  # the main speaker
+    lines = [TLine(100.0, 401.0, "Question? Thanks, great.", a_words),
+             TLine(1000.0, 2000.0, "blah " * 500, b_words)]
+    turns = [(99.0, 402.0, "A"), (999.0, 2001.0, "B")]
+    a_lines = [ln for c, ln in diarize_lines(lines, turns) if c == "A"]
+    assert len(a_lines) == 2  # split at the silence, not one 100-401s line
+    mic = _lines([(101.0, 399.0)])
+    assert _is_echo_cluster(a_lines, mic, track_total=1000.0) is False
+
+
+def test_load_waveform_resamples_48k_to_16k(tmp_path):
+    import wave
+
+    import numpy as np
+
+    from app.processing.diarize import _load_waveform
+
+    path = tmp_path / "t.wav"
+    t = np.arange(48_000 * 3) / 48_000
+    pcm = (np.sin(2 * np.pi * 440 * t) * 16000).astype(np.int16)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(48_000)
+        w.writeframes(pcm.tobytes())
+    out = _load_waveform(str(path))
+    assert out["sample_rate"] == 16_000
+    assert tuple(out["waveform"].shape) == (1, 48_000)  # 3 s at 16 kHz
+    assert 0.4 < float(out["waveform"].abs().max()) < 0.6  # amplitude preserved (~0.49)

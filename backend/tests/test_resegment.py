@@ -73,9 +73,13 @@ def test_implausibly_long_span_without_words_is_clamped():
 
 def test_word_straddling_vad_chunks_is_clamped():
     # faster-whisper with VAD can restore a word's end into a later speech chunk, minutes
-    # after its start ("and luisa" came back as 2456.8–3096.1). Keep the start, clamp the end.
-    words = [(2456.5, 2456.8, "and"), (2456.8, 3096.1, "Luisa")]
-    ln = TLine(2456.5, 3096.1, "and Luisa", words)
+    # after its start ("and luisa" came back as 2456.8–3096.1). Keep the start, clamp the
+    # end at the source, and derive the line's bounds from its words.
+    from app.transcribe.whisper import line_from, make_word
+
+    words = [make_word(2456.5, 2456.8, "and"), make_word(2456.8, 3096.1, "Luisa")]
+    ln = line_from(2456.5, 3096.1, "and Luisa", words)
+    assert ln.end <= 2456.8 + 2.0
     out = resegment_lines([ln])
     assert len(out) == 1
     assert out[0].start == 2456.5

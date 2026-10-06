@@ -19,6 +19,24 @@ from collections.abc import Callable
 # One word with timing: (start_seconds, end_seconds, text)
 Word = tuple[float, float, str]
 
+# No real word takes longer than this. With VAD, a word straddling two speech chunks is
+# restored with its end in the later chunk — minutes after its start. Its start is the
+# reliable side; the end is clamped so nothing downstream (diarization, segmentation,
+# echo detection) sees a word claiming minutes of silence.
+MAX_WORD_S = 2.0
+
+
+def make_word(start: float, end: float, text: str) -> Word:
+    return (start, min(end, start + MAX_WORD_S), text)
+
+
+def line_from(start: float, end: float, text: str, words: list[Word]) -> "TLine":
+    """A TLine whose bounds come from its (sanitized) words when it has them — segment
+    times are coarser and can span silence."""
+    if words:
+        return TLine(words[0][0], words[-1][1], text, words)
+    return TLine(start, end, text, words)
+
 # Progress callback: (done_seconds, total_seconds). Called as transcription advances.
 ProgressCb = Callable[[float, float], None]
 
@@ -152,8 +170,8 @@ class FasterWhisperWorker:
             for w in (getattr(seg, "words", None) or []):
                 wt = (w.word or "").strip()
                 if wt and w.start is not None and w.end is not None:
-                    words.append((float(w.start), float(w.end), wt))
-            lines.append(TLine(float(seg.start), float(seg.end), text, words))
+                    words.append(make_word(float(w.start), float(w.end), wt))
+            lines.append(line_from(float(seg.start), float(seg.end), text, words))
         if progress_cb and total > 0:
             progress_cb(total, total)  # ensure we end at 100%
         detected = getattr(info, "language", None)

@@ -107,6 +107,7 @@ export type Speaker = {
   name: string; // resolved display name (Person name or label)
   person_id: number | null;
   color: string | null;
+  is_self?: boolean; // the app user, captured on the mic track
 };
 
 export type Person = {
