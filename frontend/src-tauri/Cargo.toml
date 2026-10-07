@@ -3,6 +3,8 @@ name = "sirina"
 version = "0.1.0"
 description = "Sirina — Tauri shell around the FastAPI backend"
 edition = "2021"
+license = "PolyForm-Noncommercial-1.0.0"
+repository = "https://github.com/st3v3y/sirina"
 rust-version = "1.77.2"
 
 [lib]

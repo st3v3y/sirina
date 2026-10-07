@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 def _env_files() -> list[str]:
     """Read .env from the cwd (dev) and from APP_DATA_DIR (the packaged app, which has
     no project .env) — the latter wins, so a user can drop a .env in
-    ~/Library/Application Support/<app>/ to set OLLAMA_MODEL, HF_TOKEN, etc."""
+    ~/Library/Application Support/<app>/ to set LLM_MODEL, WHISPER_LANGUAGE, etc."""
     files = [".env"]
     app_data = os.environ.get("APP_DATA_DIR", "")
     if app_data:
