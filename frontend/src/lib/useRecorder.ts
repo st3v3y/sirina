@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, type ActiveInfo, type AudioDevice } from "./api";
+import { api, type ActiveInfo, type AudioCapabilities, type AudioDevice } from "./api";
 
 const LS_MIC = "lastMicDevice";
 const LS_SYSTEM = "lastSystemDevice";
@@ -28,6 +28,10 @@ export function useRecorder() {
   const [device, setDevice] = useState("");
   const [systemDevice, setSystemDevice] = useState("");
   const [nativeAudio, setNativeAudio] = useState(false);
+  const [caps, setCaps] = useState<AudioCapabilities | null>(null);
+  // Per-recording speech options, pre-set from Settings each time the dialog opens.
+  const [liveTranscribe, setLiveTranscribe] = useState(false);
+  const [liveCaptions, setLiveCaptions] = useState(false);
   const [title, setTitle] = useState("");
   const [picking, setPicking] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -67,6 +71,20 @@ export function useRecorder() {
     api.getAudioCapabilities().then((c) => setNativeAudio(c.native_system_audio)).catch(() => {});
   }, [loadDevices]);
 
+  // Fresh defaults + availability whenever the dialog opens (Settings may have changed).
+  useEffect(() => {
+    if (!picking) return;
+    api
+      .getAudioCapabilities()
+      .then((c) => {
+        setCaps(c);
+        setNativeAudio(c.native_system_audio);
+        setLiveTranscribe(Boolean(c.live_transcribe_available && c.live_transcribe_default));
+        setLiveCaptions(Boolean(c.captions_available && c.live_captions_default));
+      })
+      .catch(() => {});
+  }, [picking]);
+
   // While the picker is open, poll for device changes (with backend re-enumeration) so a
   // just-connected mic appears without reopening the app.
   useEffect(() => {
@@ -88,12 +106,13 @@ export function useRecorder() {
       }
     };
     poll();
-    const t = setInterval(poll, 1000);
+    // Faster while captions are on, so they appear within about a second.
+    const t = setInterval(poll, active?.live_captions ? 500 : 1000);
     return () => {
       alive = false;
       clearInterval(t);
     };
-  }, []);
+  }, [active?.live_captions]);
 
   const openPicker = useCallback(() => {
     setError(null);
@@ -117,6 +136,8 @@ export function useRecorder() {
         device: device || undefined,
         system_device: nativeAudio ? undefined : systemDevice || undefined,
         system_source: systemSource,
+        live_transcribe: liveTranscribe,
+        live_captions: liveCaptions,
       });
       setPicking(false);
       setStarting(false);
@@ -126,10 +147,11 @@ export function useRecorder() {
       setError(String(e));
       setStarting(false);
     }
-  }, [device, systemDevice, nativeAudio, title, nav]);
+  }, [device, systemDevice, nativeAudio, title, nav, liveTranscribe, liveCaptions]);
 
   return {
     devices, device, setDevice, systemDevice, setSystemDevice, nativeAudio,
     title, setTitle, picking, openPicker, closePicker, confirmStart, starting, error, active,
+    caps, liveTranscribe, setLiveTranscribe, liveCaptions, setLiveCaptions,
   };
 }

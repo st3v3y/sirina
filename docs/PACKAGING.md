@@ -31,7 +31,7 @@ Recording permission it will consume.)
   `:8000` (unchanged). In the **packaged app**, Rust injects `window.__BACKEND_URL__ =
   http://127.0.0.1:<free-port>` before the UI loads, so every call targets the sidecar.
 - The backend honors **`APP_DATA_DIR`**: the SQLite DB, per-recording audio, and the
-  HuggingFace/whisper/pyannote model caches all live under it (the app sets it to
+  HuggingFace model caches (WhisperKit, SpeakerKit, faster-whisper) all live under it (the app sets it to
   `~/Library/Application Support/com.sirina.app`). In dev, `APP_DATA_DIR`
   is unset → everything stays in `backend/data/`.
 
@@ -67,52 +67,40 @@ There's no paid Apple Developer signing, so Gatekeeper blocks the app the first 
 Grant the **Microphone** prompt on first record. The app also expects a local **Ollama**
 (`http://localhost:11434`) for summaries/chat.
 
-## Bundle variants & app size
+## Speech helper & app size
 
-The backend bundle has two variants, chosen at build time:
+There is one bundle — no optional variants. Speech work runs in the native **`speech-engine`**
+helper (`native/speech-engine`, Swift, ~4 MB), bundled as a Tauri resource next to the backend
+and signed with the app's bundle identifier:
 
-- **Default (`./scripts/build-macos-app.sh`)** — transcription via **faster-whisper (CPU)**.
-  MLX and its dependency chain are excluded (`mlx` dylibs + two copies of the 150 MB Metal
-  kernel library + `numba`→`llvmlite` + `scipy` + `tiktoken` ≈ **480 MB**), leaving a
-  backend bundle of roughly **270 MB**. On Apple Silicon the engine chooser logs the
-  fallback and Settings shows an `engine_note`.
-- **`--mlx` (`./scripts/build-macos-app.sh --mlx`)** — bundles the Apple-GPU (MLX)
-  engine for faster transcription; sets `SIRINA_BUNDLE_MLX=1` for `backend.spec` and
-  `uv sync --extra mlx` first. Roughly triples the backend bundle.
+- **Transcription** — WhisperKit (Argmax OSS, MIT, pinned to 1.1.0) with
+  `large-v3-turbo` 626 MB on the Neural Engine. faster-whisper (CPU) stays in the backend
+  as the fallback when the helper can't run (Intel, macOS < 14, helper missing).
+- **Speaker splitting** — SpeakerKit (same package); no Hugging Face token needed.
+- **Draft transcript & live captions** — Apple's on-device `SpeechTranscriber` (macOS 26+).
 
-Dev is unaffected: `mlx-whisper` is in the dev dependency group, so `uv sync` keeps MLX
-available when running from source.
+`./native/speech-engine/build.sh` builds it and runs `smoke-test.sh` (model checks run when
+the models are in the app's cache); `scripts/build-macos-app.sh` calls it. The old
+`--mlx` / `--diarization` flags are accepted but ignored: MLX, pyannote, torch and scipy are no
+longer dependencies (`backend.spec` excludes them as a guard).
+
+Models are never bundled. They download on first use (or from **Settings → Speech models**,
+where unused ones can be deleted) into `APP_DATA_DIR/models/hf`. The first load of the
+WhisperKit model prepares it for the Neural Engine (a few minutes, once).
 
 Other notes:
 
-- **`--diarization` (`./scripts/build-macos-app.sh --diarization`)** — bundles speaker
-  diarization (pyannote + torch + lightning; sets `SIRINA_BUNDLE_DIARIZATION=1`) —
-  verified: the frozen bundle (~755 MB backend) boots and `pyannote.audio` imports
-  cleanly. Without the flag the app reports `diarization_supported=false`: the Settings
-  section, the transcript hint, and the recording warning all say diarization isn't in
-  this build (instead of pretending the toggle works). Validate a diarization build via
-  `GET /api/_debug/diarization-check` (deep pyannote import). Combinable with `--mlx`.
-
-  Two hard-won bundle facts (leave these alone):
-  - **`torchcodec` must stay excluded** — its wheel vendors an incompatible
-    `libpython3.12.dylib` that displaces ours and crashes the frozen app at boot
-    (`No module named '_struct'`). The app feeds pyannote in-memory waveforms instead of
-    file paths, so torchcodec is never needed (`app/processing/diarize.py::_load_waveform`).
-  - A frozen binary that is **ad-hoc signed** (or signed with a new identity) triggers a
-    blocking macOS **Keychain authorization dialog** on startup when reading the app's
-    stored secrets (HF token). In a GUI session the user just clicks Allow; in headless
-    testing bypass it with `PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring`.
-    Diagnose any startup wedge with `kill -USR1 <pid>` — the entrypoint registers a
-    faulthandler stack dump.
-- **Cold start**: onedir (not onefile), so there is no per-launch extraction; models
-  download to `APP_DATA_DIR/models` on first use. Models are never bundled.
-- Further size candidates spotted in the current bundle (verify the frozen app still boots
-  after excluding): `onnxruntime` (~62 MB, needed by faster-whisper's VAD — keep),
-  `grpc` (~19 MB), `sklearn` (~18 MB), `pandas` (~18 MB), `PIL` (~12 MB) — these look like
-  hook-dragged transitives; excluding them in `backend.spec` is worth an experiment.
-
-Recommended path: ship the default binary; offer the `--mlx` build to users who want
-Apple-GPU transcription speed.
+- A frozen binary that is **ad-hoc signed** (or signed with a new identity) triggers a
+  blocking macOS **Keychain authorization dialog** on startup when reading stored secrets.
+  In a GUI session the user just clicks Allow; in headless testing bypass it with
+  `PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring`. Diagnose any startup wedge with
+  `kill -USR1 <pid>` — the entrypoint registers a faulthandler stack dump.
+- `GET /api/_debug/diarization-check` reports whether this build can split speakers (helper +
+  SpeakerKit available).
+- **Cold start**: onedir (not onefile), so there is no per-launch extraction.
+- Further size candidates in the backend bundle (verify the frozen app still boots after
+  excluding): `onnxruntime` (~62 MB, needed by faster-whisper's VAD and the window cutter — keep),
+  `grpc` (~19 MB), `sklearn` (~18 MB), `pandas` (~18 MB), `PIL` (~12 MB).
 
 ## App icon (needed before `cargo tauri build`)
 

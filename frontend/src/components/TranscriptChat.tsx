@@ -114,9 +114,17 @@ const SegmentRow = memo(
             {name}
           </button>
         )}
-        <div className="text-[14.5px] leading-relaxed text-ink">
+        <div
+          className={`text-[14.5px] leading-relaxed ${seg.is_draft ? "text-muted" : "text-ink"}`}
+          title={seg.is_draft ? "Draft — being replaced by the final transcript" : undefined}
+        >
           <span className="text-muted text-[11px] font-mono mr-2">{ts(seg.start_ts)}</span>
           {seg.text}
+          {seg.is_draft && (
+            <span className="ml-2 align-middle text-[10px] uppercase tracking-wide text-label border border-line-2 rounded px-1 py-px">
+              draft
+            </span>
+          )}
         </div>
       </div>
     );
@@ -126,6 +134,7 @@ const SegmentRow = memo(
     prev.seg.text === next.seg.text &&
     prev.seg.start_ts === next.seg.start_ts &&
     prev.seg.speaker_id === next.seg.speaker_id &&
+    prev.seg.is_draft === next.seg.is_draft &&
     prev.name === next.name &&
     prev.color === next.color &&
     prev.canRename === next.canRename &&
@@ -173,11 +182,22 @@ export default function TranscriptChat({ items, speakers = {}, peopleNames = [],
   return (
     <div ref={ref} onScroll={onScroll} className="h-full overflow-y-auto px-7 py-5 space-y-4">
       {items.length === 0 && <p className="text-muted text-sm">No transcript yet.</p>}
-      {items.map((it) => {
+      {items.map((it, i) => {
         if (it.kind === "segment") {
           const seg = it.segment;
           const sp = seg.speaker_id != null ? speakers[seg.speaker_id] : undefined;
-          return (
+          const prev = i > 0 ? items[i - 1] : undefined;
+          // One divider where the final transcript ends and the draft begins; it moves
+          // down as each window turns final.
+          const boundary =
+            seg.is_draft && !(prev?.kind === "segment" && prev.segment.is_draft) ? (
+              <div key={`b-${seg.id}`} className="flex items-center gap-2 text-[11px] text-label pt-1">
+                <span className="h-px flex-1 bg-line-2" />
+                Draft below — the final transcript replaces it as processing continues
+                <span className="h-px flex-1 bg-line-2" />
+              </div>
+            ) : null;
+          return [boundary,
             <SegmentRow
               key={`s-${seg.id}`}
               seg={seg}
@@ -189,8 +209,8 @@ export default function TranscriptChat({ items, speakers = {}, peopleNames = [],
               onStartEdit={setEditing}
               onCommit={commit}
               onCancel={() => setEditing(null)}
-            />
-          );
+            />,
+          ];
         }
         const m = it.message;
         const isUser = m.role === "user";

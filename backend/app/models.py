@@ -27,6 +27,12 @@ class Recording(SQLModel, table=True):
     # long stretch of leading/trailing silence and is HELD awaiting the user's trim decision
     # (not yet enqueued for transcription). Cleared once they choose Trim or Keep.
     pending_trim: str | None = None
+    # Recording time (s) up to which the transcript is final; later lines may be drafts.
+    # Persisted so a job resumes after a restart instead of starting over.
+    final_until_s: float | None = None
+    # Per-recording choices made at start (defaults from Settings).
+    live_transcribe: bool = Field(default=False)
+    live_captions: bool = Field(default=False)
 
 
 class Person(SQLModel, table=True):
@@ -41,6 +47,8 @@ class Person(SQLModel, table=True):
     # automatic matches never feed back, so one wrong match can't drift the fingerprint.
     voiceprint: str | None = None
     voiceprint_n: int = Field(default=0)  # samples merged into the running mean
+    # Which embedding model produced the voiceprint; only same-model prints are compared.
+    voiceprint_model: str | None = None
 
 
 class Speaker(SQLModel, table=True):
@@ -55,6 +63,7 @@ class Speaker(SQLModel, table=True):
     # This speaker's diarization embedding (JSON float list), when diarization produced
     # one. Used to auto-link the speaker to a known Person by voiceprint similarity.
     embedding: str | None = None
+    embedding_model: str | None = None  # model that produced `embedding`
     # True once this speaker's embedding has been merged into a Person's voiceprint —
     # a repeated rename must not double-count the same sample in the running mean.
     enrolled: bool = Field(default=False)
@@ -67,6 +76,11 @@ class Segment(SQLModel, table=True):
     start_ts: float
     end_ts: float
     text: str
+    # Draft lines (fast on-device pass / captions) are replaced window by window by final ones.
+    is_draft: bool = Field(default=False, index=True)
+    # Final lines keep their word timings (JSON [[start, end, word], ...]) so speaker
+    # splitting can run later, in another process, without re-transcribing.
+    words: str | None = None
 
 
 class SummaryTemplate(SQLModel, table=True):

@@ -19,7 +19,7 @@
     "active": true,
     "targets": ["app"],
     "icon": ["icons/icon.icns"],
-    "resources": ["resources/system-audio-capture", "resources/backend"],
+    "resources": ["resources/system-audio-capture", "resources/speech-engine", "resources/backend"],
     "macOS": {
       "minimumSystemVersion": "13.0"
     }

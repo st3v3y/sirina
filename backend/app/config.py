@@ -28,22 +28,20 @@ class Settings(BaseSettings):
     whisper_initial_prompt: str = ""
     # Greedy (1) is fastest; higher trades speed for marginal accuracy.
     whisper_beam_size: int = 1
-    # 0 = auto (use all CPU cores). CTranslate2 is CPU-only on Apple Silicon.
+    # 0 = auto (one thread per performance core on Apple Silicon, else all cores).
     whisper_cpu_threads: int = 0
-    # Transcription engine: auto | faster-whisper | mlx. `auto` uses the Apple-GPU
-    # MLX engine on Apple Silicon when available, else faster-whisper (CPU).
+    # Transcription engine: auto | whisperkit | faster-whisper. `auto` uses WhisperKit
+    # (large-v3-turbo on the Neural Engine) on Apple Silicon, else faster-whisper (CPU).
     transcription_engine: str = "auto"
-    # Override the MLX model repo; empty maps whisper_model → mlx-community/whisper-<size>.
-    mlx_whisper_repo: str = ""
-    # Rough compute-seconds per audio-second, used to estimate a progress % for
-    # engines that don't stream progress (MLX) when chunking is off. Tune if the
-    # bar runs fast/slow.
-    transcribe_rt_factor: float = 0.4
-    # Window size (seconds) for chunked transcription on non-streaming engines
-    # (MLX): yields a real progress fraction. 0 disables chunking (single pass).
+    # Defaults for new recordings (changeable per recording in the start dialog):
+    # finalize the transcript during the call (WhisperKit only) / show live captions.
+    live_transcribe_default: bool = True
+    live_captions_default: bool = False
+    # Final transcript is produced in windows of about this many seconds, cut at a pause
+    # (both engines). 0 = one window for the whole recording.
     transcribe_chunk_seconds: int = 180
     # A track whose peak amplitude is below this (0..1) is treated as silent and
-    # skipped — MLX/Whisper hallucinates ("Thanks for watching.") on silence and
+    # skipped — Whisper hallucinates ("Thanks for watching.") on silence and
     # has no VAD. Real speech peaks far above this; 0 disables the gate.
     silence_peak_threshold: float = 0.005
 
@@ -59,6 +57,10 @@ class Settings(BaseSettings):
     # Approx. tokens of context the AI model can use; sizes how much transcript the
     # cross-recording chat sends. Match your model's (or Ollama's) configured window.
     llm_context_tokens: int = 8192
+    # Let "thinking" models (Qwen 3.x, DeepSeek-R1, …) reason before answering (Ollama only).
+    # Off by default: qwen3.5:9b spent 120 s and ~2,400 hidden tokens on a one-sentence
+    # summary with thinking on, 1.4 s with it off — and the answers were equally good.
+    llm_think: bool = False
 
     # After stopping, offer to trim leading/trailing silence when it totals at least this
     # many seconds (the "forgot to stop the recording" case). 0 disables the prompt.
@@ -70,12 +72,14 @@ class Settings(BaseSettings):
     compress_audio: bool = True
 
     diarization_enabled: bool = False
-    hf_token: str = ""  # HuggingFace read token (gates the one-time pyannote download)
-    diarization_model: str = "pyannote/speaker-diarization-community-1"
+    # When speakers are split: once after the recording (default) or also during it.
+    diarization_timing: str = "after_stop"
     # Auto-link a recording's diarized speakers to known People whose enrolled voice
     # fingerprint is at least this similar (cosine, 0..1). Voiceprints are enrolled by
     # manually renaming a speaker to a person. 0 disables automatic matching.
-    voice_match_threshold: float = 0.5
+    # Calibrated on SpeakerKit centroids (2026-10-06, one 2 h call, 5-min stretches): the
+    # same person scored 0.92-0.96 across stretches, different people 0.02-0.34.
+    voice_match_threshold: float = 0.6
     # Drop a diarized system-track speaker whose speech overlaps the mic ("You") speech
     # by at least this fraction — that's the user's own voice echoing in the call audio,
     # which otherwise shows up as a phantom extra speaker made of fragments the mic
@@ -87,6 +91,8 @@ class Settings(BaseSettings):
     # Path to the native macOS system-audio capture sidecar (set by the Tauri app).
     # Empty → fall back to a dev build path; absent → native capture unavailable.
     system_audio_sidecar: str = ""
+    # Path to the bundled speech helper (native/speech-engine); empty → dev build location.
+    speech_engine_helper: str = ""
 
     # Base directory for the DB, per-recording audio, and model caches. When set
     # (e.g. the packaged desktop app points it at ~/Library/Application Support/<app>),
@@ -122,7 +128,7 @@ settings = Settings()
 
 
 def configure_model_caches() -> None:
-    """Point HuggingFace model caches (used by faster-whisper, mlx-whisper, pyannote)
+    """Point HuggingFace model caches (faster-whisper, WhisperKit, SpeakerKit models)
     at the app data dir so the packaged app caches models outside its bundle. Respects
     an already-set HF_HOME. Safe to call once at startup, before any model import."""
     if not settings.app_data_dir:

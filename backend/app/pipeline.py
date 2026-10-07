@@ -125,10 +125,13 @@ class Pipeline:
         self.whisper = whisper
         self.llm = llm
 
-    def _transcript(self, session: Session, recording_id: int) -> str:
-        segs = session.exec(
-            select(Segment).where(Segment.recording_id == recording_id).order_by(Segment.start_ts)
-        ).all()
+    def _transcript(self, session: Session, recording_id: int, *, include_drafts: bool = False) -> str:
+        """Speaker-labelled transcript text. Summaries use final lines only; Q&A may include
+        not-yet-final draft lines, marked so the model treats them as rough."""
+        q = select(Segment).where(Segment.recording_id == recording_id)
+        if not include_drafts:
+            q = q.where(Segment.is_draft == False)  # noqa: E712
+        segs = session.exec(q.order_by(Segment.start_ts)).all()
         names = speaker_names(session, recording_id)
 
         def name(seg: Segment) -> str:
@@ -139,7 +142,15 @@ class Pipeline:
                 return got
             return f"Speaker {seg.speaker_id}" if seg.speaker_id is not None else "Speaker"
 
-        return "\n".join(f"{name(seg)}: {seg.text}" for seg in segs)
+        body = "\n".join(
+            f"{name(seg)}: {'[draft] ' if seg.is_draft else ''}{seg.text}" for seg in segs
+        )
+        if any(seg.is_draft for seg in segs):
+            body = (
+                "(Lines marked [draft] are a quick rough transcription that is still being "
+                "finalized — wording and names may be wrong.)\n" + body
+            )
+        return body
 
     def default_summary_template_id(self) -> int | None:
         with Session(engine) as s:
@@ -155,7 +166,7 @@ class Pipeline:
             if tmpl is None:
                 raise ValueError(f"summary template {template_id} not found")
             rec = s.get(Recording, recording_id)
-            transcript = self._transcript(s, recording_id)
+            transcript = self._transcript(s, recording_id)  # final lines only
             sections_def = list(tmpl.sections or [])
             general_context = (tmpl.general_context or "").strip()
             meta = {
@@ -224,7 +235,7 @@ class Pipeline:
             tmpl = s.get(PromptTemplate, tmpl_id)
             if tmpl is None:
                 raise ValueError("qa template not found")
-            transcript = self._transcript(s, recording_id)
+            transcript = self._transcript(s, recording_id, include_drafts=True)
             history = s.exec(
                 select(QAMessage)
                 .where(QAMessage.recording_id == recording_id)
@@ -272,7 +283,7 @@ class Pipeline:
             used = 0
             omitted = 0
             for rec in recs:
-                transcript = self._transcript(s, rec.id)  # type: ignore[arg-type]
+                transcript = self._transcript(s, rec.id, include_drafts=True)  # type: ignore[arg-type]
                 if not transcript.strip():
                     continue
                 title = rec.title or f"Recording {rec.id}"

@@ -48,6 +48,13 @@ pub fn run() {
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_default();
 
+            // The speech helper (WhisperKit/SpeakerKit/Apple speech) is bundled the same way.
+            let speech_bin = app
+                .path()
+                .resolve("resources/speech-engine", tauri::path::BaseDirectory::Resource)
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default();
+
             // The onedir backend lives at Contents/Resources/resources/backend/backend, with
             // its `_internal/` libs alongside (found relative to the exe — no re-extraction).
             let backend = app
@@ -63,6 +70,7 @@ pub fn run() {
             match Command::new(&backend)
                 .env("APP_DATA_DIR", &data_dir)
                 .env("SYSTEM_AUDIO_SIDECAR", &capture_bin)
+                .env("SPEECH_ENGINE_HELPER", &speech_bin)
                 .args(["--host", "127.0.0.1", "--port", &port.to_string()])
                 .spawn()
             {

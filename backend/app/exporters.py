@@ -28,7 +28,9 @@ def export_markdown(recording_id: int) -> str:
         if r is None:
             raise ValueError("recording not found")
         segs = s.exec(
-            select(Segment).where(Segment.recording_id == recording_id).order_by(Segment.start_ts)
+            select(Segment)
+            .where(Segment.recording_id == recording_id, Segment.is_draft == False)  # noqa: E712
+            .order_by(Segment.start_ts)
         ).all()
         sums = s.exec(
             select(Summary).where(Summary.recording_id == recording_id).order_by(Summary.created_at)
@@ -66,7 +68,9 @@ def export_text(recording_id: int) -> str:
         if r is None:
             raise ValueError("recording not found")
         segs = s.exec(
-            select(Segment).where(Segment.recording_id == recording_id).order_by(Segment.start_ts)
+            select(Segment)
+            .where(Segment.recording_id == recording_id, Segment.is_draft == False)  # noqa: E712
+            .order_by(Segment.start_ts)
         ).all()
         names = speaker_names(s, recording_id)
 

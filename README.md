@@ -1,15 +1,15 @@
 # Sirina
 
-Self-hosted **local meeting recorder**: records audio from an input device on your Mac, then — after you stop — transcribes the whole recording with [`faster-whisper`](https://github.com/SYSTRAN/faster-whisper) and offers summaries / Q&A via a local [Ollama](https://ollama.com) model. Operated through a local web app.
+Self-hosted **local meeting recorder**: records audio from an input device on your Mac and transcribes it on-device — [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift) `large-v3-turbo` on the Neural Engine (optionally while you record), with [`faster-whisper`](https://github.com/SYSTRAN/faster-whisper) as the CPU fallback — then offers summaries / Q&A via a local [Ollama](https://ollama.com) model. Operated through a local web app.
 
-All inference (Whisper + LLM) runs locally. Nothing is sent to a third-party API.
+All inference (speech + LLM) runs locally. Nothing is sent to a third-party API; models download once.
 
 > **Evolving toward v2** (Jamie-style): record now, transcribe after. Speaker detection, structured multi-section summaries, tags, and a packaged macOS app are on the roadmap — see [docs/V2-LOCAL-REDESIGN.md](docs/V2-LOCAL-REDESIGN.md) and [docs/V2-PRIORITIES.md](docs/V2-PRIORITIES.md). The Discord integration has been removed (Discord's DAVE voice encryption made it unworkable).
 
 ## What you get
 
-- **Record to disk** — recording runs no inference, so it stays light on CPU. Capture your mic and (optionally) system audio as separate tracks.
-- **High-quality transcription after stop** — whole-file faster-whisper with beam search + VAD, processed in the background. The recording goes `processing → ready`.
+- **Record to disk** — capture your mic and (optionally) system audio as separate tracks. Optional, per recording: **live captions** (Apple on-device speech, macOS 26+) and **transcription during the recording** (WhisperKit, mostly on the Neural Engine), both off the capture path.
+- **Fast transcription** — WhisperKit `large-v3-turbo` in ~3-minute windows cut at pauses; a quick on-device **draft** appears right after stop and is replaced window by window by the final text. Falls back to faster-whisper (CPU) where WhisperKit can't run. The recording goes `processing → ready`.
 - **Full summary** using a configurable prompt template, and **Q&A** grounded in the transcript.
 - **Recordings list** with detail view, export to `.md`/`.txt`, delete.
 - **Editable prompt templates** for summaries and Q&A.
@@ -17,17 +17,17 @@ All inference (Whisper + LLM) runs locally. Nothing is sent to a third-party API
 ## Architecture
 
 ```
-RECORD                              PROCESS (after stop)
-Local audio (mic + optional system) Recording (processing)
-  → sounddevice capture                → faster-whisper (whole file,
-  → mic.wav / system.wav / mixed.wav     beam + VAD + word timestamps)
-  → Recording (status: recording)      → Segments + language → status: ready
+RECORD                              PROCESS (windows; during and/or after the recording)
+Local audio (mic + optional system) draft (Apple on-device) → final windows
+  → sounddevice / ScreenCaptureKit     → speech-engine helper: WhisperKit (Neural Engine),
+  → mic.wav / system.wav / mixed.wav     SpeakerKit speakers, Apple captions/draft
+  → optional live captions             → Segments (draft → final) → status: ready
                                        → Ollama (summaries, Q&A) on demand
             ↓                                       ↓
                        SQLite  ←→  FastAPI  ←→  React SPA (Vite)
 ```
 
-One Python process hosts the recorder, the background transcription processor (single-flight, restart-safe), the whisper worker, and the FastAPI server. A React SPA on Vite talks to it.
+One Python process hosts the recorder, the background transcription processor (single-flight, restart-safe — it resumes after the last final window), and the FastAPI server. Speech runs in the native `speech-engine` Swift helper (`native/speech-engine`, build with its `build.sh`); faster-whisper stays in-process as the fallback. A React SPA on Vite talks to it.
 
 ## Requirements
 
@@ -64,7 +64,7 @@ cp backend/.env.example backend/.env
 
 This starts the backend on `:8000` and the frontend on `:5173` with prefixed, colour-coded output. Ctrl-C stops both. Override ports with `BACKEND_PORT=8001 FRONTEND_PORT=5174 ./dev.sh`.
 
-The first run will download the chosen Whisper model (small ≈ 480 MB, medium ≈ 1.5 GB, large-v3 ≈ 3 GB).
+Build the speech helper once with `./native/speech-engine/build.sh` (needs Xcode). The first transcription downloads the WhisperKit model (~630 MB) and prepares it for the Neural Engine (a few minutes, once); manage models under **Settings → Speech models**.
 
 Then open [http://localhost:5173](http://localhost:5173).
 
@@ -107,7 +107,7 @@ To capture your own mic *and* the call together, create an **Aggregate Device** 
 
 1. The status pill in the top-right should go green: **Ready**.
 2. On the dashboard, pick a **microphone** (and optionally a **system audio** device like BlackHole), a **label**, and an optional title.
-3. Click **● Start recording**. A timer and input-level meter show it's capturing — no transcript yet (transcription happens after you stop).
+3. Click **● Start recording** and choose, for this recording, whether to transcribe during the recording and show live captions (defaults are in Settings).
 4. Click **■ Stop**. The recording moves to **processing**; the detail view shows a "transcribing…" banner and auto-updates to **ready** when the transcript is in (a few seconds to a few minutes depending on length and model).
 5. On the detail page, generate a summary, ask questions grounded in the transcript, or download a `.md` / `.txt` export.
 
@@ -117,37 +117,30 @@ All settings live in `backend/.env` (see `.env.example`). The interesting ones:
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `WHISPER_MODEL` | `medium` | `tiny` / `base` / `small` / `medium` / `large-v3-turbo` / `large-v3`. Since transcription is offline, **`large-v3-turbo`** is a good quality/speed pick (first use downloads it). |
+| `TRANSCRIPTION_ENGINE` | `auto` | `auto` (WhisperKit on Apple Silicon, else faster-whisper) / `whisperkit` / `faster-whisper` |
+| `LIVE_TRANSCRIBE_DEFAULT` | `true` | Default for new recordings: finalize the transcript during the call (WhisperKit only) |
+| `LIVE_CAPTIONS_DEFAULT` | `false` | Default for new recordings: live captions (macOS 26+) |
+| `TRANSCRIBE_CHUNK_SECONDS` | `180` | Window length for the final transcript (cut at a pause) |
+| `WHISPER_MODEL` | `medium` | CPU fallback (faster-whisper) model only |
 | `WHISPER_COMPUTE_TYPE` | `int8` | `int8` or `int8_float16` are fastest on Apple Silicon |
 | `WHISPER_LANGUAGE` | *(auto)* | Set to e.g. `en` / `es` / `de` to skip language detection |
 | `WHISPER_INITIAL_PROMPT` | *(empty)* | Comma-separated vocabulary hints (e.g. `EcoHubs, Mediakular`) |
 | `OLLAMA_MODEL` | `llama3.1:8b-instruct` | any local Ollama model |
 | `DIARIZATION_ENABLED` | `false` | Split a track into multiple speakers (see below) |
-| `HF_TOKEN` | *(empty)* | HuggingFace read token, required when diarization is on |
-| `VOICE_MATCH_THRESHOLD` | `0.5` | Auto-recognise recurring people by voice fingerprint (cosine similarity 0..1); `0` disables |
+| `DIARIZATION_TIMING` | `after_stop` | `after_stop` or `during_recording` (also about every 10 min while recording) |
+| `VOICE_MATCH_THRESHOLD` | `0.6` | Auto-recognise recurring people by voice fingerprint (cosine similarity 0..1); `0` disables |
 | `ECHO_SPEAKER_OVERLAP` | `0.75` | Drop a diarized speaker whose speech overlaps your mic speech by at least this fraction (your own echo in the call audio); `0` disables |
 | `COMPRESS_AUDIO` | `true` | Compress finished recordings from WAV to AAC (`.m4a`, ~10-15× smaller) via macOS `afconvert` |
 
 ## Speaker diarization (optional)
 
-By default speakers are split by track: your mic is **"You"**, system audio is **"Others"** (and a single mic is one speaker). To break a track into individual people — e.g. several people on a call, or an in-room meeting through one mic — enable **diarization**, which uses [`pyannote.audio`](https://github.com/pyannote/pyannote-audio) locally.
+By default speakers are split by track: your mic is **"You"**, system audio is **"Others"** (and a single mic is one speaker). To break a track into individual people — e.g. several people on a call, or an in-room meeting through one mic — enable **diarization** (Settings → Speaker splitting). It uses [SpeakerKit](https://github.com/argmaxinc/argmax-oss-swift) in the speech helper, entirely on your Mac: no account or token, a ~60 MB model that downloads on first use, and about a minute for a 2-hour recording.
 
-It's **free and runs entirely on your machine** — the model is MIT-licensed; the HuggingFace token only gates the one-time model download. No per-meeting cost, no cap.
-
-One-time setup:
-
-1. Create a free account at [huggingface.co](https://huggingface.co).
-2. Accept the terms on the model page: [`pyannote/speaker-diarization-community-1`](https://huggingface.co/pyannote/speaker-diarization-community-1) (the model used by pyannote.audio 4.x).
-3. Create a **read** token at [hf.co/settings/tokens](https://hf.co/settings/tokens).
-4. In `backend/.env` set `DIARIZATION_ENABLED=true` and `HF_TOKEN=<your token>`, then restart.
-
-(The model is configurable via `DIARIZATION_MODEL` if you prefer a different pyannote pipeline.)
-
-When enabled, the mic track stays "You" and the other track is split into `Speaker 1`, `Speaker 2`, … which you can rename into People in the transcript. If the token is missing or diarization fails, it silently falls back to the track-based split — recordings always complete.
+When enabled, the mic track stays "You" and the other track is split into `Speaker 1`, `Speaker 2`, … which you can rename into People in the transcript. If speaker splitting fails, it falls back to the track-based split and notes why — recordings always complete.
 
 ### Voice fingerprints (recognising recurring people)
 
-Renaming a diarized speaker to a person enrolls that speaker's voice embedding as the person's **voice fingerprint** (People with one show a "Voice" badge). In later recordings, diarized speakers are automatically linked to the closest enrolled person when their voice similarity is at least `VOICE_MATCH_THRESHOLD`. Only manual renames update a fingerprint — an automatic match never feeds back, so a wrong match is fixed by simply renaming the speaker. The "You" speaker needs no fingerprint: your mic track is always you, and renaming "You" once (e.g. to your name) applies to every recording.
+Renaming a diarized speaker to a person enrolls that speaker's voice embedding as the person's **voice fingerprint** (People with one show a "Voice" badge). In later recordings, diarized speakers are automatically linked to the closest enrolled person when their voice similarity is at least `VOICE_MATCH_THRESHOLD`. Fingerprints are tagged with the model that made them; the switch from pyannote to SpeakerKit cleared the old ones, so people are re-learned from your next renames. Only manual renames update a fingerprint — an automatic match never feeds back, so a wrong match is fixed by simply renaming the speaker. The "You" speaker needs no fingerprint: your mic track is always you, and renaming "You" once (e.g. to your name) applies to every recording.
 
 ## Audio storage
 
@@ -168,7 +161,8 @@ Recording a meeting in many jurisdictions requires consent from all participants
 ## Project layout
 
 ```
-backend/   FastAPI + faster-whisper + Ollama (single local process)
+backend/   FastAPI + job/recorder + faster-whisper fallback + Ollama (single local process)
+native/    speech-engine (WhisperKit, SpeakerKit, Apple speech) and system-audio-capture helpers
 frontend/  Vite + React + Tailwind SPA
 docs/      v2 redesign + priorities
 data/      SQLite DB (gitignored)

@@ -1,7 +1,8 @@
 """Common transcription-engine interface and hardware-aware selection.
 
-Both `FasterWhisperWorker` (CPU, all platforms) and `MlxWhisperWorker` (Apple GPU)
-satisfy `TranscriptionEngine`, so the rest of the app is engine-agnostic.
+`WhisperKitEngine` (Apple Neural Engine via the speech helper, default on Apple Silicon)
+and `FasterWhisperWorker` (CPU, fallback everywhere) satisfy `TranscriptionEngine`, so the
+rest of the app is engine-agnostic. The job drives every engine window by window.
 """
 from __future__ import annotations
 
@@ -32,65 +33,68 @@ class TranscriptionEngine(Protocol):
         progress_cb: ProgressCb | None = None,
     ) -> tuple[list[TLine], str | None]: ...
 
+    async def transcribe_window(
+        self,
+        path: str,
+        start_s: float,
+        end_s: float | None,
+        *,
+        language: str | None = None,
+    ) -> tuple[list[TLine], str | None]:
+        """Transcribe `[start_s, end_s)` with word timestamps; times are absolute."""
+        ...
+
 
 def _apple_silicon() -> bool:
     return platform.system() == "Darwin" and platform.machine() == "arm64"
 
 
-def _mlx_available() -> bool:
+def _whisperkit_unavailable_reason() -> str | None:
+    """None when the WhisperKit helper can run here, else a user-facing reason."""
     if not _apple_silicon():
-        return False
-    # Actually import to confirm it LOADS — find_spec is too optimistic in a frozen app,
-    # where a partially-bundled mlx_whisper "exists" but fails to initialize. The import
-    # pulls native libs (mlx's Metal kernels, llvmlite via numba) that can fail to load in a
-    # codesigned .app even though they're present, so log the real reason — otherwise the
-    # silent fallback to faster-whisper is impossible to diagnose from the field log.
-    try:
-        import mlx_whisper  # noqa: F401
-    except Exception as e:
-        log.warning("mlx_whisper import failed (%s: %s); using faster-whisper", type(e).__name__, e)
-        log.debug("mlx_whisper import traceback", exc_info=True)
-        return False
-    return True
+        return "WhisperKit needs an Apple Silicon Mac — using faster-whisper (CPU)."
+    from .speech_helper import probe
+
+    caps = probe()
+    if not caps:
+        return "The speech helper isn't available in this build (or needs macOS 14+) — using faster-whisper (CPU)."
+    if not caps.get("whisperkit"):
+        return "The speech helper can't run WhisperKit here — using faster-whisper (CPU)."
+    return None
 
 
 def select_engine() -> TranscriptionEngine:
-    """Pick the transcription engine once, at startup.
+    """Pick the transcription engine once, at startup (or on an explicit reload).
 
-    `auto` (default) → MLX on Apple Silicon when importable, else faster-whisper.
-    An explicit `TRANSCRIPTION_ENGINE` overrides detection.
+    `auto` (default) and `whisperkit` → WhisperKit on Apple Silicon when the speech helper
+    runs (its model downloads on first load), else faster-whisper with the reason recorded
+    for Settings. A stored `mlx` value (no longer offered) is treated as `auto`.
     """
     choice = (settings.transcription_engine or "auto").strip().lower()
-
-    def _faster() -> TranscriptionEngine:
-        from .whisper import FasterWhisperWorker
-
-        return FasterWhisperWorker()
-
-    def _mlx() -> TranscriptionEngine:
-        from .mlx import MlxWhisperWorker
-
-        return MlxWhisperWorker()
+    if choice == "mlx":
+        log.info("TRANSCRIPTION_ENGINE=mlx is no longer supported; using auto")
+        choice = "auto"
 
     note: str | None = None
     if choice == "faster-whisper":
-        engine: TranscriptionEngine = _faster()
-    elif choice == "mlx":
-        if not _apple_silicon():
-            note = "MLX needs Apple Silicon — using faster-whisper (CPU)."
-            log.warning("TRANSCRIPTION_ENGINE=mlx but not on Apple Silicon; using faster-whisper")
-            engine = _faster()
-        elif not _mlx_available():
-            note = "MLX isn't bundled in this build — using faster-whisper (CPU)."
-            log.warning("TRANSCRIPTION_ENGINE=mlx but mlx_whisper is not importable; using faster-whisper")
-            engine = _faster()
+        from .whisper import FasterWhisperWorker
+
+        engine: TranscriptionEngine = FasterWhisperWorker()
+    else:
+        reason = _whisperkit_unavailable_reason()
+        if reason is None:
+            from .whisperkit import WhisperKitEngine
+
+            engine = WhisperKitEngine()
         else:
-            engine = _mlx()
-    else:  # auto
-        engine = _mlx() if _mlx_available() else _faster()
+            from .whisper import FasterWhisperWorker
+
+            note = reason
+            log.warning("WhisperKit unavailable (%s)", reason)
+            engine = FasterWhisperWorker()
 
     # Record (or clear) why the active engine may differ from the chosen one, so the
-    # Settings UI can explain a silent fallback instead of just showing faster-whisper.
+    # Settings UI can explain a fallback instead of just showing faster-whisper.
     try:
         from ..runtime import runtime
 

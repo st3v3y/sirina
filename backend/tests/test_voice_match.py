@@ -9,6 +9,7 @@ from app import voiceprints
 from app.api.recordings import SpeakerRenameRequest, rename_speaker
 from app.config import settings
 from app.models import Person, Recording, Speaker
+from app.processing.diarize import VOICEPRINT_MODEL
 from app.voiceprints import cosine_similarity, enroll, match_speakers
 
 
@@ -28,11 +29,12 @@ def _recording(session, **kw) -> Recording:
     return rec
 
 
-def _speaker(session, rec, label, embedding=None, person_id=None) -> Speaker:
+def _speaker(session, rec, label, embedding=None, person_id=None, model=VOICEPRINT_MODEL) -> Speaker:
     sp = Speaker(
         recording_id=rec.id,
         label=label,
         embedding=json.dumps(embedding) if embedding is not None else None,
+        embedding_model=model if embedding is not None else None,
         person_id=person_id,
     )
     session.add(sp)
@@ -41,11 +43,12 @@ def _speaker(session, rec, label, embedding=None, person_id=None) -> Speaker:
     return sp
 
 
-def _person(session, name, voiceprint=None, n=0, is_self=False) -> Person:
+def _person(session, name, voiceprint=None, n=0, is_self=False, model=VOICEPRINT_MODEL) -> Person:
     p = Person(
         name=name,
         voiceprint=json.dumps(voiceprint) if voiceprint is not None else None,
         voiceprint_n=n,
+        voiceprint_model=model if voiceprint is not None else None,
         is_self=is_self,
     )
     session.add(p)
@@ -70,6 +73,22 @@ def test_enroll_running_mean():
     enroll(p, [0.0, 1.0])
     assert json.loads(p.voiceprint) == [0.5, 0.5]
     assert p.voiceprint_n == 2
+
+
+def test_enroll_model_change_restarts():
+    # Same size, different embedding space (pyannote → SpeakerKit): never mixed.
+    p = Person(name="Alice", voiceprint=json.dumps([1.0, 0.0]), voiceprint_n=3, voiceprint_model="old")
+    enroll(p, [0.0, 1.0])
+    assert json.loads(p.voiceprint) == [0.0, 1.0] and p.voiceprint_n == 1
+    assert p.voiceprint_model == VOICEPRINT_MODEL
+
+
+def test_untagged_fingerprints_never_match(session, monkeypatch):
+    monkeypatch.setattr(settings, "voice_match_threshold", 0.5)
+    _person(session, "Old", voiceprint=[1.0, 0.0], n=2, model=None)
+    rec = _recording(session)
+    _speaker(session, rec, "Speaker 1", embedding=[1.0, 0.0])
+    assert match_speakers(session, rec.id) == []
 
 
 def test_enroll_dimension_change_restarts():

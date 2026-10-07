@@ -12,6 +12,8 @@ import { useShell } from "../components/Shell";
 
 const STAGE_LABEL: Record<string, string> = {
   queued: "Queued…",
+  preparing_model: "Preparing the speech model (first time only, a few minutes)…",
+  drafting: "Writing a quick draft…",
   transcribing: "Transcribing…",
   diarizing: "Identifying speakers…",
   summarizing: "Generating summary…",
@@ -722,6 +724,7 @@ export default function RecordingDetail() {
                 <div className="progress-indeterminate bg-warn/70" />
               )}
             </div>
+            {p?.power_note && <div className="mt-1.5 text-[11.5px] text-warn-deep/80">{p.power_note}</div>}
           </div>
         </div>
       )}
@@ -809,10 +812,9 @@ export default function RecordingDetail() {
                     </span>
                   ) : (
                     <span>
-                      Everyone but you is grouped as one speaker — this build of the app doesn't
-                      include speaker separation. Rebuild with{" "}
-                      <code className="font-mono text-[11px]">./scripts/build-macos-app.sh --diarization</code>{" "}
-                      (or run from source) to enable it.
+                      Everyone but you is grouped as one speaker — speaker separation needs the
+                      on-device speech helper, which isn't available on this Mac (macOS 14+ on
+                      Apple Silicon).
                     </span>
                   )}
                 </div>

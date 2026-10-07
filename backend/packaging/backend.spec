@@ -4,9 +4,8 @@
 #   uv run pyinstaller packaging/backend.spec --noconfirm
 #   -> dist/backend/  (onedir: backend + _internal/); test: ./dist/backend/backend --port 8000
 #
-# Models are NOT bundled — they download to APP_DATA_DIR/models on first run, as in dev.
-# The heavy optional packages (diarization, MLX) are commented out; get the minimal
-# binary booting first, then enable what you need.
+# Models are NOT bundled — they download to APP_DATA_DIR/models on first run (see the
+# model manager, app/speech_models.py).
 import os
 
 from PyInstaller.utils.hooks import collect_all, collect_submodules
@@ -31,109 +30,24 @@ for pkg in ("faster_whisper", "ctranslate2", "av"):
     binaries += b
     hiddenimports += h
 
-# Apple-GPU transcription (MLX) — OPT-IN via SIRINA_BUNDLE_MLX=1 (the build script's
-# --mlx flag). It roughly triples the backend bundle (~480 MB: mlx dylibs + two copies
-# of the 150 MB Metal kernel library + numba→llvmlite + scipy + tiktoken), so the
-# default build ships without it; the engine chooser falls back to faster-whisper and
-# tells the user via `engine_note` (see app/transcribe/engine.py).
-BUNDLE_MLX = os.environ.get("SIRINA_BUNDLE_MLX", "0") == "1"
-# Speaker diarization (pyannote + torch) — OPT-IN via SIRINA_BUNDLE_DIARIZATION=1 (the
-# build script's --diarization flag). Adds torch/torchaudio/lightning/pyannote — several
-# hundred MB — so the default build ships without it; the app then reports
-# diarization_supported=false and the UI explains how to get a diarization build.
-BUNDLE_DIARIZATION = os.environ.get("SIRINA_BUNDLE_DIARIZATION", "0") == "1"
-
-if BUNDLE_DIARIZATION:
-    for pkg in (
-        "torch",
-        "torchaudio",
-        "lightning",
-        "lightning_fabric",
-        "pytorch_lightning",
-        "pyannote.audio",
-        "pyannote.core",
-        "pyannote.database",
-        "pyannote.metrics",
-        "pyannote.pipeline",
-        "asteroid_filterbanks",
-        "torch_audiomentations",
-        "torchmetrics",
-        "pytorch_metric_learning",
-    ):
-        try:
-            d, b, h = collect_all(pkg)
-        except Exception as e:  # a missing optional sub-package must not kill the build
-            print(f"backend.spec: skipping collect_all({pkg!r}): {e}")
-            continue
-        datas += d
-        binaries += b
-        hiddenimports += h
-
-if BUNDLE_MLX:
-    # `mlx` ships the Metal kernel library (mlx/lib/mlx.metallib, ~150 MB) +
-    # libmlx.dylib that collect_all gathers. `mlx_whisper` is imported lazily by
-    # app/transcribe/mlx.py, so it must be named here for analysis to follow it; that
-    # import graph then drags in its real deps — numba (→ llvmlite), scipy
-    # (word-timestamp DTW in timing.py) and tiktoken — via their PyInstaller hooks.
-    # `torch` is NOT on the transcribe path (only the unused torch_whisper.py imports
-    # it), so it's excluded below to keep ~430 MB of CUDA/Torch out of the bundle.
-    for pkg in ("mlx", "mlx_whisper", "tiktoken"):
-        d, b, h = collect_all(pkg)
-        datas += d
-        binaries += b
-        hiddenimports += h
-
-    # mlx locates its Metal kernels (mlx.metallib) at runtime via dladdr — it looks for the
-    # file colocated with libmlx.dylib. PyInstaller ships libmlx.dylib at the package path
-    # (_internal/mlx/lib/) plus a symlink at _internal/ root. Tauri's resource bundler then
-    # DEREFERENCES that symlink into a real file at _internal/ root, so mlx ends up loaded from
-    # there and searches _internal/ for the metallib — where there isn't one — and falls back
-    # to faster-whisper ("Failed to load the default metallib"). Shipping a second copy of the
-    # metallib at the _internal/ root makes the colocated lookup succeed no matter which
-    # libmlx dyld picks. Costs ~150 MB; the alternative (un-dereferencing in the bundler) is
-    # brittler. See app/transcribe/engine.py for the symptom this prevents.
-    import importlib.util as _ilu  # noqa: E402
-
-    _mlx_spec = _ilu.find_spec("mlx")
-    if _mlx_spec and _mlx_spec.submodule_search_locations:
-        _mlx_dir = list(_mlx_spec.submodule_search_locations)[0]
-        _metallib = os.path.join(_mlx_dir, "lib", "mlx.metallib")
-        if os.path.exists(_metallib):
-            datas += [(_metallib, ".")]  # -> _internal/mlx.metallib (colocated with the root libmlx)
+# Speech work (WhisperKit transcription, SpeakerKit speaker splitting, Apple on-device
+# draft/captions) runs in the native `speech-engine` helper, bundled next to this backend
+# as a Tauri resource — so no torch / pyannote / MLX here. faster-whisper stays as the
+# CPU fallback engine.
 
 # sounddevice is a single module (not a package); its PortAudio dylib is handled by
 # PyInstaller's contrib hook. Just make sure it's imported.
 hiddenimports += ["sounddevice"]
 
-# Optional heavy extra — uncomment to bundle (adds hundreds of MB):
-#   - diarization: torch, pyannote, lightning_fabric, asteroid_filterbanks
-# for pkg in ("torch", "pyannote", "lightning_fabric"):
-#     d, b, h = collect_all(pkg); datas += d; binaries += b; hiddenimports += h
-
 hiddenimports += collect_submodules("uvicorn") + ["app.main"]
 
 excludes = [
     "tkinter",
-    "mlx_whisper.torch_whisper",  # unused torch path inside mlx_whisper
-    # NEVER bundle torchcodec: its wheel vendors an incompatible libpython3.12.dylib
-    # that displaces ours and crashes the frozen app at boot ("No module named _struct").
-    # pyannote only needs it for file-path decoding; the app feeds pyannote in-memory
-    # waveforms instead (app/processing/diarize.py::_load_waveform).
-    "torchcodec",
+    # Belt & braces: nothing imports these any more (speech work lives in the native
+    # helper), but a stray import edge must never drag hundreds of MB back in.
+    "torch", "torchaudio", "torchcodec", "matplotlib", "lightning", "pytorch_lightning",
+    "pyannote", "mlx", "mlx_whisper", "tiktoken", "numba", "llvmlite", "scipy",
 ]
-if not BUNDLE_DIARIZATION:
-    # Keep torch out: mlx_whisper.torch_whisper imports it but is never used (our path is
-    # the MLX transcribe()), so excluding it keeps ~430 MB of Torch off the bundle.
-    # matplotlib is only a pyannote dependency — excluded alongside it.
-    excludes += ["torch", "torchaudio", "matplotlib"]
-if not BUNDLE_MLX:
-    # Belt & braces: even though nothing collects them, a stray import edge must not
-    # drag the MLX chain (incl. numba→llvmlite ~110 MB) back into the default bundle.
-    excludes += ["mlx", "mlx_whisper", "tiktoken", "numba", "llvmlite"]
-    if not BUNDLE_DIARIZATION:
-        # scipy is only used by the MLX resample path and by pyannote — droppable
-        # (~36 MB) only when BOTH are out.
-        excludes += ["scipy"]
 
 a = Analysis(
     [ENTRY],

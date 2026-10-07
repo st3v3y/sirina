@@ -9,6 +9,7 @@ from __future__ import annotations
 import ctypes
 import logging
 import sys
+import threading
 
 log = logging.getLogger(__name__)
 
@@ -80,3 +81,91 @@ class SleepBlocker:
         finally:
             self._assertion_id = None
             self._iokit = None
+
+
+class PowerGuard:
+    """Process-wide idle-sleep guard shared by recordings and processing jobs.
+
+    Each holder is a key (e.g. ``("recording", 7)`` or ``("job", 7)``); the IOKit assertion
+    is held while at least one key is held. Keys make hold/release idempotent, so a job
+    released twice (or a recording stopped after a crash path) can't underflow the count.
+    Holding across the recording → processing handoff keeps a laptop from idle-sleeping
+    mid-transcription once the recording itself has stopped."""
+
+    def __init__(self, blocker: SleepBlocker | None = None) -> None:
+        self._blocker = blocker or SleepBlocker()
+        self._holders: set[tuple[str, int]] = set()
+        self._lock = threading.Lock()
+
+    def hold(self, key: tuple[str, int], reason: str = "Sirina is recording or transcribing") -> None:
+        with self._lock:
+            first = not self._holders
+            self._holders.add(key)
+            if first:
+                self._blocker.acquire(reason)
+
+    def release(self, key: tuple[str, int]) -> None:
+        with self._lock:
+            if key not in self._holders:
+                return
+            self._holders.discard(key)
+            if not self._holders:
+                self._blocker.release()
+
+    def holders(self) -> set[tuple[str, int]]:
+        with self._lock:
+            return set(self._holders)
+
+
+power_guard = PowerGuard()
+
+
+_POWER_TTL_S = 30.0
+_power_cache: tuple[float, dict] | None = None
+
+
+def _pmset(*args: str) -> str:
+    import subprocess
+
+    return subprocess.run(["pmset", *args], capture_output=True, text=True, timeout=5).stdout
+
+
+def parse_power_state(batt: str, settings_out: str) -> dict:
+    """Pure parser for `pmset -g batt` and `pmset -g` output → {on_battery, low_power}.
+    `pmset -g` lists the settings of the active power source, so its `lowpowermode`
+    line is the mode in effect right now."""
+    on_battery = "'Battery Power'" in batt
+    low_power = False
+    for line in settings_out.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] == "lowpowermode":
+            low_power = parts[1] == "1"
+    return {"on_battery": on_battery, "low_power": low_power}
+
+
+def power_state(now: float | None = None) -> dict:
+    """Current power source and Low Power Mode (macOS), cached for 30 s; all False
+    elsewhere or when pmset is unavailable."""
+    import time
+
+    global _power_cache
+    now = time.monotonic() if now is None else now
+    if _power_cache is not None and now - _power_cache[0] < _POWER_TTL_S:
+        return _power_cache[1]
+    state = {"on_battery": False, "low_power": False}
+    if sys.platform == "darwin":
+        try:
+            state = parse_power_state(_pmset("-g", "batt"), _pmset("-g"))
+        except Exception:
+            log.debug("pmset unavailable", exc_info=True)
+    _power_cache = (now, state)
+    return state
+
+
+def power_note(state: dict) -> str | None:
+    """User-facing explanation when the power state slows transcription, else None."""
+    if state.get("low_power"):
+        return "Low Power Mode is on, so transcription runs much slower. Plug in or turn it off to speed it up."
+    if state.get("on_battery"):
+        return "Running on battery. Transcription may be slower than when plugged in."
+    return None

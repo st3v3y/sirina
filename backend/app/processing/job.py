@@ -21,9 +21,11 @@ from ..models import Recording, Segment, Speaker
 from ..speakers import SELF_LABEL, get_or_create_self_person
 from ..transcribe.whisper import FasterWhisperWorker
 from ..voiceprints import match_speakers
+from ..audio.power import power_guard, power_note, power_state
 from .compress import compress_recording, restore_wavs
-from .diarize import Diarizer, diarize_lines
+from .diarize import VOICEPRINT_MODEL, Diarizer, diarize_lines
 from .segment import resegment_lines
+from .windows import Track, final_lines_by_label, finalize_range, insert_drafts, tracks_for
 
 if TYPE_CHECKING:
     from ..pipeline import Pipeline
@@ -42,7 +44,7 @@ def _color(i: int) -> str:
 def _is_silent(path: str) -> bool:
     """True if the track's peak amplitude is below the silence threshold. Used to skip
     transcribing empty tracks (e.g. a system/BlackHole capture with nothing playing),
-    which otherwise make MLX/Whisper hallucinate phrases on the silence."""
+    which otherwise make Whisper hallucinate phrases on the silence."""
     threshold = settings.silence_peak_threshold
     if threshold <= 0:
         return False
@@ -139,14 +141,47 @@ def _is_echo_cluster(lines: list, mic_lines: list, track_total: float) -> bool:
     return _overlap_seconds(mine, mic) / duration >= threshold
 
 
+def _tracks_duration(tracks: list[Track]) -> float:
+    """Longest track length in seconds (0 when unreadable)."""
+    from ..audio.wav import wav_duration_s
+
+    best = 0.0
+    for t in tracks:
+        try:
+            best = max(best, wav_duration_s(t.path))
+        except Exception:
+            log.debug("could not read duration of %s", t.path, exc_info=True)
+    return best
+
+
+def _has_drafts_after(recording_id: int, after_s: float) -> bool:
+    with Session(engine) as s:
+        return s.exec(
+            select(Segment.id).where(
+                Segment.recording_id == recording_id,
+                Segment.is_draft == True,  # noqa: E712
+                Segment.start_ts >= after_s,
+            )
+        ).first() is not None
+
+
 class TranscriptionProcessor:
     def __init__(
         self,
         whisper: FasterWhisperWorker,
         pipeline: "Pipeline | None" = None,
         diarizer: Diarizer | None = None,
+        drafter=None,
     ) -> None:
         self._whisper = whisper
+        # Optional fast on-device draft pass: async (path, start_s, end_s, language) -> [TLine].
+        self._drafter = drafter
+        # CPU engine used for a job when WhisperKit can't start or keeps failing.
+        self._fallback: FasterWhisperWorker | None = None
+        # Why this recording used another engine (surfaced like the diarization note).
+        self._engine_note: dict[int, str] = {}
+        # Recording time up to which the transcript is final (mirrors the DB column).
+        self._final_until: dict[int, float] = {}
         self._pipeline = pipeline
         self._diarizer = diarizer
         self._queue: asyncio.Queue[int] = asyncio.Queue()
@@ -189,7 +224,7 @@ class TranscriptionProcessor:
         elapsed = now - self._started.get(recording_id, now)
         fraction = e["fraction"]
         estimated = False
-        # Non-streaming engines (MLX): estimate a fraction from elapsed time vs an
+        # Engines without a measured fraction: estimate one from elapsed time vs an
         # estimate, capped below 1.0 so it never claims "done" early.
         if fraction is None and e.get("est_total"):
             est = e["est_total"]
@@ -201,6 +236,8 @@ class TranscriptionProcessor:
             "fraction": fraction,
             "elapsed_s": round(elapsed, 1),
             "estimated": estimated,
+            "power_note": power_note(power_state()),
+            "final_until_s": self._final_until.get(recording_id),
         }
 
     def _set_progress(
@@ -239,6 +276,7 @@ class TranscriptionProcessor:
             return
         self._pending.add(recording_id)
         self._set_progress(recording_id, "queued", None)
+        power_guard.hold(("job", recording_id))  # released when the job ends (see _run)
         await self._queue.put(recording_id)
 
     async def requeue_pending(self) -> None:
@@ -254,6 +292,7 @@ class TranscriptionProcessor:
             ).all()  # type: ignore[arg-type]
         for rid in ids:
             if rid is not None:
+                power_guard.hold(("job", rid))
                 await self._queue.put(rid)
         if ids:
             log.info("re-enqueued %d pending recording(s) for transcription", len(ids))
@@ -278,6 +317,9 @@ class TranscriptionProcessor:
                 self._cancel_diar.discard(recording_id)
                 self._cancel_processing.discard(recording_id)
                 self._diar_note.pop(recording_id, None)
+                self._engine_note.pop(recording_id, None)
+                self._final_until.pop(recording_id, None)
+                power_guard.release(("job", recording_id))
                 self._queue.task_done()
 
     async def _process(self, recording_id: int) -> None:
@@ -316,77 +358,74 @@ class TranscriptionProcessor:
             self._mark_failed(recording_id, "audio file missing")
             return
 
-        await self._whisper.load()
         two_track = bool(mic_path and system_path and Path(mic_path).exists() and Path(system_path).exists())
         use_diar = self._diarizer is not None and self._diarizer.is_available()
-        # Streaming engines (faster-whisper) report a real fraction via progress_cb.
-        # Non-streaming engines (MLX) get a time-based estimate from audio duration
-        # (×2 for two-track, since mic and system are each transcribed).
-        if getattr(self._whisper, "streams_progress", True):
-            self._set_progress(recording_id, "transcribing", None)
-        else:
-            mult = 2 if two_track else 1
-            est = duration_s * settings.transcribe_rt_factor * mult if duration_s > 0 else None
-            self._set_progress(recording_id, "transcribing", None, est_total=est)
+        engine_ = await self._ready_engine(recording_id)
         if settings.dev:
             log.debug(
                 "processing recording %d: engine=%s two_track=%s diar=%s duration=%.1fs",
-                recording_id, getattr(self._whisper, "name", "?"), two_track, use_diar, duration_s,
+                recording_id, getattr(engine_, "name", "?"), two_track, use_diar, duration_s,
             )
 
-        # 1) Transcribe (no diarization yet), skipping silent tracks. A silent track
-        #    (e.g. a system/BlackHole capture with nothing playing) would otherwise make
-        #    MLX/Whisper hallucinate captions ("Thanks for watching.") on the silence.
-        #    Word timestamps are always on: segment-level times are unreliable across
-        #    silence (with VAD a segment straddling removed silence maps back to a span
-        #    of many minutes), and the two tracks are interleaved purely by start time —
-        #    word times are what keep "who said what when" in the right order.
-        mic_lines: list = []
-        sys_lines: list = []
-        lines: list = []
-        language: str | None = None
-        if two_track:
-            todo = [
-                name
-                for name, path in (("mic", mic_path), ("system", system_path))
-                if not _is_silent(path)  # type: ignore[arg-type]
-            ]
-            if "mic" not in todo:
-                log.info("recording %d: mic track is silent — skipping", recording_id)
-            if "system" not in todo:
-                log.info("recording %d: system track is silent — skipping (no 'Others')", recording_id)
-            log.info("transcribing recording %d (two-track; %d non-silent)", recording_id, len(todo))
-            baseline = []
-            for i, name in enumerate(todo):
-                lo, hi = i / len(todo), (i + 1) / len(todo)
-                if name == "mic":
-                    mic_lines, lang = await self._whisper.transcribe_file(
-                        mic_path, word_timestamps=True, progress_cb=self._progress_cb(recording_id, lo, hi)  # type: ignore[arg-type]
-                    )
-                    language = language or lang
-                    baseline.append(("You", _color(0), mic_lines))
-                else:
-                    sys_lines, lang = await self._whisper.transcribe_file(
-                        system_path, word_timestamps=True, progress_cb=self._progress_cb(recording_id, lo, hi)  # type: ignore[arg-type]
-                    )
-                    language = language or lang
-                    baseline.append(("Speaker 1", _color(1), sys_lines))
-        elif _is_silent(audio_path):  # type: ignore[arg-type]
-            log.info("recording %d: single track is silent — no transcript", recording_id)
-            baseline = []
-        else:
-            log.info("transcribing recording %d (single track)", recording_id)
-            lines, language = await self._whisper.transcribe_file(
-                audio_path, word_timestamps=True, progress_cb=self._progress_cb(recording_id, 0.0, 1.0)
-            )
-            baseline = [("Speaker 1", _color(0), lines)]
+        # 1) Which tracks to transcribe. Silent tracks are skipped: a silent system/BlackHole
+        #    capture would otherwise make the model hallucinate captions on the silence.
+        tracks: list[Track] = []
+        all_tracks = tracks_for(mic_path, system_path, audio_path, _color) if two_track else tracks_for(None, None, audio_path, _color)
+        for t in all_tracks:
+            if _is_silent(t.path):
+                log.info("recording %d: %s track is silent — skipping", recording_id, t.name)
+            else:
+                tracks.append(t)
+        log.info("transcribing recording %d (%s; %d non-silent track(s))",
+                 recording_id, "two-track" if two_track else "single track", len(tracks))
 
-        # 2) Persist the baseline transcript immediately so it's visible while the
-        #    (slower) diarization and summary stages still run. Row-by-row insert of a
-        #    long transcript is blocking DB work — off the event loop.
-        total = await asyncio.to_thread(self._write_tracks, recording_id, baseline, language)
-        lines_present = total > 0
-        log.info("recording %d transcribed (%d segments, lang=%s)", recording_id, total, language)
+        total_s = _tracks_duration(tracks) or duration_s
+        with Session(engine) as s:
+            rec = s.get(Recording, recording_id)
+            start_from = float(rec.final_until_s or 0.0) if rec is not None else 0.0
+            language: str | None = rec.language if rec is not None and start_from > 0 else None
+        if start_from > 0:
+            log.info("recording %d: resuming after %.1fs already final", recording_id, start_from)
+            self._final_until[recording_id] = start_from
+
+        # 2) A fast on-device draft of whatever isn't final yet, so there is something to
+        #    read right away (skipped when captions already left drafts there).
+        if tracks and self._drafter is not None and start_from < total_s and not _has_drafts_after(recording_id, start_from):
+            self._set_progress(recording_id, "drafting", None)
+            await self._draft(recording_id, tracks, start_from, total_s)
+
+        # 3) Final transcript, window by window; each window replaces its draft lines.
+        def _on_window(b: float) -> None:
+            self._final_until[recording_id] = b
+            span = total_s - start_from
+            self._set_progress(recording_id, "transcribing", min(1.0, (b - start_from) / span) if span > 0 else 1.0)
+
+        self._set_progress(recording_id, "transcribing", 0.0)
+        language, _ = await finalize_range(
+            db_engine=engine,
+            recording_id=recording_id,
+            tracks=tracks,
+            from_s=start_from,
+            to_s=total_s,
+            target_s=float(settings.transcribe_chunk_seconds),
+            transcribe=self._transcribe_with_fallback(recording_id, engine_),
+            language=language or (settings.whisper_language or None),
+            should_stop=lambda: self._processing_cancelled(recording_id),
+            on_window=_on_window,
+        )
+
+        by_label = await asyncio.to_thread(final_lines_by_label, engine, recording_id)
+        # The other side may already be split into Speaker 1..N (speaker splitting during
+        # the recording); the final split always starts from all of its lines.
+        others = sorted(
+            (ln for label, ls in by_label.items() if label != "You" for ln in ls), key=lambda ln: ln.start
+        )
+        mic_lines = by_label.get("You", []) if two_track else []
+        sys_lines = others if two_track else []
+        lines = [] if two_track else others
+        lines_present = any(by_label.values())
+        log.info("recording %d transcribed (%d lines, lang=%s)", recording_id,
+                 sum(len(v) for v in by_label.values()), language)
 
         # 3) Diarization (optional): refine speakers and replace the baseline. Only when
         #    there's a non-silent system/single track to diarize. The user can cancel it;
@@ -467,7 +506,9 @@ class TranscriptionProcessor:
 
         self._set_progress(recording_id, "done", 1.0)
 
-        diar_note = self._diar_note.pop(recording_id, None)
+        diar_note = " ".join(
+            n for n in (self._engine_note.pop(recording_id, None), self._diar_note.pop(recording_id, None)) if n
+        ) or None
         with Session(engine) as s:
             rec = s.get(Recording, recording_id)
             if rec is not None:
@@ -480,6 +521,94 @@ class TranscriptionProcessor:
                 s.add(rec)
                 s.commit()
         log.info("recording %d ready", recording_id)
+
+    async def split_speakers_live(
+        self, recording_id: int, two_track: bool, mic_path: str | None, system_path: str | None
+    ) -> None:
+        """Speaker splitting during the recording (diarization_timing == "during_recording"):
+        split everything final so far and relabel it. Provisional — new windows keep landing
+        on "Speaker 1" until the next run, and the split after stop is authoritative."""
+        if self._diarizer is None or not self._diarizer.is_available():
+            return
+        by_label = await asyncio.to_thread(final_lines_by_label, engine, recording_id)
+        others = sorted((ln for lb, ls in by_label.items() if lb != "You" for ln in ls), key=lambda ln: ln.start)
+        if not others:
+            return
+        mic_lines = by_label.get("You", []) if two_track else []
+        path = system_path if two_track else (mic_path or system_path)
+        groups, embeddings = await self._speaker_groups(
+            path, others, base_idx=1 if two_track else 0, single_label="Speaker 1", use_diar=True,  # type: ignore[arg-type]
+            recording_id=recording_id, echo_ref=mic_lines or None,
+        )
+        if two_track and mic_lines:
+            groups = [("You", _color(0), mic_lines), *groups]
+        with Session(engine) as s:
+            rec = s.get(Recording, recording_id)
+            language = rec.language if rec else None
+        await asyncio.to_thread(self._write_tracks, recording_id, groups, language, embeddings=embeddings)
+        log.info("recording %d: speakers split during recording (%d groups)", recording_id, len(groups))
+
+    async def _ready_engine(self, recording_id: int):
+        """The loaded engine for this job. A WhisperKit model that can't be downloaded or
+        prepared falls back to the CPU engine for this job (with a note), instead of
+        failing the recording."""
+        eng = self._whisper
+        if eng.is_loaded():
+            return eng
+        is_wk = getattr(eng, "name", "") == "whisperkit"
+        if is_wk:
+            self._set_progress(recording_id, "preparing_model", None)
+        try:
+            await eng.load()
+            return eng
+        except Exception as e:
+            if not is_wk:
+                raise
+            log.exception("WhisperKit unavailable for recording %d; using the CPU engine", recording_id)
+            self._engine_note[recording_id] = (
+                f"The fast transcription model couldn't be prepared ({type(e).__name__}), so this "
+                "recording used the slower CPU engine. Check Settings → Speech models."
+            )
+            return await self._cpu_fallback()
+
+    async def _cpu_fallback(self) -> FasterWhisperWorker:
+        if self._fallback is None:
+            self._fallback = FasterWhisperWorker()
+        await self._fallback.load()
+        return self._fallback
+
+    def _transcribe_with_fallback(self, recording_id: int, eng):
+        """`transcribe_window` that switches to the CPU engine for the remaining windows if
+        the speech helper fails twice in a row (it already restarts itself once)."""
+        from ..transcribe.speech_helper import HelperError
+
+        state = {"engine": eng}
+
+        async def transcribe(path: str, start_s: float, end_s: float | None, *, language: str | None = None):
+            try:
+                return await state["engine"].transcribe_window(path, start_s, end_s, language=language)
+            except HelperError as e:
+                if state["engine"] is not eng or getattr(eng, "name", "") != "whisperkit":
+                    raise
+                log.warning("speech helper failed on recording %d (%s); CPU engine for the rest", recording_id, e)
+                self._engine_note[recording_id] = (
+                    "The fast transcription engine stopped working mid-way, so the rest of this "
+                    "recording used the slower CPU engine."
+                )
+                state["engine"] = await self._cpu_fallback()
+                return await state["engine"].transcribe_window(path, start_s, end_s, language=language)
+
+        return transcribe
+
+    async def _draft(self, recording_id: int, tracks: list[Track], from_s: float, to_s: float) -> None:
+        """Best-effort fast draft of [from_s, to_s) for every track; never fails the job."""
+        lang = settings.whisper_language or None
+        for track in tracks:
+            try:
+                lines = await self._drafter(track.path, from_s, to_s, lang)
+                await asyncio.to_thread(insert_drafts, engine, recording_id, [(track, lines)], from_s)
+            except Exception:
+                log.warning("draft pass failed for %s of recording %d", track.name, recording_id, exc_info=True)
 
     def _write_tracks(
         self,
@@ -503,6 +632,7 @@ class TranscriptionProcessor:
                     label=speaker_label,
                     color=color,
                     embedding=json.dumps(embedding) if embedding else None,
+                    embedding_model=VOICEPRINT_MODEL if embedding else None,
                 )
                 # Bind the mic ("You") speaker to the singleton self-Person so the app user
                 # shows up in People and a rename of "You" propagates everywhere.
@@ -522,6 +652,8 @@ class TranscriptionProcessor:
                             start_ts=line.start,
                             end_ts=line.end,
                             text=line.text,
+                            words=json.dumps([[round(a, 3), round(b, 3), t] for (a, b, t) in line.words])
+                            if line.words else None,
                         )
                     )
                     total += 1
@@ -572,7 +704,7 @@ class TranscriptionProcessor:
             assert self._diarizer is not None
             result = await self._diarizer.diarize(path)
             # Test doubles may return a bare turn list; the real Diarizer returns a
-            # DiarizationResult with per-cluster embeddings.
+            # DiarizationResult with per-cluster embeddings (SpeakerKit centroids).
             turns = getattr(result, "turns", result)
             cluster_embeddings: dict[str, list[float]] = getattr(result, "embeddings", {}) or {}
             if not turns:
@@ -622,19 +754,11 @@ class TranscriptionProcessor:
         except Exception as e:
             log.exception("diarization failed for %s; falling back to baseline split", Path(path).name)
             if recording_id is not None:
-                if isinstance(e, (ImportError, ModuleNotFoundError)):
-                    # Don't send the user chasing tokens — the module isn't in this build.
-                    self._diar_note[recording_id] = (
-                        "Speaker splitting isn't included in this build of the app, so everyone "
-                        "else is shown as one speaker. Rebuild with ./scripts/build-macos-app.sh "
-                        "--diarization (or run from source) to enable it."
-                    )
-                else:
-                    self._diar_note[recording_id] = (
-                        f"Speaker splitting couldn't run ({type(e).__name__}), so everyone else is "
-                        "shown as one speaker. Check your HuggingFace token and that you've accepted "
-                        "the pyannote model terms in Settings → Speaker diarization."
-                    )
+                self._diar_note[recording_id] = (
+                    f"Speaker splitting couldn't run ({type(e).__name__}), so everyone else is "
+                    "shown as one speaker. Check Settings → Speech models (the speaker model "
+                    "downloads on first use) and Re-process to try again."
+                )
             return [(single_label, _color(base_idx), lines)], {}
 
     def _match_speakers_to_people(self, recording_id: int) -> list[tuple[int, int]]:

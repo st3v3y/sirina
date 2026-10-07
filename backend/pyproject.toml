@@ -1,7 +1,7 @@
 [project]
 name = "sirina"
 version = "0.1.0"
-description = "Local meeting transcriber with faster-whisper and Ollama summaries"
+description = "Local meeting transcriber (WhisperKit / faster-whisper) with local AI summaries"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi>=0.115",
@@ -11,24 +11,10 @@ dependencies = [
     "python-dotenv>=1.0",
     "faster-whisper>=1.1.0",
     "numpy>=1.26,<2.3",
-    "scipy>=1.13",
-    "torch>=2.4",
-    # 4.x is required for compatibility with the installed torchaudio; it uses the
-    # pyannote/speaker-diarization-community-1 model (configurable via DIARIZATION_MODEL).
-    "pyannote.audio>=4",
     "ollama>=0.4",
     "httpx>=0.27",
     "sounddevice>=0.5",
     "keyring>=25.7.0",
-]
-
-[project.optional-dependencies]
-# Apple-GPU transcription (MLX). Opt-in: it adds ~480 MB to the packaged app
-# (mlx + Metal kernels + numba/llvmlite), so the default build ships without it
-# and falls back to faster-whisper. Install with `uv sync --extra mlx`; bundle it
-# with `./scripts/build-macos-app.sh --mlx`.
-mlx = [
-    "mlx-whisper>=0.4; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 
 [build-system]
@@ -43,7 +29,4 @@ dev = [
     "pyinstaller>=6.21.0",
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
-    # Dev machines keep MLX by default (the dev group installs with `uv sync`),
-    # so `TRANSCRIPTION_ENGINE=auto` behaves in dev exactly as an --mlx build does.
-    "mlx-whisper>=0.4; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
