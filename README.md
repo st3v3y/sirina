@@ -210,6 +210,7 @@ frontend/           React + Vite + Tailwind UI
 frontend/src-tauri/ Tauri 2 desktop shell (Rust)
 native/             Swift helpers: speech-engine, system-audio-capture
 scripts/            build-macos-app.sh
+site/               landing page (Astro, deployed on Vercel)
 docs/               packaging and design notes
 openspec/           specs and change proposals
 ```

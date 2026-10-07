@@ -1,0 +1,56 @@
+---
+import Icon from "./Icon.astro";
+import { site, downloadUrl } from "../config";
+---
+
+<section id="source" class="wrap source">
+  <div class="panel">
+    <div class="glow" aria-hidden="true"></div>
+    <div class="grid">
+      <div>
+        <img src="/logo.svg" alt="" width="56" height="56" />
+        <h2>Source available. Read every line.</h2>
+        <p>
+          Sirina's source is public under the <a href={site.licenseUrl}>PolyForm Noncommercial License 1.0.0</a>
+          — free for personal, research, educational and non-profit use. Audit it, build it, improve it.
+        </p>
+        <div class="ctas">
+          <a href={site.githubUrl} class="btn btn--light big"><Icon name="github" size={17} />View on GitHub</a>
+          <a href={downloadUrl} class="btn big outline">{site.hasRelease ? "Download beta" : "Build instructions"}</a>
+          <a href={site.coffeeUrl} class="btn btn--coffee big"><Icon name="coffee" />Buy me a coffee</a>
+        </div>
+      </div>
+      <div class="term" aria-label="Build from source">
+        <div class="term-bar"><span></span><span></span><span></span><em>terminal</em></div>
+        <pre><span class="p">$</span> git clone {site.githubUrl}
+<span class="p">$</span> cd sirina
+<span class="p">$</span> ollama pull llama3.1:8b-instruct
+<span class="p">$</span> ./scripts/build-macos-app.sh
+<span class="ok">✓ speech-engine smoke test passed</span>
+<span class="ok">✓ Sirina.app built · runs 100% local</span></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .source { padding-top: 64px; padding-bottom: 112px; }
+  .panel { position: relative; overflow: hidden; border-radius: 24px; border: 1px solid var(--line-3); background: linear-gradient(160deg, var(--surface-2), var(--surface) 60%); padding: clamp(28px, 5vw, 64px); }
+  .glow { position: absolute; right: -120px; top: -120px; width: 420px; height: 420px; background: radial-gradient(closest-side, rgba(214,73,47,0.18), rgba(214,73,47,0)); pointer-events: none; }
+  .grid { position: relative; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 40px; align-items: center; }
+  img { display: block; margin-bottom: 24px; }
+  h2 { font-family: var(--serif); font-weight: 500; font-size: clamp(32px, 4vw, 50px); line-height: 1.05; letter-spacing: -0.02em; margin: 0 0 16px; }
+  p { font-size: 16px; line-height: 1.65; color: var(--muted); margin: 0 0 28px; max-width: 480px; }
+  p a { font-weight: 600; }
+  .ctas { display: flex; gap: 12px; flex-wrap: wrap; }
+  .big { height: 48px; padding: 0 20px; font-size: 15px; }
+  .outline { border: 1px solid var(--line-3); color: var(--ink); }
+  .outline:hover { border-color: var(--line-4); }
+  .term { border-radius: 14px; background: var(--bg); border: 1px solid var(--line); overflow: hidden; font-family: var(--mono); font-size: 13.5px; line-height: 1.9; min-width: 0; }
+  .term-bar { display: flex; align-items: center; gap: 7px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .term-bar span { width: 10px; height: 10px; border-radius: 50%; background: #3a342b; }
+  .term-bar em { flex: 1; text-align: center; font-size: 11.5px; color: var(--dim-3); font-style: normal; margin-right: 34px; }
+  pre { margin: 0; padding: 18px 20px; color: var(--ink-2); overflow-x: auto; font: inherit; }
+  .p { color: var(--dim-3); }
+  .ok { color: var(--green-2); }
+</style>

@@ -1,0 +1,82 @@
+---
+import Icon from "./Icon.astro";
+---
+
+<section id="local" class="band">
+  <div class="wrap grid">
+    <div>
+      <div class="eyebrow green">Local by design</div>
+      <h2 class="h2">Your conversations stay <em>yours.</em></h2>
+      <p class="lead">
+        Recording, transcription, speaker separation and AI summaries all run on your computer. There is no
+        Sirina server, no account and no telemetry — once the models are downloaded, pull the network cable and
+        it keeps working.
+      </p>
+      <ul class="checks">
+        <li><Icon name="checkCircle" size={18} color="#74c08d" width={1.7} />Audio files and the database live in one folder you control.</li>
+        <li><Icon name="checkCircle" size={18} color="#74c08d" width={1.7} />Whisper runs on the Neural Engine via WhisperKit, with faster-whisper as a CPU fallback — no API keys.</li>
+        <li><Icon name="checkCircle" size={18} color="#74c08d" width={1.7} />Summaries and Ask use your own model through Ollama.</li>
+        <li class="soft"><Icon name="warn" size={18} color="#8d8474" />Prefer a cloud model? It's opt-in, and Sirina tells you clearly when data would leave the device.</li>
+      </ul>
+    </div>
+
+    <div class="machine">
+      <div class="machine-label"><span class="dot"></span>Your machine</div>
+      <div class="steps">
+        <div class="step">
+          <span class="ico" style="background:rgba(224,86,59,0.18)"><Icon name="mic" size={17} color="#e0563b" /></span>
+          <div><div class="step-t">Record</div><div class="step-d">Microphone + system audio</div></div>
+        </div>
+        <div class="link"></div>
+        <div class="step">
+          <span class="ico" style="background:rgba(210,168,95,0.16)"><Icon name="disk" size={17} color="#d2a85f" width={1.5} /></span>
+          <div class="grow"><div class="step-t">Save to disk</div><div class="step-d mono path">~/Library/Application Support</div></div>
+        </div>
+        <div class="link"></div>
+        <div class="pair">
+          <div class="step">
+            <span class="ico" style="background:rgba(159,189,212,0.16)"><Icon name="wave" size={17} color="#9fbdd4" width={1.5} /></span>
+            <div><div class="step-t">Transcribe</div><div class="step-d">WhisperKit · Neural Engine</div></div>
+          </div>
+          <div class="step">
+            <span class="ico" style="background:rgba(116,192,141,0.16)"><Icon name="sparkle" size={17} color="#74c08d" width={1.5} /></span>
+            <div><div class="step-t">Summarize</div><div class="step-d">Ollama · local LLM</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="zero"><span class="mono">0 bytes</span>sent to the cloud by default</div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .grid {
+    padding-top: 104px;
+    padding-bottom: 104px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+    gap: 56px;
+    align-items: center;
+  }
+  .green { color: var(--green-2); }
+  .h2 { margin-bottom: 20px; }
+  .lead { font-size: 17px; line-height: 1.65; color: var(--muted); margin: 0 0 28px; max-width: 520px; text-wrap: pretty; }
+  .checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; font-size: 15px; color: var(--ink-2); }
+  .checks li { display: flex; gap: 12px; align-items: flex-start; }
+  .checks li :global(svg) { flex: none; margin-top: 2px; }
+  .checks .soft { color: var(--muted); }
+  .machine { position: relative; border: 1.5px dashed var(--line-4); border-radius: 22px; padding: 40px 28px 28px; background: var(--surface); }
+  .machine-label { position: absolute; top: -13px; left: 24px; padding: 3px 12px; border-radius: 20px; background: var(--bg-alt); border: 1px solid var(--line-4); font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 7px; }
+  .machine-label .dot { box-shadow: none; }
+  .steps { display: flex; flex-direction: column; gap: 10px; }
+  .step { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 13px; background: var(--surface-2); border: 1px solid var(--line); min-width: 0; }
+  .grow { min-width: 0; }
+  .ico { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex: none; }
+  .step-t { font-size: 14.5px; font-weight: 600; }
+  .step-d { font-size: 12.5px; color: var(--dim); }
+  .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .link { width: 1.5px; height: 14px; background: var(--line-4); margin-left: 33px; }
+  .pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+  .zero { margin-top: 22px; display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 12px; background: rgba(74,140,95,0.08); border: 1px solid rgba(74,140,95,0.22); font-size: 13.5px; color: var(--green-2); }
+  .zero span { font-size: 20px; font-weight: 500; color: var(--green-3); }
+</style>
