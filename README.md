@@ -4,6 +4,7 @@
 
 [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](LICENSE.md)
 ![Platform: macOS on Apple Silicon](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Apple%20Silicon-lightgrey)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/sirina.app)
 
 Sirina records your microphone and your call audio as separate tracks, transcribes them on the
 Neural Engine with WhisperKit `large-v3-turbo`, and lets you summarise and ask questions with a
@@ -25,6 +26,7 @@ computer.
 - [Development](#development)
 - [Project layout](#project-layout)
 - [Contributing](#contributing)
+- [Support the project](#support-the-project)
 - [License](#license)
 - [Acknowledgements](#acknowledgements)
 
@@ -216,6 +218,12 @@ openspec/           specs and change proposals
 
 Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md). To report a
 security problem, see [SECURITY.md](SECURITY.md).
+
+## Support the project
+
+Sirina is free for noncommercial use. If it saves you time, you can support its development:
+
+<a href="https://buymeacoffee.com/sirina.app"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-sirina.app-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy Me a Coffee"></a>
 
 ## License
 
