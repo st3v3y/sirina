@@ -21,10 +21,8 @@ class FakeEngine:
     async def load(self):
         self._loaded = True
 
-    async def transcribe_file(self, path, *, word_timestamps=True, progress_cb=None):
-        if progress_cb:
-            progress_cb(10.0, 10.0)
-        return [TLine(0.0, 1.0, "hello")], "en"
+    async def transcribe_window(self, path, start_s, end_s, *, language=None):
+        return [TLine(start_s, start_s + 1.0, "hello", [(start_s, start_s + 1.0, "hello")])], "en"
 
 
 class FailingDiarizer:
@@ -38,8 +36,12 @@ class FailingDiarizer:
 def _setup(tmp_path):
     eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     SQLModel.metadata.create_all(eng)
+    import wave
+
     for name in ("mic.wav", "system.wav", "mixed.wav"):
-        (tmp_path / name).write_bytes(b"x")
+        with wave.open(str(tmp_path / name), "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
+            w.writeframes(b"\x10\x10" * 16000 * 2)
     with Session(eng) as s:
         rec = Recording(
             status="processing",
@@ -59,6 +61,11 @@ def test_diarization_failure_sets_warning(tmp_path, monkeypatch):
     monkeypatch.setattr(job_mod, "engine", eng)
     # Non-silent tracks so transcription + diarization actually run.
     monkeypatch.setattr(job_mod, "_is_silent", lambda p: False)
+    import app.processing.windows as windows_mod
+    from app.config import settings
+
+    monkeypatch.setattr(windows_mod, "speech_regions", lambda path, a=0.0, b=None: [(0.0, 2.0)])
+    monkeypatch.setattr(settings, "compress_audio", False)
     proc = TranscriptionProcessor(FakeEngine(), pipeline=None, diarizer=FailingDiarizer())
 
     asyncio.run(proc._process(rid))

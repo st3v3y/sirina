@@ -24,29 +24,21 @@ def _load_wav_as_mono_16k(path: Path) -> np.ndarray:
     if ch == 2:
         pcm = pcm.reshape(-1, 2).mean(axis=1)
     if sr != 16000:
-        try:
-            from scipy.signal import resample_poly
-        except ImportError as e:  # scipy isn't bundled in the default (no-MLX) build
-            raise HTTPException(
-                400, "resampling unavailable in this build — supply a 16 kHz wav"
-            ) from e
-        from math import gcd
+        from ..audio.wav import resample_to_16k
 
-        g = gcd(sr, 16000)
-        pcm = resample_poly(pcm, 16000 // g, sr // g).astype(np.float32)
+        pcm = resample_to_16k(pcm, sr).astype(np.float32)
     return pcm
 
 
 @router.get("/diarization-check")
 def diarization_check() -> dict[str, str | bool]:
-    """Deep import check for the packaged app: does the pyannote stack actually load in
-    this build (not just exist on disk)? Used to validate --diarization bundles."""
-    try:
-        from pyannote.audio import Pipeline  # noqa: F401  (heavy import — takes seconds)
+    """Can this build split speakers? (speech helper present and SpeakerKit available)."""
+    from ..transcribe.speech_helper import helper_path, probe
 
-        return {"ok": True, "detail": "pyannote.audio imports cleanly"}
-    except Exception as e:
-        return {"ok": False, "detail": f"{type(e).__name__}: {e}"}
+    caps = probe(refresh=True)
+    if caps.get("speakerkit"):
+        return {"ok": True, "detail": f"SpeakerKit available via {helper_path()}"}
+    return {"ok": False, "detail": "speech helper missing or not runnable on this Mac"}
 
 
 @router.get("/transcribe-wav")

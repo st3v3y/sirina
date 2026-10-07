@@ -240,8 +240,8 @@ def test_watchdog_restarts_recovery_for_a_track_left_stalled(tmp_path, monkeypat
     started = threading.Event()
     monkeypatch.setattr(active, "_start_recovery", started.set)
     t.health = "stalled"  # already flagged earlier; no fresh stall will happen
-    monkeypatch.setattr(active.sleep_blocker, "acquire", lambda: None)
-    monkeypatch.setattr(active.sleep_blocker, "release", lambda: None)
+    monkeypatch.setattr(rec_mod.power_guard, "hold", lambda key: None)
+    monkeypatch.setattr(rec_mod.power_guard, "release", lambda key: None)
     active.begin_monitoring()
     assert started.wait(2)
     active.end_monitoring()

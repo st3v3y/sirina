@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from .api import audio as audio_api
 from .api import chat, llm as llm_api, people, recordings, settings as settings_api, status, tags, templates
 from .api import debug as debug_api
+from .api import models as models_api
 from .api import ui as ui_api
 from .api import ws as ws_api
 from .config import settings
@@ -79,7 +80,10 @@ async def lifespan(app: FastAPI):
     runtime.pipeline = Pipeline(runtime.whisper, runtime.llm)
 
     runtime.diarizer = Diarizer()
-    runtime.processor = TranscriptionProcessor(runtime.whisper, runtime.pipeline, runtime.diarizer)
+    from .transcribe.draft import make_drafter
+
+    drafter = await asyncio.to_thread(make_drafter)
+    runtime.processor = TranscriptionProcessor(runtime.whisper, runtime.pipeline, runtime.diarizer, drafter=drafter)
     runtime.processor.start()
     # Recover any recordings left mid-processing (e.g. after a crash/restart).
     await runtime.processor.requeue_pending()
@@ -96,6 +100,9 @@ async def lifespan(app: FastAPI):
             runtime.processor.stop()
         if runtime.llm is not None:
             await runtime.llm.close()
+        from .transcribe.speech_helper import shared_helper
+
+        await shared_helper().close()
         load_task.cancel()
 
 
@@ -119,6 +126,7 @@ app.include_router(chat.router)
 app.include_router(tags.router)
 app.include_router(audio_api.router)
 app.include_router(debug_api.router)
+app.include_router(models_api.router)
 app.include_router(ui_api.router)
 app.include_router(ws_api.router)
 

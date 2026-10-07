@@ -63,13 +63,23 @@ FIELDS: list[FieldSpec] = [
     # --- Transcription ---
     FieldSpec(
         "transcription_engine", "Engine", "transcription", "enum",
-        options=["auto", "faster-whisper", "mlx"], restart="reload_engine",
-        help="auto = MLX on Apple Silicon, else faster-whisper (CPU).",
+        options=["auto", "whisperkit", "faster-whisper"], restart="reload_engine",
+        help="auto = WhisperKit (large-v3-turbo, Neural Engine) on Apple Silicon, else faster-whisper (CPU).",
+    ),
+    FieldSpec(
+        "live_transcribe_default", "Transcribe during recording", "transcription", "bool",
+        help="Default for new recordings: finalize the transcript while you record (WhisperKit "
+             "only), so it's ready about a minute after the call. Can be changed per recording.",
+    ),
+    FieldSpec(
+        "live_captions_default", "Live captions", "transcription", "bool",
+        help="Default for new recordings: show live captions while recording (macOS 26+, on-device, "
+             "about 2.5% of one CPU core). Can be changed per recording.",
     ),
     FieldSpec(
         "whisper_model", "Whisper model", "transcription", "string",
         options=["tiny", "base", "small", "medium", "large-v2", "large-v3"],
-        restart="reload_engine", help="Larger = more accurate, slower.",
+        restart="reload_engine", help="CPU engine (faster-whisper) only. Larger = more accurate, slower.",
     ),
     FieldSpec(
         "whisper_compute_type", "Compute type", "transcription", "enum",
@@ -87,15 +97,11 @@ FIELDS: list[FieldSpec] = [
     FieldSpec("whisper_beam_size", "Beam size", "transcription", "int", help="1 = greedy (fastest)."),
     # --- Speaker diarization ---
     FieldSpec("diarization_enabled", "Enable diarization", "diarization", "bool"),
-    FieldSpec("hf_token", "HuggingFace token", "diarization", "string", secret=True,
-              help="Read token gating the one-time pyannote download."),
     FieldSpec(
-        "diarization_model", "Diarization model", "diarization", "string",
-        options=[
-            "pyannote/speaker-diarization-community-1",
-            "pyannote/speaker-diarization-3.1",
-        ],
-        help="pyannote pipeline.",
+        "diarization_timing", "When to split speakers", "diarization", "enum",
+        options=["after_stop", "during_recording"],
+        help="after_stop = once when the recording ends (~1 min for 2 h). during_recording = also "
+             "about every 10 min while recording (names appear sooner; a little extra load).",
     ),
     FieldSpec(
         "voice_match_threshold", "Voice match threshold", "diarization", "float",
@@ -113,12 +119,15 @@ FIELDS: list[FieldSpec] = [
     FieldSpec("compress_audio", "Compress finished audio", "advanced", "bool",
               help="Convert WAV recordings to AAC (~10-15× smaller) after processing. "
                    "Re-processing decodes them back automatically."),
-    FieldSpec("transcribe_chunk_seconds", "Chunk seconds", "advanced", "int",
-              help="Window size for chunked transcription (MLX). 0 disables chunking."),
+    FieldSpec("transcribe_chunk_seconds", "Window seconds", "advanced", "int",
+              help="Final transcript is produced in windows of about this length (cut at a pause). 0 = one window."),
     FieldSpec("silence_peak_threshold", "Silence threshold", "advanced", "float",
               help="Tracks peaking below this (0..1) are skipped as silent. 0 disables."),
     FieldSpec("whisper_cpu_threads", "CPU threads", "advanced", "int", restart="reload_engine",
-              help="0 = use all cores."),
+              help="0 = auto (one per performance core on Apple Silicon)."),
+    FieldSpec("llm_think", "Let the AI think first", "advanced", "bool",
+              help="For reasoning models on Ollama (e.g. Qwen 3.5). Off = answers in seconds; "
+                   "on = the model reasons at length first (often minutes per answer)."),
     FieldSpec("llm_context_tokens", "AI context window (tokens)", "advanced", "int",
               help="How much transcript cross-recording chat sends to the AI. Match your model's "
                    "context window (for local Ollama, also its configured num_ctx)."),

@@ -50,16 +50,20 @@ def decode(raw: str | None) -> list[float] | None:
         return None
 
 
-def enroll(person: Person, embedding: list[float]) -> None:
+def enroll(person: Person, embedding: list[float], model: str | None = None) -> None:
     """Merge a manually-confirmed speaker embedding into the person's voiceprint
-    (running mean over all enrollments). A dimension mismatch (e.g. the diarization
-    model changed) discards the old voiceprint and starts over."""
+    (running mean over all enrollments). A different embedding model or a dimension
+    mismatch discards the old voiceprint and starts over."""
+    from .processing.diarize import VOICEPRINT_MODEL
+
+    model = model or VOICEPRINT_MODEL
     emb = [float(x) for x in embedding]
     cur = decode(person.voiceprint)
     n = person.voiceprint_n or 0
-    if cur is None or len(cur) != len(emb) or n <= 0:
+    if cur is None or len(cur) != len(emb) or n <= 0 or person.voiceprint_model != model:
         person.voiceprint = json.dumps(emb)
         person.voiceprint_n = 1
+        person.voiceprint_model = model
         return
     person.voiceprint = json.dumps([(c * n + e) / (n + 1) for c, e in zip(cur, emb)])
     person.voiceprint_n = n + 1
@@ -91,18 +95,24 @@ def match_speakers(session: Session, recording_id: int) -> list[tuple[int, int]]
     threshold = settings.voice_match_threshold
     if threshold <= 0:
         return []
+    from .processing.diarize import VOICEPRINT_MODEL
+
     speakers = session.exec(select(Speaker).where(Speaker.recording_id == recording_id)).all()
     candidates = [
         (sp, vec)
         for sp in speakers
-        if sp.person_id is None and (vec := decode(sp.embedding)) is not None
+        if sp.person_id is None
+        and sp.embedding_model == VOICEPRINT_MODEL
+        and (vec := decode(sp.embedding)) is not None
     ]
     if not candidates:
         return []
     people = [
         (p, vec)
         for p in session.exec(select(Person)).all()
-        if not p.is_self and (vec := decode(p.voiceprint)) is not None
+        if not p.is_self
+        and p.voiceprint_model == VOICEPRINT_MODEL
+        and (vec := decode(p.voiceprint)) is not None
     ]
     if not people:
         return []

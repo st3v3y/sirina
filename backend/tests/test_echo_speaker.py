@@ -78,24 +78,3 @@ def test_rare_speaker_replying_across_your_monologue_is_not_echo(monkeypatch):
     assert len(a_lines) == 2  # split at the silence, not one 100-401s line
     mic = _lines([(101.0, 399.0)])
     assert _is_echo_cluster(a_lines, mic, track_total=1000.0) is False
-
-
-def test_load_waveform_resamples_48k_to_16k(tmp_path):
-    import wave
-
-    import numpy as np
-
-    from app.processing.diarize import _load_waveform
-
-    path = tmp_path / "t.wav"
-    t = np.arange(48_000 * 3) / 48_000
-    pcm = (np.sin(2 * np.pi * 440 * t) * 16000).astype(np.int16)
-    with wave.open(str(path), "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(48_000)
-        w.writeframes(pcm.tobytes())
-    out = _load_waveform(str(path))
-    assert out["sample_rate"] == 16_000
-    assert tuple(out["waveform"].shape) == (1, 48_000)  # 3 s at 16 kHz
-    assert 0.4 < float(out["waveform"].abs().max()) < 0.6  # amplitude preserved (~0.49)

@@ -128,7 +128,9 @@ def test_delete_recording_blocked_while_processing(session):
 
 
 def _speaker(session, rec_id, label, emb):
-    sp = Speaker(recording_id=rec_id, label=label, embedding=json.dumps(emb))
+    from app.processing.diarize import VOICEPRINT_MODEL
+
+    sp = Speaker(recording_id=rec_id, label=label, embedding=json.dumps(emb), embedding_model=VOICEPRINT_MODEL)
     session.add(sp)
     session.commit()
     session.refresh(sp)

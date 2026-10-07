@@ -22,11 +22,13 @@
 
 ## 4. On-demand ONNX diarization
 
-- [ ] 4.1 Replace the torch/pyannote `Diarizer` (`app/processing/diarize.py`) with an ONNX implementation on the bundled `onnxruntime` (candidate: sherpa-onnx segmentation+embedding, or pyannote-onnx); keep the existing diarize/turns interface so `job.py` is unchanged
-- [ ] 4.2 Drop the `pyannote.audio` / `torch` / `torchaudio` dependencies; update the `diarization_model` setting's options to the ONNX model id(s)
-- [ ] 4.3 Add a model-presence + download API (e.g. `GET/POST /api/diarization/model`): the model downloads on demand into the data dir (`HF_HOME`) and is reused; diarization stays off by default and can only be enabled once the model is present
-- [ ] 4.4 Settings UI: an "Install / Download" step for diarization (download progress/result), then allow enabling
-- [ ] 4.5 Verify: fresh app has no diarization model and a small bundle; install → download once; enable + process a recording → speakers separated; model reused next run
+> Superseded (2026-10-06) by change `faster-transcription-live-captions`: speaker splitting moved to SpeakerKit in the native speech helper (52 s vs 575 s on a 2 h track, ~94% agreement with pyannote); pyannote/torch are gone and the model downloads through the speech model manager. Tasks below are closed as superseded, not implemented as written.
+
+- [x] 4.1 (superseded — see note) Replace the torch/pyannote `Diarizer` (`app/processing/diarize.py`) with an ONNX implementation on the bundled `onnxruntime` (candidate: sherpa-onnx segmentation+embedding, or pyannote-onnx); keep the existing diarize/turns interface so `job.py` is unchanged
+- [x] 4.2 (superseded — see note) Drop the `pyannote.audio` / `torch` / `torchaudio` dependencies; update the `diarization_model` setting's options to the ONNX model id(s)
+- [x] 4.3 (superseded — see note) Add a model-presence + download API (e.g. `GET/POST /api/diarization/model`): the model downloads on demand into the data dir (`HF_HOME`) and is reused; diarization stays off by default and can only be enabled once the model is present
+- [x] 4.4 (superseded — see note) Settings UI: an "Install / Download" step for diarization (download progress/result), then allow enabling
+- [x] 4.5 (superseded — see note) Verify: fresh app has no diarization model and a small bundle; install → download once; enable + process a recording → speakers separated; model reused next run
 
 ## 5. Runtime resilience + cleanups
 
@@ -49,7 +51,7 @@
 - [ ] 7.1 OS permission grant persists across launches/rebuilds with a stable identity; ad-hoc build prints the warning
 - [ ] 7.2 Secrets live in the OS keyring (DB fallback when unavailable); existing plaintext secret is migrated and removed from the DB
 - [ ] 7.3 Local Ollama honors the configured context window; cloud requests stay OpenAI-compatible (no `num_ctx`)
-- [ ] 7.4 Diarization: fresh app has no model + small bundle; install → download once; enable + process → speakers separated; off-by-default path still launches cleanly
+- [x] 7.4 (superseded by faster-transcription-live-captions task 10.3) Diarization: fresh app has no model + small bundle; install → download once; enable + process → speakers separated; off-by-default path still launches cleanly
 - [ ] 7.5 Backend failure (killed sidecar / forced startup error) shows an actionable error + retry, not an endless splash; a second launch focuses the existing window
 - [ ] 7.6 Offline first run surfaces a model-unavailable error with retry (not a perpetual "loading"); a forced render error shows the error boundary, not a blank screen
 - [ ] 7.7 Startup splash is branded/themed (logo + wordmark), shows the phase, and renders correctly in light and dark

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { api } from "../lib/api";
+import { api, type ActiveInfo, type Caption } from "../lib/api";
 import { Icon } from "../components/Icon";
 
 function fmt(seconds: number) {
@@ -13,6 +13,48 @@ function fmt(seconds: number) {
 }
 
 const BARS = 24;
+
+function LiveSwitch({ label, on, disabled, onChange }: { label: string; on: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className={`flex items-center gap-2 ${disabled ? "opacity-50" : "cursor-pointer"}`}>
+      <input type="checkbox" checked={on} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+      {label}
+    </label>
+  );
+}
+
+const TRACK_LABEL: Record<string, string> = { mic: "You", system: "Others" };
+
+/** Live captions: recent settled lines of both tracks in time order, plus what's being said now. */
+function CaptionsPanel({ info }: { info: ActiveInfo }) {
+  const tracks = Object.entries(info.captions ?? {});
+  const settled: (Caption & { who: string })[] = tracks
+    .flatMap(([name, c]) => c.settled.map((x) => ({ ...x, who: TRACK_LABEL[name] ?? name })))
+    .sort((a, b) => a.start - b.start)
+    .slice(-6);
+  const live = tracks
+    .filter(([, c]) => c.provisional)
+    .map(([name, c]) => ({ ...(c.provisional as Caption), who: TRACK_LABEL[name] ?? name }));
+  const failed = tracks.some(([, c]) => c.failed);
+  return (
+    <div className="w-full max-w-xl rounded-card border border-line-2 bg-surface/70 px-4 py-3 space-y-1 text-[14px] leading-relaxed">
+      {settled.length === 0 && live.length === 0 && <p className="text-muted text-[13px]">Listening…</p>}
+      {settled.map((c, i) => (
+        <p key={`s-${i}-${c.start}`}>
+          <span className="font-semibold text-ink-2 mr-1.5">{c.who}:</span>
+          {c.text}
+        </p>
+      ))}
+      {live.map((c) => (
+        <p key={`p-${c.who}`} className="text-muted">
+          <span className="font-semibold mr-1.5">{c.who}:</span>
+          {c.text}
+        </p>
+      ))}
+      {failed && <p className="text-[12px] text-warn-deep">Captions stopped (the recording continues).</p>}
+    </div>
+  );
+}
 
 export default function RecordingScreen() {
   const { id } = useParams();
@@ -27,6 +69,8 @@ export default function RecordingScreen() {
   const [title, setTitle] = useState<string | null>(null);
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<ActiveInfo | null>(null);
+  const [toggling, setToggling] = useState(false);
   const missesRef = useRef(0);
 
   useEffect(() => {
@@ -46,6 +90,7 @@ export default function RecordingScreen() {
           setSystemLevel(info.system_level ?? 0);
           setMicHealthy(info.mic_healthy ?? true);
           setSystemHealthy(info.system_healthy ?? null);
+          setInfo(info);
           missesRef.current = 0;
         } else {
           missesRef.current += 1;
@@ -62,6 +107,17 @@ export default function RecordingScreen() {
       clearInterval(t);
     };
   }, [recordingId, nav]);
+
+  async function setOption(body: { live_transcribe?: boolean; live_captions?: boolean }) {
+    setToggling(true);
+    try {
+      setInfo(await api.updateActiveRecording(body));
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setToggling(false);
+    }
+  }
 
   async function stop() {
     setStopping(true);
@@ -146,6 +202,36 @@ export default function RecordingScreen() {
         </div>
       )}
 
+      {info?.live_captions && <CaptionsPanel info={info} />}
+
+      <div className="flex flex-col items-center gap-1.5">
+        <div className="flex items-center gap-5 text-[13px] text-ink-2">
+          <LiveSwitch
+            label="Transcribe as I go"
+            on={Boolean(info?.live_transcribe)}
+            disabled={toggling || !info?.live_transcribe_available}
+            onChange={(v) => setOption({ live_transcribe: v })}
+          />
+          <LiveSwitch
+            label="Live captions"
+            on={Boolean(info?.live_captions)}
+            disabled={toggling || !info?.captions_available}
+            onChange={(v) => setOption({ live_captions: v })}
+          />
+        </div>
+        {info?.live_transcribe && info.live && (
+          <p className="text-[12px] text-muted">
+            {info.live.failed
+              ? "Live transcription stopped — the rest is done after you stop."
+              : info.live.paused === "low_power"
+                ? "Paused while Low Power Mode is on — it catches up later."
+                : info.live.final_until_s > 0
+                  ? `Final transcript ready up to ${fmt(info.live.final_until_s)}`
+                  : "The first part turns final after about 4 minutes."}
+          </p>
+        )}
+      </div>
+
       <button
         onClick={stop}
         disabled={stopping}
@@ -155,7 +241,9 @@ export default function RecordingScreen() {
       </button>
 
       <p className="max-w-sm text-center text-[13px] leading-relaxed text-muted">
-        Audio is being saved to disk. Transcription and the summary run automatically after you stop.
+        {info?.live_transcribe
+          ? "Audio is being saved and transcribed as you go — after you stop, only the last minutes, speakers and the summary remain."
+          : "Audio is being saved to disk. Transcription and the summary run automatically after you stop."}
       </p>
       {error && <p className="text-signal text-xs">{error}</p>}
     </div>

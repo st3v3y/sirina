@@ -51,6 +51,43 @@ class TLine:
     words: list[Word] = field(default_factory=list)
 
 
+def _shift(ln: TLine, offset: float) -> TLine:
+    if not offset:
+        return ln
+    return TLine(
+        ln.start + offset,
+        ln.end + offset,
+        ln.text,
+        [(w0 + offset, w1 + offset, t) for (w0, w1, t) in ln.words],
+    )
+
+
+def _sysctl_int(name: str) -> int | None:
+    """Read an integer sysctl (macOS) via libc; None when unavailable."""
+    import ctypes
+    import ctypes.util
+
+    try:
+        libc = ctypes.CDLL(ctypes.util.find_library("c"))
+        value = ctypes.c_int(0)
+        size = ctypes.c_size_t(ctypes.sizeof(value))
+        if libc.sysctlbyname(name.encode(), ctypes.byref(value), ctypes.byref(size), None, 0) != 0:
+            return None
+        return value.value or None
+    except Exception:
+        return None
+
+
+def default_cpu_threads(configured: int = 0) -> int:
+    """Thread count for the CPU engine. A configured value wins; otherwise one thread per
+    performance core on Apple Silicon (the efficiency cores slow the parallel decode down:
+    6 threads ran 1.6x faster than 8 on an M1 Pro with identical text), else all cores."""
+    if configured > 0:
+        return configured
+    perf = _sysctl_int("hw.perflevel0.physicalcpu")
+    return perf or (os.cpu_count() or 1)
+
+
 class FasterWhisperWorker:
     """Wraps faster-whisper with a single thread executor so inference doesn't block the event loop."""
 
@@ -81,7 +118,7 @@ class FasterWhisperWorker:
         loop = asyncio.get_running_loop()
 
         def _load() -> "WhisperModel":
-            cpu_threads = settings.whisper_cpu_threads or (os.cpu_count() or 0)
+            cpu_threads = default_cpu_threads(settings.whisper_cpu_threads)
             log.info(
                 "loading faster-whisper model=%s compute_type=%s cpu_threads=%s",
                 settings.whisper_model,
@@ -128,9 +165,37 @@ class FasterWhisperWorker:
                 self._executor, self._run_file, path, language, initial_prompt, word_timestamps, progress_cb
             )
 
-    def _run_file(
+    async def transcribe_window(
         self,
         path: str,
+        start_s: float,
+        end_s: float | None,
+        *,
+        language: str | None = None,
+    ) -> tuple[list[TLine], str | None]:
+        """Transcribe `[start_s, end_s)` of a WAV with the offline-quality settings. Times
+        are absolute (recording time). `language` (e.g. detected on an earlier window)
+        overrides the configured one. The batched pipeline already decodes ~30 s VAD chunks
+        independently, so a window cut at a silence gives the same text as the whole file."""
+        if self._model is None:
+            raise RuntimeError("whisper model not loaded")
+        from ..audio.wav import load_wav_16k
+
+        loop = asyncio.get_running_loop()
+        async with self._lock:
+            audio = await loop.run_in_executor(self._executor, load_wav_16k, path, start_s, end_s)
+            if audio.size == 0:
+                return [], language
+            lang = language or settings.whisper_language or None
+            initial_prompt = settings.whisper_initial_prompt or None
+            lines, detected = await loop.run_in_executor(
+                self._executor, self._run_file, audio, lang, initial_prompt, True, None
+            )
+        return [_shift(ln, start_s) for ln in lines], detected
+
+    def _run_file(
+        self,
+        path,  # str path or a 16 kHz float32 array
         language: str | None,
         initial_prompt: str | None,
         word_timestamps: bool,

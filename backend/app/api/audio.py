@@ -18,8 +18,22 @@ def get_devices(refresh: bool = False) -> list[dict]:
 
 class AudioCapabilities(BaseModel):
     native_system_audio: bool  # native ScreenCaptureKit capture available (desktop app)
+    # Per-recording speech options for the start dialog: availability + Settings defaults.
+    captions_available: bool = False
+    live_transcribe_available: bool = False
+    live_captions_default: bool = False
+    live_transcribe_default: bool = False
 
 
 @router.get("/capabilities", response_model=AudioCapabilities)
 def get_capabilities() -> AudioCapabilities:
-    return AudioCapabilities(native_system_audio=system_capture.native_available())
+    from ..config import settings
+    from ..recording.recorder import captions_available, live_transcription_available
+
+    return AudioCapabilities(
+        native_system_audio=system_capture.native_available(),
+        captions_available=captions_available(),
+        live_transcribe_available=live_transcription_available(),
+        live_captions_default=settings.live_captions_default,
+        live_transcribe_default=settings.live_transcribe_default,
+    )

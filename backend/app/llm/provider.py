@@ -97,7 +97,11 @@ class OpenAICompatProvider:
         self.base_url = (base_url or "").rstrip("/")
         self.model = model
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-        self._client = httpx.AsyncClient(base_url=self.base_url, timeout=120.0, headers=headers)
+        # Local models can take minutes on a long transcript (one summary section per call);
+        # allow 5 min of silence on the socket before giving up (connect stays quick).
+        self._client = httpx.AsyncClient(
+            base_url=self.base_url, timeout=httpx.Timeout(300.0, connect=10.0), headers=headers
+        )
         # Substitute an installed model when the configured one is missing — local only.
         self._allow_fallback = allow_fallback
         # Ollama ignores the context window on its OpenAI-compatible endpoint, so for Ollama
@@ -188,7 +192,10 @@ class OpenAICompatProvider:
         """Ollama's native /api/chat, which honors options.num_ctx — unlike its
         OpenAI-compatible endpoint, which silently truncates to the server default."""
         body: dict = {"model": model, "messages": messages, "stream": False,
-                      "options": {"temperature": 0.3}}
+                      "options": {"temperature": 0.3},
+                      # Thinking models otherwise reason for minutes before answering;
+                      # models without thinking ignore the flag.
+                      "think": bool(settings.llm_think)}
         ctx = settings.llm_context_tokens
         if ctx and ctx > 0:
             body["options"]["num_ctx"] = ctx

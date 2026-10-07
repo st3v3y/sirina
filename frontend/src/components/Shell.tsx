@@ -372,6 +372,26 @@ function ThemeToggle() {
   );
 }
 
+function OptionRow({
+  label, hint, checked, disabled, onChange,
+}: { label: string; hint: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className={`flex items-start gap-2.5 ${disabled ? "opacity-50" : "cursor-pointer"}`}>
+      <input
+        type="checkbox"
+        className="mt-0.5"
+        checked={checked && !disabled}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span>
+        <span className="block text-sm text-ink">{label}</span>
+        <span className="block text-xs text-muted">{hint}</span>
+      </span>
+    </label>
+  );
+}
+
 function DeviceModal({ rec }: { rec: ReturnType<typeof useRecorder> }) {
   const field =
     "w-full bg-paper border border-line rounded-field px-2 py-1.5 text-sm focus:outline-none focus:border-line-3";
@@ -420,6 +440,31 @@ function DeviceModal({ rec }: { rec: ReturnType<typeof useRecorder> }) {
             </select>
           </div>
         )}
+        <div className="space-y-2 border-t border-line-2 pt-3">
+          <OptionRow
+            label="Transcribe during recording"
+            hint={
+              rec.caps?.live_transcribe_available
+                ? "Transcript is ready about a minute after the call. Uses the Neural Engine, barely any CPU."
+                : "Needs the WhisperKit engine (Apple Silicon)."
+            }
+            checked={rec.liveTranscribe}
+            disabled={!rec.caps?.live_transcribe_available}
+            onChange={rec.setLiveTranscribe}
+          />
+          <OptionRow
+            label="Live captions"
+            hint={
+              rec.caps?.captions_available
+                ? "Shows what's said as it's said (on-device, ~2.5% of one CPU core)."
+                : "Needs macOS 26 or newer."
+            }
+            checked={rec.liveCaptions}
+            disabled={!rec.caps?.captions_available}
+            onChange={rec.setLiveCaptions}
+          />
+          <p className="text-[11px] text-label">For this recording only — defaults are in Settings.</p>
+        </div>
         {rec.error && <p className="text-signal text-xs">{rec.error}</p>}
         <div className="flex justify-end gap-2 pt-1">
           <button

@@ -44,7 +44,7 @@ class SettingField(BaseModel):
 class SettingsResponse(BaseModel):
     fields: list[SettingField]
     data_dir: str
-    diarization_supported: bool  # whether pyannote is importable in this build
+    diarization_supported: bool  # whether speaker splitting can run here (speech helper)
     reload_required: bool = False
 
 
@@ -55,9 +55,9 @@ class SettingsPatch(BaseModel):
 def _diarization_supported() -> bool:
     # Cheap presence check (no heavy import). The default packaged app excludes pyannote;
     # a --diarization build includes it (see scripts/build-macos-app.sh).
-    from ..processing.diarize import pyannote_bundled
+    from ..processing.diarize import diarization_supported
 
-    return pyannote_bundled()
+    return diarization_supported()
 
 
 def _render(reload_required: bool = False) -> SettingsResponse:

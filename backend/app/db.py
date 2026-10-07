@@ -69,24 +69,48 @@ def _add_missing_columns() -> None:
     so this is idempotent."""
     additive = {
         "summarytemplate": [("general_context", "TEXT")],
-        "recording": [("warning", "TEXT"), ("pending_trim", "TEXT")],
+        "recording": [
+            ("warning", "TEXT"),
+            ("pending_trim", "TEXT"),
+            ("final_until_s", "REAL"),
+            ("live_transcribe", "BOOLEAN DEFAULT 0"),
+            ("live_captions", "BOOLEAN DEFAULT 0"),
+        ],
+        "segment": [("is_draft", "BOOLEAN DEFAULT 0"), ("words", "TEXT")],
         "person": [
             ("is_self", "BOOLEAN DEFAULT 0"),
             ("voiceprint", "TEXT"),
             ("voiceprint_n", "INTEGER DEFAULT 0"),
+            ("voiceprint_model", "TEXT"),
         ],
-        "speaker": [("embedding", "TEXT"), ("enrolled", "BOOLEAN DEFAULT 0")],
+        "speaker": [("embedding", "TEXT"), ("enrolled", "BOOLEAN DEFAULT 0"), ("embedding_model", "TEXT")],
     }
     with engine.connect() as conn:
+        tables_present: set[str] = set()
         for table, columns in additive.items():
             existing = {
                 row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})").fetchall()
             }
             if not existing:
                 continue  # table not created yet; create_all handles fresh schemas
+            tables_present.add(table)
             for name, decl in columns:
                 if name not in existing:
                     conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+        # Voice fingerprints from before model tagging came from pyannote; SpeakerKit's
+        # embeddings live in a different space (same size, so a size check can't tell).
+        # Drop the untagged ones once — People keep their names and links and are
+        # re-learned from the next renames. Idempotent: tagged prints are untouched.
+        if "person" in tables_present:
+            conn.exec_driver_sql(
+                "UPDATE person SET voiceprint = NULL, voiceprint_n = 0 "
+                "WHERE voiceprint IS NOT NULL AND voiceprint_model IS NULL"
+            )
+        if "speaker" in tables_present:
+            conn.exec_driver_sql(
+                "UPDATE speaker SET embedding = NULL, enrolled = 0 "
+                "WHERE embedding IS NOT NULL AND embedding_model IS NULL"
+            )
         conn.commit()
 
 

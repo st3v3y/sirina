@@ -33,13 +33,23 @@ export type LlmTestResult = {
   models?: string[];
 };
 
-export type ProcessingStage = "queued" | "transcribing" | "diarizing" | "summarizing" | "compressing" | "done";
+export type ProcessingStage =
+  | "queued"
+  | "preparing_model"
+  | "drafting"
+  | "transcribing"
+  | "diarizing"
+  | "summarizing"
+  | "compressing"
+  | "done";
 
 export type Progress = {
   stage: ProcessingStage;
   fraction: number | null;
   elapsed_s?: number | null;
   estimated?: boolean;
+  power_note?: string | null;
+  final_until_s?: number | null;
 };
 
 export type RecordingStatus = "recording" | "processing" | "ready" | "failed";
@@ -75,11 +85,20 @@ export type StartRecordingRequest = {
   device?: string;
   system_device?: string;
   system_source?: "native" | "device" | "none";
+  live_transcribe?: boolean;
+  live_captions?: boolean;
 };
 
 export type AudioCapabilities = {
   native_system_audio: boolean;
+  captions_available?: boolean;
+  live_transcribe_available?: boolean;
+  live_captions_default?: boolean;
+  live_transcribe_default?: boolean;
 };
+
+export type Caption = { start: number; end: number; text: string };
+export type TrackCaptions = { settled: Caption[]; provisional: Caption | null; failed: boolean };
 
 export type ActiveInfo = {
   id: number;
@@ -90,6 +109,12 @@ export type ActiveInfo = {
   mic_healthy?: boolean;
   system_healthy?: boolean | null; // null when there is no system track
   system_restarts?: number;
+  live_captions?: boolean;
+  live_transcribe?: boolean;
+  live?: { final_until_s: number; paused: string | null; enabled: boolean; failed: string | null } | null;
+  captions?: Record<string, TrackCaptions>; // track name (mic | system) -> captions
+  captions_available?: boolean;
+  live_transcribe_available?: boolean;
 };
 
 export type Segment = {
@@ -99,6 +124,7 @@ export type Segment = {
   start_ts: number;
   end_ts: number;
   text: string;
+  is_draft?: boolean; // fast on-device draft, replaced by the final transcript window by window
 };
 
 export type Speaker = {
@@ -220,6 +246,7 @@ export type RecordingDetail = Recording & {
   tracks: string[]; // available audio tracks: mixed | mic | system
   speakers: Speaker[];
   segments: Segment[];
+  final_until_s?: number | null; // transcript is final up to here (recording seconds)
   summaries: Summary[];
   qa: QAMessage[];
 };
@@ -247,6 +274,25 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export type SpeechModel = {
+  id: string;
+  name: string;
+  engine: "whisperkit" | "faster-whisper" | "speakerkit" | "apple" | "unused";
+  approx_mb: number;
+  installed: boolean;
+  size_bytes: number;
+  in_use: boolean;
+  state: "installed" | "not_installed" | "downloading" | "failed";
+  progress: number | null;
+  error: string | null;
+  managed_by_os: boolean;
+};
+
+export type SpeechModelsResponse = {
+  models: SpeechModel[];
+  helper: { whisperkit?: boolean; speakerkit?: boolean; apple_speech?: boolean; apple_speech_asset_installed?: boolean; macos?: string };
+};
+
 export const api = {
   status: () => request<Status>("/api/status"),
   listAudioDevices: (refresh = false) =>
@@ -256,6 +302,8 @@ export const api = {
   listRecordings: (tagId?: number) =>
     request<Recording[]>(`/api/recordings${tagId != null ? `?tag_id=${tagId}` : ""}`),
   getRecording: (id: number) => request<RecordingDetail>(`/api/recordings/${id}`),
+  updateActiveRecording: (body: { live_transcribe?: boolean; live_captions?: boolean }) =>
+    request<ActiveInfo>("/api/recordings/active", { method: "PATCH", body: JSON.stringify(body) }),
   startRecording: (body: StartRecordingRequest) =>
     request<{ id: number }>("/api/recordings/start", {
       method: "POST",
@@ -368,6 +416,11 @@ export const api = {
     }),
   reloadEngine: () =>
     request<ReloadEngineResult>("/api/settings/reload-engine", { method: "POST" }),
+  listSpeechModels: () => request<SpeechModelsResponse>("/api/models"),
+  installSpeechModel: (id: string) =>
+    request<{ ok: boolean }>(`/api/models/${encodeURIComponent(id)}/install`, { method: "POST" }),
+  deleteSpeechModel: (id: string) =>
+    request<{ ok: boolean; freed_bytes: number }>(`/api/models/${encodeURIComponent(id)}`, { method: "DELETE" }),
   revealDataDir: () =>
     request<{ ok: boolean }>("/api/settings/reveal-data-dir", { method: "POST" }),
 

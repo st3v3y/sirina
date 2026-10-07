@@ -48,13 +48,17 @@ class StartRequest(BaseModel):
     device: str | None = None          # primary (mic) input device name or index
     system_device: str | None = None   # loopback system-audio device (e.g. BlackHole)
     system_source: str | None = None   # "native" | "device" | "none" (default inferred)
+    live_transcribe: bool | None = None  # None → Settings default
+    live_captions: bool | None = None    # None → Settings default
 
 
 class ProgressOut(BaseModel):
     stage: str  # queued | transcribing | diarizing | summarizing | done
     fraction: float | None = None  # 0..1 when available, else null (indeterminate)
     elapsed_s: float | None = None  # seconds since processing started
-    estimated: bool = False  # True if fraction is a time-based estimate (MLX)
+    estimated: bool = False  # True if fraction is a time-based estimate
+    power_note: str | None = None  # why it's slower right now (battery / Low Power Mode)
+    final_until_s: float | None = None  # transcript is final up to here (recording seconds)
 
 
 def _progress_for(recording_id: int) -> "ProgressOut | None":
@@ -75,6 +79,19 @@ class RecordingListItem(BaseModel):
     tags: list[Tag]
 
 
+class SegmentOut(BaseModel):
+    """A transcript line for the UI (word timings stay server-side: they're only needed
+    for speaker splitting and would bloat every 1.5 s progress poll)."""
+
+    id: int
+    recording_id: int
+    speaker_id: int | None
+    start_ts: float
+    end_ts: float
+    text: str
+    is_draft: bool = False
+
+
 class RecordingDetail(BaseModel):
     id: int
     title: str | None
@@ -90,7 +107,8 @@ class RecordingDetail(BaseModel):
     tags: list[Tag]
     tracks: list[str]  # which audio tracks exist on disk: mixed | mic | system
     speakers: list[SpeakerOut]
-    segments: list[Segment]
+    segments: list[SegmentOut]
+    final_until_s: float | None = None  # transcript is final up to here; later lines may be drafts
     summaries: list[Summary]
     qa: list[QAMessage]
 
@@ -104,6 +122,28 @@ class ActiveInfo(BaseModel):
     mic_healthy: bool = True
     system_healthy: bool | None = None  # None when there is no system track
     system_restarts: int = 0
+    live_captions: bool = False
+    live_transcribe: bool = False
+    live: dict | None = None  # {final_until_s, paused, enabled, failed}
+    captions: dict = {}  # track name -> {settled: [...], provisional, failed}
+    captions_available: bool = False
+    live_transcribe_available: bool = False
+
+
+class LiveOptions(BaseModel):
+    live_transcribe: bool | None = None
+    live_captions: bool | None = None
+
+
+@router.patch("/active", response_model=ActiveInfo)
+async def update_active(payload: LiveOptions) -> ActiveInfo:
+    """Turn captions / transcription during recording on or off for the active recording."""
+    if runtime.recorder is None or not runtime.recorder.is_recording():
+        raise HTTPException(409, "not recording")
+    info = await runtime.recorder.set_options(
+        live_transcribe=payload.live_transcribe, live_captions=payload.live_captions
+    )
+    return ActiveInfo(**info)
 
 
 @router.post("/start")
@@ -140,6 +180,8 @@ async def start_recording(payload: StartRequest) -> dict[str, int]:
             system_device=_coerce(payload.system_device),
             title=payload.title,
             system_source=source,
+            live_transcribe=payload.live_transcribe,
+            live_captions=payload.live_captions,
         )
     except Exception as e:
         raise HTTPException(400, f"could not start recording: {e}") from e
@@ -231,6 +273,11 @@ async def reprocess_recording(
     # when the job is mid-flight so the UI can say why nothing new happened.
     if runtime.processor.current_id() == recording_id:
         raise HTTPException(409, "this recording is already being processed")
+    # Reprocess rebuilds from scratch: drop the old transcript (final and draft) and the
+    # stored boundary, otherwise the job would resume after the last final window.
+    session.exec(delete(Segment).where(Segment.recording_id == recording_id))  # type: ignore[arg-type]
+    session.exec(delete(Speaker).where(Speaker.recording_id == recording_id))  # type: ignore[arg-type]
+    r.final_until_s = None
     r.status = "processing"
     r.error = None
     session.add(r)
@@ -363,7 +410,14 @@ def get_recording(recording_id: int, session: Session = Depends(get_session)) ->
         tags=tags,
         tracks=tracks,
         speakers=speakers_out,
-        segments=list(segments),
+        segments=[
+            SegmentOut(
+                id=seg.id, recording_id=seg.recording_id, speaker_id=seg.speaker_id,  # type: ignore[arg-type]
+                start_ts=seg.start_ts, end_ts=seg.end_ts, text=seg.text, is_draft=bool(seg.is_draft),
+            )
+            for seg in segments
+        ],
+        final_until_s=r.final_until_s,
         summaries=list(summaries),
         qa=list(qa),
     )
@@ -525,7 +579,8 @@ def _withdraw_enrollment(session: Session, sp: Speaker) -> None:
         return
     old = session.get(Person, sp.person_id) if sp.person_id else None
     embedding = voiceprints.decode(sp.embedding)
-    if old is not None and embedding is not None:
+    # A sample from another embedding model never went into this voiceprint.
+    if old is not None and embedding is not None and old.voiceprint_model == sp.embedding_model:
         voiceprints.withdraw(old, embedding)
         session.add(old)
     sp.enrolled = False
@@ -587,7 +642,7 @@ def rename_speaker(
     # double-count the same sample in the running mean.
     embedding = voiceprints.decode(sp.embedding)
     if embedding is not None and not person.is_self and not sp.enrolled:
-        voiceprints.enroll(person, embedding)
+        voiceprints.enroll(person, embedding, sp.embedding_model)
         sp.enrolled = True
         session.add(person)
         session.add(sp)

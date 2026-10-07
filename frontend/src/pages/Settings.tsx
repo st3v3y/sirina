@@ -8,6 +8,7 @@ import {
   type Status,
 } from "../lib/api";
 import { Icon } from "../components/Icon";
+import { SpeechModelsCard } from "../components/SpeechModels";
 import { Badge, Button, Card, FieldRow, Select, Slider, Stepper, Toggle } from "../components/ui";
 
 type SectionMeta = {
@@ -22,7 +23,7 @@ type SectionMeta = {
 const SECTIONS: SectionMeta[] = [
   { id: "ai", title: "AI model", icon: "sparkles", tint: "var(--color-signal)", badge: { tone: "ok", label: "Applies instantly" }, desc: "Used for summaries and the Ask assistant." },
   { id: "transcription", title: "Transcription", icon: "audio-lines", tint: "var(--color-cat-sky)", badge: { tone: "warn", label: "Restart required" }, desc: "Engine & model changes reload after restart." },
-  { id: "diarization", title: "Speaker diarization", icon: "users", tint: "var(--color-cat-teal)", badge: { tone: "ok", label: "Applies instantly" }, desc: "Separate & label who spoke. Off by default." },
+  { id: "diarization", title: "Speaker splitting", icon: "users", tint: "var(--color-cat-teal)", badge: { tone: "ok", label: "Applies instantly" }, desc: "Separate & label who spoke, on your Mac. Off by default." },
   { id: "advanced", title: "Advanced", icon: "settings", tint: "var(--color-cat-amber)", badge: { tone: "neutral", label: "Mixed" }, desc: "Performance tuning & local storage." },
 ];
 
@@ -33,9 +34,9 @@ const INPUT =
 // who don't know the underlying ML knobs. Keyed by setting key (see settings_store.FIELDS).
 const HELP_HINTS: Record<string, string> = {
   transcription_engine:
-    "How transcription runs. “MLX” uses your Mac’s GPU (fastest on Apple Silicon); “faster-whisper” uses the CPU. “Auto” picks the best for your Mac — leave it on Auto if unsure. Changing this needs a reload.",
+    "How transcription runs. “WhisperKit” runs the large-v3-turbo model on your Mac’s Neural Engine: fast, light on memory and battery. “faster-whisper” uses the CPU (slower, uses much more memory). “Auto” picks WhisperKit on Apple Silicon — leave it on Auto if unsure. Changing this needs a reload.",
   whisper_model:
-    "The speech-recognition model. Bigger models (medium, large) are more accurate but slower and use more memory; smaller ones (tiny, small) are faster. “medium” is a good balance; pick “large-v3” for best accuracy.",
+    "The CPU engine’s model (faster-whisper only; WhisperKit always uses large-v3-turbo). Bigger models (medium, large) are more accurate but slower and use more memory; smaller ones (tiny, small) are faster. “medium” is a good balance; pick “large-v3” for best accuracy.",
   whisper_compute_type:
     "A speed/accuracy trade-off for the CPU engine (faster-whisper only). “int8” is fastest and lightest; “float16”/“float32” are slightly more accurate but slower. “int8” is fine for most people.",
   whisper_beam_size:
@@ -43,13 +44,15 @@ const HELP_HINTS: Record<string, string> = {
   whisper_initial_prompt:
     "Names, jargon, or product terms the model tends to mishear — list a few so it spells them right (e.g. “Sirina, BlackHole, pyannote”). Keep it short: long lists can make it repeat words.",
   whisper_cpu_threads:
-    "How many CPU cores transcription may use (faster-whisper only). 0 = use all cores (recommended). Lower it only if you want to keep the Mac responsive for other work.",
+    "How many CPU cores transcription may use (faster-whisper only). 0 = one per performance core (recommended; the slower efficiency cores would hold the others back). Lower it only if you want to keep the Mac responsive for other work.",
   transcribe_chunk_seconds:
-    "For the GPU (MLX) engine, audio is transcribed in windows this many seconds long, so progress updates and memory stays bounded. 180 (3 min) is a good default; 0 turns chunking off.",
+    "Audio is finalized in windows of about this many seconds (cut at a pause), so the transcript turns final step by step and memory stays bounded. 180 (3 min) is a good default; 0 = one window for the whole recording.",
   silence_peak_threshold:
     "Audio quieter than this (0–1) is treated as silent and skipped, so the model doesn’t invent captions over silence (e.g. an empty system-audio track). 0.005 works well; 0 disables the check.",
   diarization_enabled:
-    "Splits the other participants’ audio into separate speakers (Speaker 1, Speaker 2, …) so you can tell who said what. Needs a free HuggingFace token. Off by default; it makes processing slower.",
+    "Splits the other participants’ audio into separate speakers (Speaker 1, Speaker 2, …) so you can tell who said what. Runs on your Mac; the small speaker model (~60 MB) downloads the first time. Adds about a minute per 2 hours of audio.",
+  diarization_timing:
+    "“after_stop” splits speakers once, when the recording ends (about a minute for 2 hours). “during_recording” also does it roughly every 10 minutes while you record, so names show up sooner, at a small extra load during the call.",
 };
 
 function HelpTip({ text }: { text: string }) {
@@ -114,20 +117,6 @@ export default function Settings() {
 
   async function save() {
     if (!data) return;
-    // Diarization needs a HF token (typed now or already stored) + a model.
-    if (values.diarization_enabled) {
-      const tokenSet =
-        Boolean((secrets.hf_token ?? "").trim()) ||
-        Boolean(data.fields.find((f) => f.key === "hf_token")?.is_set);
-      if (!tokenSet) {
-        setError("Add a HuggingFace token to enable speaker diarization.");
-        return;
-      }
-      if (!String(values.diarization_model ?? "").trim()) {
-        setError("Choose a diarization model.");
-        return;
-      }
-    }
     setSaving(true);
     setError(null);
     setSaved(false);
@@ -186,10 +175,10 @@ export default function Settings() {
 
   const setValue = (k: string, v: unknown) => setValues((s) => ({ ...s, [k]: v }));
 
-  // The HF token + model only make sense once diarization is enabled.
+  // When to split speakers only matters once diarization is enabled.
   const diarOn = Boolean(values.diarization_enabled);
   const fieldVisible = (f: SettingField) =>
-    !(f.section === "diarization" && (f.key === "hf_token" || f.key === "diarization_model") && !diarOn);
+    !(f.section === "diarization" && f.key === "diarization_timing" && !diarOn);
 
   function control(f: SettingField): ReactNode {
     if (f.secret) {
@@ -305,10 +294,8 @@ export default function Settings() {
 
                 {sec.id === "diarization" && !data.diarization_supported && (
                   <p className="text-xs text-warn-deep bg-warn/10 border border-warn/20 rounded-field px-3 py-2 mb-2">
-                    Speaker separation is NOT included in this build — these settings are saved but
-                    won't take effect. Rebuild the app with{" "}
-                    <code className="font-mono">./scripts/build-macos-app.sh --diarization</code> (or run
-                    from source) to enable it.
+                    Speaker separation needs the on-device speech helper, which isn't available on
+                    this Mac (macOS 14+ on Apple Silicon). These settings are saved but won't take effect.
                   </p>
                 )}
 
@@ -373,6 +360,8 @@ export default function Settings() {
               </Card>
             );
           })}
+
+          <SpeechModelsCard />
 
           {/* Status (read-only) */}
           <Card className="p-6 bg-surface-2">

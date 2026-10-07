@@ -16,6 +16,7 @@ import time
 import wave
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import sounddevice as sd
@@ -23,11 +24,15 @@ from sqlmodel import Session
 
 from ..audio import system_capture
 from ..audio.local import find_device, refresh_devices
-from ..audio.power import SleepBlocker
+from ..audio.power import power_guard
 from ..audio.trim import detect_trim, trim_wav_window
 from ..config import settings
 from ..db import engine
 from ..models import Recording
+
+if TYPE_CHECKING:
+    from .captions import CaptionStream
+    from .live import LiveFinalizer
 
 log = logging.getLogger(__name__)
 
@@ -83,12 +88,15 @@ def _fmt_clock(seconds: float) -> str:
     return f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
 
 
-def _write_silence(wav: wave.Wave_write, frames: int) -> None:
-    """Append `frames` of digital silence, in bounded blocks (an outage can be minutes)."""
+def _write_silence(wav: wave.Wave_write, frames: int, tap=None) -> None:
+    """Append `frames` of digital silence, in bounded blocks (an outage can be minutes).
+    `tap` (live captions) gets the same bytes so caption times stay on the WAV timeline."""
     block = np.zeros(CAPTURE_SR * 10, dtype=np.int16).tobytes()
     while frames > 0:
         n = min(frames, CAPTURE_SR * 10)
         wav.writeframes(block[: n * 2])
+        if tap is not None:
+            tap(block[: n * 2])
         frames -= n
 
 
@@ -119,6 +127,7 @@ class _Track:
         self.health = "healthy"  # healthy | stalled | stopped
         self.last_progress = time.monotonic()
         self.anchor = time.monotonic()  # wall-clock time of this track's frame 0
+        self.tap = None  # optional fn(bytes): every PCM block written (live captions)
         self.events: list[str] = []  # user-facing notes (dropouts), surfaced on the recording
         self.last_reopen_at: float | None = None
         self.failed_reopens = 0  # consecutive failed recovery passes
@@ -148,9 +157,12 @@ class _Track:
             self.level = float(np.abs(mono).max())
             pcm16 = np.clip(mono * 32767.0, -32768, 32767).astype(np.int16)
             if self._wav is not None:
-                self._wav.writeframes(pcm16.tobytes())
+                data = pcm16.tobytes()
+                self._wav.writeframes(data)
                 self.frames += pcm16.size
                 self._note_progress()
+                if self.tap is not None:
+                    self.tap(data)
         except Exception:
             log.exception("track %s write failed", self.name)
 
@@ -231,7 +243,7 @@ class _Track:
             stream, name = self._make_stream(device)
             pad = _gap_frames(self.anchor, self.frames)
             if pad:
-                _write_silence(self._wav, pad)
+                _write_silence(self._wav, pad, self.tap)
                 self.frames += pad
             stream.start()
             self._stream = stream
@@ -267,6 +279,7 @@ class _SidecarTrack:
         self.health = "healthy"  # healthy | stalled | stopped
         self.last_progress = time.monotonic()
         self.anchor = time.monotonic()  # wall-clock time of this track's frame 0
+        self.tap = None  # optional fn(bytes): every PCM block written (live captions)
         self.events: list[str] = []  # user-facing notes (dropouts), surfaced on the recording
         self._wav: wave.Wave_write | None = None
         self._proc: subprocess.Popen | None = None
@@ -386,7 +399,7 @@ class _SidecarTrack:
                         # system lines stay aligned with the mic track.
                         pad = _gap_frames(self.anchor, self.frames, pending=arr.size)
                         if pad:
-                            _write_silence(self._wav, pad)
+                            _write_silence(self._wav, pad, self.tap)
                             self.frames += pad
                         self.events.append(
                             f"System audio dropped out at {_fmt_clock(lost_at - self.anchor)} "
@@ -396,6 +409,8 @@ class _SidecarTrack:
                     self._wav.writeframes(data)
                     self.frames += arr.size
                     self.last_progress = time.monotonic()
+                    if self.tap is not None:
+                        self.tap(data)
                     if self.health == "stalled":
                         self.health = "healthy"
                         log.info("track '%s' recovered", self.name)
@@ -434,7 +449,6 @@ class _Active:
         self.dir = dir_path
         self.started_monotonic = started_monotonic
         self.tracks: list[_Track | _SidecarTrack] = []
-        self.sleep_blocker = SleepBlocker()
         self._watch_stop = threading.Event()
         self._watch_thread: threading.Thread | None = None
         self._recover_thread: threading.Thread | None = None
@@ -446,7 +460,7 @@ class _Active:
 
     def begin_monitoring(self) -> None:
         """Start the liveness watchdog and prevent idle sleep for this recording."""
-        self.sleep_blocker.acquire()
+        power_guard.hold(("recording", self.recording_id))
         self._watch_thread = threading.Thread(
             target=self._watch, name=f"watchdog-{self.recording_id}", daemon=True
         )
@@ -583,7 +597,42 @@ class _Active:
             self._recover_thread.join(timeout=5)
             self._recover_thread = None
         self._flush_outages()  # a reconnect that landed just before stop is still reported
-        self.sleep_blocker.release()
+        # The processing job takes its own hold when enqueued, so idle sleep stays blocked
+        # until transcription finishes, not just until the recording stops.
+        power_guard.release(("recording", self.recording_id))
+
+
+def _store_caption_drafts(recording_id: int, lines: dict, has_system: bool, mic_path: str,
+                          system_path: str | None) -> None:
+    """Persist settled captions as draft lines after the part that's already final."""
+    from ..processing.job import _color
+    from ..processing.windows import insert_drafts, tracks_for
+    from ..transcribe.whisper import TLine
+
+    tracks = tracks_for(mic_path, system_path, mic_path, _color) if has_system else tracks_for(None, None, mic_path, _color)
+    by_name = {"mic": tracks[0], "system": tracks[1]} if has_system else {"mic": tracks[0]}
+    with Session(engine) as s:
+        rec = s.get(Recording, recording_id)
+        after = float(rec.final_until_s or 0.0) if rec else 0.0
+    pairs = [
+        (by_name[name], [TLine(a, b, t) for (a, b, t) in caps])
+        for name, caps in lines.items() if name in by_name and caps
+    ]
+    insert_drafts(engine, recording_id, pairs, after)
+
+
+def captions_available() -> bool:
+    """Live captions need the speech helper with on-device speech (macOS 26+)."""
+    from ..transcribe.speech_helper import helper_path, probe
+
+    return bool(helper_path() and probe().get("apple_speech"))
+
+
+def live_transcription_available() -> bool:
+    """Transcription during recording runs only on WhisperKit (light enough for a call)."""
+    from ..runtime import runtime
+
+    return getattr(runtime.whisper, "name", "") == "whisperkit"
 
 
 class Recorder:
@@ -592,9 +641,118 @@ class Recorder:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._active: _Active | None = None
+        # Opt-in speech work for the active recording (see live.py / captions.py).
+        self._captions: dict[str, "CaptionStream"] = {}
+        self._caption_lines: dict[str, list[tuple[float, float, str]]] = {}  # from stopped streams
+        self._live: "LiveFinalizer | None" = None
 
     def is_recording(self) -> bool:
         return self._active is not None
+
+    def live_finalizing(self) -> bool:
+        return self._live is not None and self._live.enabled
+
+    # ---------------------------------------------------------- live captions
+
+    def _start_captions(self, active: "_Active") -> None:
+        from ..transcribe.speech_helper import helper_path
+        from .captions import CaptionStream
+
+        path = helper_path()
+        if not path:
+            return
+        for t in active.tracks:
+            if t.name in self._captions:
+                continue
+            try:
+                cs = CaptionStream(
+                    path,
+                    offset_s=t.frames / CAPTURE_SR,  # started mid-recording → recording time
+                    language=settings.whisper_language or None,
+                    prompt=settings.whisper_initial_prompt or None,
+                    sample_rate=CAPTURE_SR,
+                )
+            except Exception:
+                log.exception("could not start captions for track %s", t.name)
+                continue
+            self._captions[t.name] = cs
+            t.tap = cs.feed
+
+    def _stop_captions(self, active: "_Active") -> None:
+        for t in active.tracks:
+            t.tap = None
+        for name, cs in list(self._captions.items()):
+            try:
+                self._caption_lines.setdefault(name, []).extend(cs.stop())
+            except Exception:
+                log.exception("stopping captions for %s failed", name)
+        self._captions.clear()
+
+    # ---------------------------------------------------------- transcription during recording
+
+    def _start_live(self, active: "_Active") -> None:
+        from ..processing.job import _color
+        from ..processing.windows import tracks_for
+        from ..runtime import runtime
+        from .live import LiveFinalizer
+
+        if self._live is not None:
+            self._live.enabled = True
+            return
+        names = {t.name: t for t in active.tracks}
+        mic, sysw = names.get("mic"), names.get("system")
+        tracks = tracks_for(
+            str(mic.path) if mic else None, str(sysw.path) if sysw else None,
+            str((mic or sysw).path) if (mic or sysw) else None, _color,
+        )
+
+        def recorded_s() -> float:
+            return min((t.frames for t in active.tracks), default=0) / CAPTURE_SR
+
+        engine_ = runtime.whisper
+
+        async def transcribe_window(path, start_s, end_s, *, language=None):
+            # The startup load may still be running (or need the one-time download).
+            if not engine_.is_loaded():
+                await engine_.load()
+            return await engine_.transcribe_window(path, start_s, end_s, language=language)
+
+        diarize = None
+        proc = runtime.processor
+        if settings.diarization_timing == "during_recording" and proc is not None:
+            two = sysw is not None
+            mic_path = str(mic.path) if mic else None
+            sys_path = str(sysw.path) if sysw else None
+
+            async def diarize(until_s: float) -> None:
+                await proc.split_speakers_live(active.recording_id, two, mic_path, sys_path)
+
+        self._live = LiveFinalizer(active.recording_id, tracks, recorded_s, transcribe_window, diarize=diarize)
+        self._live.start()
+
+    async def set_options(self, *, live_transcribe: bool | None = None, live_captions: bool | None = None) -> dict:
+        """Change the opt-in speech work of the active recording (recording screen toggles)."""
+        a = self._active
+        if a is None:
+            raise RuntimeError("not recording")
+        if live_captions is not None:
+            if live_captions and captions_available():
+                self._start_captions(a)
+            elif not live_captions:
+                self._stop_captions(a)
+        if live_transcribe is not None:
+            if live_transcribe and live_transcription_available():
+                self._start_live(a)
+            elif not live_transcribe and self._live is not None:
+                self._live.enabled = False  # the window in progress may still finish
+        with Session(engine) as s:
+            rec = s.get(Recording, a.recording_id)
+            if rec is not None:
+                rec.live_captions = bool(self._captions)
+                rec.live_transcribe = self.live_finalizing()
+                s.add(rec)
+                s.commit()
+        return self.active_info() or {}
 
     def active_info(self) -> dict | None:
         a = self._active
@@ -613,6 +771,12 @@ class Recorder:
             "mic_healthy": mic_track.health == "healthy" if mic_track else True,
             "system_healthy": (sys_track.health == "healthy") if sys_track else None,
             "system_restarts": sys_track.restarts if sys_track else 0,
+            "live_captions": bool(self._captions),
+            "live_transcribe": self.live_finalizing(),
+            "live": self._live.snapshot() if self._live is not None else None,
+            "captions": {name: cs.snapshot() for name, cs in self._captions.items()},
+            "captions_available": captions_available(),
+            "live_transcribe_available": live_transcription_available(),
         }
 
     async def start(
@@ -621,6 +785,8 @@ class Recorder:
         system_device: str | int | None,
         title: str | None,
         system_source: str = "device",
+        live_transcribe: bool | None = None,
+        live_captions: bool | None = None,
     ) -> int:
         async with self._lock:
             if self._active is not None:
@@ -679,11 +845,22 @@ class Recorder:
                         s.commit()
                 raise
 
+            # Opt-in speech work: defaults from Settings, overridable per recording.
+            want_live = settings.live_transcribe_default if live_transcribe is None else live_transcribe
+            want_caps = settings.live_captions_default if live_captions is None else live_captions
+            self._caption_lines = {}
+            if want_caps and captions_available():
+                self._start_captions(active)
+            if want_live and live_transcription_available():
+                self._start_live(active)
+
             with Session(engine) as s:
                 rec = s.get(Recording, recording_id)
                 assert rec is not None
                 rec.mic_path = str(mic.path)
                 rec.system_path = str(sys_track.path) if sys_track else None
+                rec.live_captions = bool(self._captions)
+                rec.live_transcribe = self.live_finalizing()
                 s.add(rec)
                 s.commit()
 
@@ -707,9 +884,17 @@ class Recorder:
                 return None
             self._active = None
 
+        # No live window may commit after this point (the job redoes an in-flight one).
+        live, self._live = self._live, None
+        if live is not None:
+            await live.stop()
         active.end_monitoring()
         for t in active.tracks:
             t.stop()
+        # Captions get every sample first, then finish; their settled lines become the
+        # draft for whatever isn't final yet.
+        self._stop_captions(active)
+        caption_lines, self._caption_lines = self._caption_lines, {}
 
         duration_s = time.monotonic() - active.started_monotonic
         mic_path = active.dir / "mic.wav"
@@ -759,6 +944,12 @@ class Recorder:
             rec.pending_trim = json.dumps(suggestion) if suggestion else None
             s.add(rec)
             s.commit()
+        if any(caption_lines.values()):
+            try:
+                _store_caption_drafts(active.recording_id, caption_lines, has_system, str(mic_path),
+                                      str(system_path) if has_system else None)
+            except Exception:
+                log.exception("storing caption drafts failed for recording %d", active.recording_id)
         log.info(
             "recording %d stopped (%.1fs)%s",
             active.recording_id, duration_s,
@@ -825,6 +1016,35 @@ def recover_orphaned(recording_id: int) -> bool:
     return True
 
 
+def shift_transcript(s: Session, recording_id: int, start_s: float, end_s: float,
+                     final_until_s: float | None) -> float | None:
+    """Drop segments starting outside [start_s, end_s), shift the rest (and their word
+    timings) by -start_s, remove speakers left without lines, and return the shifted
+    `final_until_s` (None when nothing final survives)."""
+    from sqlmodel import select
+
+    from ..models import Segment, Speaker
+
+    span = max(0.0, end_s - start_s)
+    for seg in s.exec(select(Segment).where(Segment.recording_id == recording_id)).all():
+        if seg.start_ts < start_s or seg.start_ts >= end_s:
+            s.delete(seg)
+            continue
+        seg.start_ts -= start_s
+        seg.end_ts = min(span, seg.end_ts - start_s)
+        if seg.words:
+            seg.words = json.dumps([[w[0] - start_s, w[1] - start_s, w[2]] for w in json.loads(seg.words)])
+        s.add(seg)
+    s.flush()
+    for sp in s.exec(select(Speaker).where(Speaker.recording_id == recording_id)).all():
+        if s.exec(select(Segment.id).where(Segment.speaker_id == sp.id)).first() is None:
+            s.delete(sp)
+    if final_until_s is None:
+        return None
+    shifted = min(span, final_until_s - start_s)
+    return shifted if shifted > 0 else None
+
+
 def apply_trim(recording_id: int, start_s: float, end_s: float) -> float:
     """Trim every on-disk track of a recording to the absolute window [start_s, end_s],
     re-mix, and update the stored duration. Clears `pending_trim`. Returns the new duration.
@@ -865,6 +1085,9 @@ def apply_trim(recording_id: int, start_s: float, end_s: float) -> float:
             rec.mic_path = str(mic_path) if has_mic else None
             rec.system_path = str(system_path) if has_system else None
             rec.pending_trim = None
+            # Lines written before the decision (live windows, caption drafts) move onto
+            # the trimmed timeline, so the transcript matches the trimmed audio.
+            rec.final_until_s = shift_transcript(s, recording_id, start_s, end_s, rec.final_until_s)
             s.add(rec)
             s.commit()
     log.info("trimmed recording %d to %.1fs (window %.1f–%.1f)", recording_id, new_duration, start_s, end_s)

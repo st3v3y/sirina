@@ -9,22 +9,17 @@
 #
 # This script is scaffolding — adjust paths/targets as needed; it has not been run here.
 #
-# Flags:
-#   --mlx          Bundle the Apple-GPU (MLX) transcription engine. Adds ~480 MB to the
-#                  app; without it the app uses faster-whisper (CPU) and says so in Settings.
-#   --diarization  Bundle speaker diarization (pyannote + torch). Adds several hundred MB;
-#                  without it the app can't split "Speaker 1/2/3…" and says so in Settings.
+# Speech work (WhisperKit transcription, SpeakerKit speaker splitting, Apple on-device
+# draft/captions) is in the native speech-engine helper; models download on first use.
+# There are no optional heavy variants any more.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-WITH_MLX=0
-WITH_DIARIZATION=0
 for arg in "$@"; do
   case "$arg" in
-    --mlx) WITH_MLX=1 ;;
-    --diarization) WITH_DIARIZATION=1 ;;
-    *) echo "unknown flag: $arg (supported: --mlx, --diarization)"; exit 1 ;;
+    --mlx|--diarization) echo "note: $arg is no longer needed (speech runs in the native helper); ignoring" ;;
+    *) echo "unknown flag: $arg"; exit 1 ;;
   esac
 done
 
@@ -75,15 +70,8 @@ echo "==> Building frontend"
 cd "$ROOT/frontend" && npm run build
 
 cd "$ROOT/backend"
-VARIANT="default (no MLX, no diarization — pass --mlx / --diarization to include them)"
-if [ "$WITH_MLX" = "1" ]; then
-  uv sync --extra mlx   # make sure mlx-whisper is importable for collect_all
-  VARIANT="with MLX"
-fi
-[ "$WITH_DIARIZATION" = "1" ] && VARIANT="$VARIANT + diarization"
-echo "==> Freezing backend with PyInstaller ($VARIANT)"
-SIRINA_BUNDLE_MLX=$WITH_MLX SIRINA_BUNDLE_DIARIZATION=$WITH_DIARIZATION \
-  uv run python -m PyInstaller packaging/backend.spec --noconfirm --distpath dist --workpath build
+echo "==> Freezing backend with PyInstaller"
+uv run python -m PyInstaller packaging/backend.spec --noconfirm --distpath dist --workpath build
 
 echo "==> Placing onedir backend into Tauri resources"
 RES_DIR="$ROOT/frontend/src-tauri/resources"
@@ -97,6 +85,11 @@ echo "==> Building native system-audio capture sidecar"
 mkdir -p "$RES_DIR"
 cp "$ROOT/native/system-audio-capture/build/system-audio-capture" "$RES_DIR/system-audio-capture"
 chmod +x "$RES_DIR/system-audio-capture"
+
+echo "==> Building native speech helper (WhisperKit / SpeakerKit / Apple speech)"
+"$ROOT/native/speech-engine/build.sh"
+cp "$ROOT/native/speech-engine/build/speech-engine" "$RES_DIR/speech-engine"
+chmod +x "$RES_DIR/speech-engine"
 
 echo "==> Building the Tauri app"
 cd "$ROOT/frontend" && cargo tauri build
@@ -133,6 +126,8 @@ echo "==> Codesigning $APP with: $IDENTITY"
 # ScreenCaptureKit call as the same client as the app — otherwise the Screen Recording
 # grant doesn't cover it and native capture never becomes available.
 codesign --force --timestamp=none --identifier "$BUNDLE_ID" --sign "$IDENTITY" "$APP/Contents/Resources/resources/system-audio-capture"
+# Same for the speech helper: on-device speech recognition permission belongs to the app.
+codesign --force --timestamp=none --identifier "$BUNDLE_ID" --sign "$IDENTITY" "$APP/Contents/Resources/resources/speech-engine"
 # Onedir exposes the backend's dylibs/.so as individual files — every Mach-O must be signed
 # or the (signed) app won't launch. Sign them all, then the backend exe, then the bundle.
 find "$APP/Contents/Resources/resources/backend" -type f \( -name "*.so" -o -name "*.dylib" -o -perm +111 \) -print0 \
