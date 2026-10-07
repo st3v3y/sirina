@@ -1,0 +1,33 @@
+---
+import { site, issuesUrl } from "../config";
+---
+
+<footer>
+  <div class="wrap row">
+    <div class="brand">
+      <img src="/logo.svg" alt="" width="24" height="24" />
+      <span class="name">Sirina</span>
+      <span class="beta-pill">BETA</span>
+    </div>
+    <span>Local-first meeting transcription.</span>
+    <nav aria-label="Footer">
+      <a href={site.githubUrl}>GitHub</a>
+      <a href={issuesUrl}>Issues</a>
+      <a href={site.coffeeUrl}>Buy me a coffee</a>
+      <a href={site.licenseUrl}>PolyForm Noncommercial 1.0.0</a>
+    </nav>
+  </div>
+</footer>
+
+<style>
+  footer { border-top: 1px solid var(--surface-2); }
+  .row { padding-top: 32px; padding-bottom: 40px; display: flex; align-items: center; gap: 20px; flex-wrap: wrap; font-size: 13px; color: var(--dim); }
+  .brand { display: flex; align-items: center; gap: 9px; }
+  .brand img { display: block; }
+  .name { font-family: var(--serif); font-size: 17px; font-weight: 600; color: var(--ink-2); }
+  .beta-pill { font-size: 10px; padding: 1px 7px; }
+  nav { margin-left: auto; display: flex; gap: 12px 20px; flex-wrap: wrap; }
+  nav a { color: var(--muted); }
+  nav a:hover { color: var(--ink); }
+  @media (max-width: 640px) { nav { margin-left: 0; } }
+</style>

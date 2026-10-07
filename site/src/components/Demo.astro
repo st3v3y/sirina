@@ -1,0 +1,434 @@
+---
+import Icon from "./Icon.astro";
+
+// Static mock data for the interactive app preview.
+const recent = [
+  { title: "Thesis interview — participant 04", meta: "Today 10:30 · 47:12 · 2 speakers", tag: "Research", tone: "blue", hint: true },
+  { title: "Community garden — planning call", meta: "Yesterday 19:00 · 38:40 · 5 speakers", tag: "Personal", tone: "accent" },
+];
+const earlier = [
+  { title: "Lecture — Environmental economics", meta: "Sep 22 · 1:28:05 · 1 speaker", tag: "Study group", tone: "green" },
+  { title: "Call with Mom — moving plans", meta: "Sep 18 · 24:51 · 2 speakers", tag: "Personal", tone: "accent" },
+];
+const transcript = [
+  { t: "00:12", who: "Anna", you: true, text: "Thanks for joining. Could you walk me through how you keep track of your energy use at home?" },
+  { t: "00:24", who: "Participant 04", text: "Honestly, I just look at the bill when it comes. There's no app or anything — I wouldn't know where to start." },
+  { t: "00:41", who: "Anna", you: true, text: "What would make it easier to change something?" },
+  { t: "00:49", who: "Participant 04", text: "Knowing which appliances actually matter. My neighbour said the old freezer was the big one — and she was right." },
+];
+---
+
+<section id="demo" class="wrap demo">
+  <div class="toolbar">
+    <div class="seg" role="group" aria-label="Demo screen">
+      <button type="button" data-go="list" aria-pressed="true">Library</button>
+      <button type="button" data-go="detail" aria-pressed="false">Meeting</button>
+      <button type="button" data-go="live" aria-pressed="false">Recording</button>
+    </div>
+    <div class="tools">
+      <span class="tip"><Icon name="pointer" size={14} width={1.5} />Interactive demo — click around</span>
+      <button type="button" class="switch" role="switch" aria-checked="true" data-labels-toggle>
+        <span class="track"><span class="knob"></span></span>
+        Feature labels
+      </button>
+    </div>
+  </div>
+
+  <div class="stage" data-stage>
+    <div class="app" data-app data-view="list" data-tab="summary" data-labels="on" data-just="no">
+      <div class="titlebar">
+        <div class="lights"><span></span><span></span><span></span></div>
+        <div class="titletext"><span class="idle-only">Sirina</span><span class="live-only">Sirina · Recording</span></div>
+        <div style="width:52px"></div>
+      </div>
+
+      <div class="body">
+        <!-- sidebar -->
+        <aside class="side">
+          <div class="side-brand"><img src="/logo.svg" alt="" width="32" height="32" /><span>Sirina</span></div>
+          <div class="rel">
+            <button type="button" class="rec-btn" data-record>
+              <span class="rec-icon"></span><span class="idle-only">Record</span><span class="live-only">Stop</span>
+            </button>
+            <div class="hint hint--list bob" style="left:calc(100% + 150px); top:-50px;"><b>1</b>Record mic + system audio — no bot joins</div>
+          </div>
+          <div class="side-sub"><Icon name="mic" size={11} />Mic + system audio</div>
+          <button type="button" class="nav-item active" data-go="list"><Icon name="clock" color="#c83f25" />Recordings</button>
+          <div class="nav-item"><Icon name="chat" width={1.5} />Ask</div>
+          <div class="nav-item"><Icon name="people" width={1.5} />People</div>
+          <div class="nav-item"><Icon name="doc" width={1.5} />Templates</div>
+          <div class="tags">
+            <div class="tags-h">Tags</div>
+            <span><i style="background:#c0603a"></i>Personal</span>
+            <span><i style="background:#5f7a8c"></i>Research</span>
+            <span><i style="background:#5e7d63"></i>Study group</span>
+          </div>
+          <div style="flex:1"></div>
+          <div class="side-status rel">
+            <span class="dot"></span><span class="idle-only">Local · Whisper ready</span><span class="live-only">Local · saving to disk</span>
+            <div class="hint" style="left:calc(100% + 6px); top:2px;"><b class="ok">✓</b>WhisperKit + Ollama, running locally</div>
+          </div>
+        </aside>
+
+        <div class="main">
+          <!-- LIBRARY -->
+          <div class="view v-list">
+            <div class="bar">
+              <span class="bar-title">Recordings</span>
+              <div style="flex:1"></div>
+              <div class="filter"><Icon name="search" size={13} width={1.5} />Filter by name…</div>
+            </div>
+            <div class="list">
+              <div class="group-h">Recent</div>
+              <div class="card">
+                <div class="row just-row">
+                  <span class="status rec"></span>
+                  <div class="grow"><div class="row-title muted">New recording</div><div class="row-meta warm">Finishing the last window… 92%</div></div>
+                  <div class="progress"><div style="width:92%"></div></div>
+                </div>
+                {recent.map((r) => (
+                  <button type="button" class="row clickable" data-go="detail">
+                    <span class="status done"></span>
+                    <div class="grow"><div class="row-title">{r.title}</div><div class="row-meta">{r.meta}</div></div>
+                    <span class={`chip chip--${r.tone}`}>{r.tag}</span>
+                    <Icon name="chevron" size={15} color="#6d6657" />
+                    {r.hint && <div class="hint bob" style="right:40px; top:-14px;"><b>2</b>Open a recording</div>}
+                  </button>
+                ))}
+                <div class="row rel">
+                  <span class="status rec"></span>
+                  <div class="grow"><div class="row-title muted">Statistics study group</div><div class="row-meta warm">Transcribing… 62%</div></div>
+                  <div class="progress"><div style="width:62%"></div></div>
+                  <div class="hint" style="right:12px; top:calc(100% - 8px);"><b>3</b>Transcribed on the Neural Engine — offline</div>
+                </div>
+              </div>
+              <div class="group-h">Earlier this month</div>
+              <div class="card">
+                {earlier.map((r) => (
+                  <button type="button" class="row clickable" data-go="detail">
+                    <span class="status done flat"></span>
+                    <div class="grow"><div class="row-title">{r.title}</div><div class="row-meta">{r.meta}</div></div>
+                    <span class={`chip chip--${r.tone}`}>{r.tag}</span>
+                    <Icon name="chevron" size={15} color="#6d6657" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <!-- MEETING -->
+          <div class="view v-detail">
+            <div class="detail-head">
+              <button type="button" class="crumb" data-go="list"><Icon name="back" size={13} />Recordings</button>
+              <div class="detail-title-row">
+                <div class="grow">
+                  <h3>Thesis interview — participant 04</h3>
+                  <div class="detail-meta">
+                    <span class="mono">Oct 6, 2026 · 47:12 · EN</span>
+                    <div class="rel speakers">
+                      <span class="avatars"><span style="background:#5fa48f">AN</span><span style="background:#d68a5e">P4</span></span>
+                      2 speakers
+                      <div class="hint" style="left:calc(100% + 14px); top:-2px;"><b>1</b>Who said what — speakers separated</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="rel">
+                  <span class="export"><Icon name="download" size={12} width={1.5} />Export</span>
+                  <div class="hint" style="right:0; top:calc(100% + 10px);"><b>4</b>Markdown, text or copy</div>
+                </div>
+              </div>
+            </div>
+            <div class="tabs" role="tablist">
+              <button type="button" role="tab" data-tab-go="summary">Summary</button>
+              <button type="button" role="tab" data-tab-go="transcript">Transcript</button>
+              <button type="button" role="tab" data-tab-go="ask">Ask AI</button>
+              <div class="hint static bob" style="margin-left:14px;"><b>2</b>Switch tabs</div>
+            </div>
+            <div class="panes">
+              <div class="pane t-summary">
+                <div class="summary">
+                  <div class="rel">
+                    <div class="sec-h">Overview <span>· template: Research interview</span></div>
+                    <p class="overview">Participant 04 describes how their household tracks energy use. They rely on monthly bills rather than live data, and say the main barrier to change is not knowing which appliances matter most.</p>
+                    <div class="hint" style="right:-210px; top:0;"><b>3</b>Summaries by your local AI model</div>
+                  </div>
+                  <div>
+                    <div class="sec-h">Key points</div>
+                    <ul class="points">
+                      <li>Checks the bill once a month; no smart meter app in use.</li>
+                      <li>Would act on per-appliance feedback if it were simple.</li>
+                      <li>Trusts neighbours' advice more than utility tips.</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <div class="sec-h">Follow-ups</div>
+                    <div class="todos">
+                      <div class="done"><span class="box on"><Icon name="check" size={10} color="#fff" width={2.2} /></span><s>Send consent form copy to participant.</s></div>
+                      <div><span class="box"></span>Code quotes on "neighbour trust" theme.</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="pane t-transcript">
+                {transcript.map((l) => (
+                  <div class="line">
+                    <span class="ts">{l.t}</span>
+                    <div>
+                      <div class={l.you ? "who you" : "who"}>{l.who}{l.you && <span> (You)</span>}</div>
+                      <div class="said">{l.text}</div>
+                    </div>
+                  </div>
+                ))}
+                <div class="hint" style="right:28px; top:16px;"><b>3</b>Timestamped transcript</div>
+              </div>
+              <div class="pane t-ask">
+                <div class="chat">
+                  <div class="q">What did they say would help them change habits?</div>
+                  <div class="a rel">
+                    Knowing <strong>which appliances matter most</strong>. They also trust advice from neighbours more than tips from the utility.
+                    <div class="hint" style="left:calc(100% + 14px); bottom:6px;"><b>3</b>Answers from your transcript</div>
+                  </div>
+                </div>
+                <div class="ask-input"><span>Ask about this recording…</span><span class="send"><Icon name="up" size={14} color="#fff" width={1.7} /></span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- RECORDING -->
+          <div class="view v-live">
+            <div class="live-pill"><span></span>Recording</div>
+            <div class="timer rel">
+              <span data-timer>0:00</span>
+              <div class="hint" style="left:calc(100% + 24px); top:10px;"><b>1</b>Audio saved straight to disk</div>
+            </div>
+            <div class="bars" data-bars>
+              {Array.from({ length: 24 }, () => <div></div>)}
+            </div>
+            <div class="rel">
+              <button type="button" class="stop-btn" data-record><span></span>Stop recording</button>
+              <div class="hint bob" style="left:calc(100% + 18px); top:12px;"><b>2</b>Stop — the transcript is nearly done</div>
+            </div>
+            <p class="live-note">Nothing is streamed anywhere. Sirina transcribes on your Mac while you record, so only the last few minutes are left when you stop.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  const app = document.querySelector<HTMLElement>("[data-app]")!;
+  const stage = document.querySelector<HTMLElement>("[data-stage]")!;
+  const timer = document.querySelector<HTMLElement>("[data-timer]")!;
+  const bars = Array.from(document.querySelectorAll<HTMLElement>("[data-bars] > div"));
+  const toggle = document.querySelector<HTMLElement>("[data-labels-toggle]")!;
+  let secs = 0;
+  let tick: number | undefined;
+
+  function drawBars(live: boolean) {
+    bars.forEach((bar, i) => {
+      const v = live ? 0.2 + 0.8 * Math.abs(Math.sin(i * 0.9 + secs * 1.7) * Math.cos(i * 0.35 - secs)) : 0.2;
+      bar.style.height = Math.round(v * 100) + "%";
+      bar.style.background = v > 0.7 ? "#d6492f" : v > 0.45 ? "#dd7e62" : "#e7b6a4";
+    });
+  }
+
+  function setView(view: string) {
+    if (app.dataset.view === "live" && view !== "live") {
+      clearInterval(tick);
+      if (view === "list") app.dataset.just = "yes";
+    }
+    if (view === "live" && app.dataset.view !== "live") {
+      secs = 0;
+      timer.textContent = "0:00";
+      tick = window.setInterval(() => {
+        secs += 1;
+        timer.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+        drawBars(true);
+      }, 1000);
+    }
+    app.dataset.view = view;
+    document.querySelectorAll<HTMLElement>(".seg [data-go]").forEach((b) => {
+      b.setAttribute("aria-pressed", String(b.dataset.go === view));
+    });
+    drawBars(view === "live");
+  }
+
+  function setTab(tab: string) {
+    app.dataset.tab = tab;
+    document.querySelectorAll<HTMLElement>("[data-tab-go]").forEach((b) => {
+      b.setAttribute("aria-selected", String(b.dataset.tabGo === tab));
+    });
+  }
+
+  document.querySelectorAll<HTMLElement>("[data-go]").forEach((el) =>
+    el.addEventListener("click", () => setView(el.dataset.go!)),
+  );
+  document.querySelectorAll<HTMLElement>("[data-record]").forEach((el) =>
+    el.addEventListener("click", () => setView(app.dataset.view === "live" ? "list" : "live")),
+  );
+  document.querySelectorAll<HTMLElement>("[data-tab-go]").forEach((el) =>
+    el.addEventListener("click", () => setTab(el.dataset.tabGo!)),
+  );
+  toggle.addEventListener("click", () => {
+    const on = app.dataset.labels !== "on";
+    app.dataset.labels = on ? "on" : "off";
+    toggle.setAttribute("aria-checked", String(on));
+  });
+
+  // The mock is laid out at 1120 px and scaled down to fit narrower screens.
+  new ResizeObserver(() => {
+    const scale = Math.min(1, stage.clientWidth / 1120);
+    app.style.transform = `scale(${scale})`;
+    stage.style.height = Math.round(620 * scale) + "px";
+  }).observe(stage);
+
+  setTab("summary");
+  drawBars(false);
+</script>
+
+<style>
+  .demo { padding-top: 8px; padding-bottom: 96px; }
+  .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+  .seg { display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
+  .seg button { height: 34px; padding: 0 16px; border: none; border-radius: 9px; font-size: 13.5px; cursor: pointer; background: none; color: var(--dim); font-weight: 500; }
+  .seg button[aria-pressed="true"] { background: var(--surface-3); color: var(--ink); font-weight: 600; box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 2px 6px rgba(0,0,0,0.3); }
+  .tools { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .tip { font-size: 13px; color: var(--dim); display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+  .switch { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--surface); color: var(--muted); font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+  .track { width: 26px; height: 15px; border-radius: 10px; position: relative; background: #3a342b; flex: none; }
+  .knob { position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: #fff; transition: transform .15s; }
+  .switch[aria-checked="true"] .track { background: var(--red); }
+  .switch[aria-checked="true"] .knob { transform: translateX(11px); }
+
+  .stage { position: relative; width: 100%; height: 620px; }
+  .app { position: absolute; left: 0; top: 0; width: 1120px; transform-origin: 0 0; background: var(--surface-2); border-radius: 14px; box-shadow: 0 40px 90px -20px rgba(0,0,0,0.6), 0 0 0 1px var(--line-3); }
+  .rel { position: relative; }
+  .grow { flex: 1; min-width: 0; }
+
+  /* visibility driven by data attributes on .app */
+  .view, .pane, .live-only, .just-row { display: none !important; }
+  .app[data-view="list"] .v-list,
+  .app[data-view="detail"] .v-detail,
+  .app[data-view="live"] .v-live { display: flex !important; }
+  .app[data-view="live"] .live-only { display: inline !important; }
+  .app[data-view="live"] .idle-only { display: none; }
+  .app[data-tab="summary"] .t-summary { display: block !important; }
+  .app[data-tab="transcript"] .t-transcript,
+  .app[data-tab="ask"] .t-ask { display: flex !important; }
+  .app[data-just="yes"] .just-row { display: flex !important; }
+  .app .hint--list { display: none; }
+  .app[data-view="list"] .hint--list { display: flex; }
+  .app[data-labels="off"] .hint { display: none; }
+
+  .hint { position: absolute; z-index: 6; display: flex; align-items: center; gap: 7px; padding: 5px 11px 5px 5px; border-radius: 20px; background: var(--ink); color: #1b1814; font-family: var(--sans); font-size: 12px; font-weight: 600; letter-spacing: 0; white-space: nowrap; box-shadow: 0 8px 22px rgba(0,0,0,0.45); pointer-events: none; }
+  .hint.static { position: static; }
+  .hint b { width: 19px; height: 19px; border-radius: 50%; background: var(--red); color: #fff; font-size: 10.5px; display: flex; align-items: center; justify-content: center; }
+  .hint b.ok { background: var(--green); font-size: 11px; }
+  .bob { animation: hint 2.4s ease-in-out infinite; }
+
+  .titlebar { height: 40px; display: flex; align-items: center; padding: 0 16px; background: linear-gradient(180deg, #2a2620, #221e18); border-bottom: 1px solid var(--line-2); border-radius: 14px 14px 0 0; }
+  .lights { display: flex; gap: 8px; }
+  .lights span { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; }
+  .lights span:nth-child(2) { background: #febc2e; }
+  .lights span:nth-child(3) { background: #28c840; }
+  .titletext { flex: 1; text-align: center; font-size: 12.5px; color: var(--dim); font-weight: 500; }
+  .body { display: flex; height: 580px; }
+
+  .side { width: 224px; flex: none; background: linear-gradient(168deg, #26221b, #201c15); border-right: 1px solid var(--line-2); display: flex; flex-direction: column; padding: 16px 12px; border-radius: 0 0 0 14px; }
+  .side-brand { display: flex; align-items: center; gap: 10px; padding: 2px 8px 18px; }
+  .side-brand span { font-family: var(--serif); font-size: 19px; font-weight: 600; }
+  .rec-btn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; height: 44px; border-radius: 11px; background: linear-gradient(180deg, var(--red-2), var(--red)); color: #fff; border: none; font-size: 14.5px; font-weight: 600; cursor: pointer; box-shadow: 0 6px 16px -2px rgba(200,63,37,0.42), inset 0 1px 0 rgba(255,255,255,0.25); }
+  .rec-icon { width: 12px; height: 12px; border-radius: 50%; background: #fff; }
+  .app[data-view="live"] .rec-icon { border-radius: 3px; }
+  .side-sub { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 11px; color: var(--dim); margin: 8px 0 20px; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 9px; color: var(--muted); font-size: 13.5px; border: 1px solid transparent; background: none; text-align: left; }
+  .nav-item.active { cursor: pointer; background: var(--surface-2); color: var(--ink); font-weight: 600; border-color: var(--line); }
+  .tags { margin-top: 20px; padding: 0 12px; display: flex; flex-direction: column; gap: 9px; font-size: 13px; color: var(--muted); }
+  .tags-h { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--dim-2); margin-bottom: 1px; }
+  .tags span { display: flex; align-items: center; gap: 9px; }
+  .tags i { width: 8px; height: 8px; border-radius: 50%; }
+  .side-status { display: flex; align-items: center; gap: 8px; padding: 10px 12px 2px; border-top: 1px solid var(--line-2); font-size: 11.5px; color: var(--dim); white-space: nowrap; }
+
+  .main { flex: 1; min-width: 0; position: relative; background: var(--surface); border-radius: 0 0 14px 0; }
+  .view { position: absolute; inset: 0; flex-direction: column; }
+  .bar { height: 58px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 26px; border-bottom: 1px solid var(--line); }
+  .bar-title { font-family: var(--serif); font-size: 20px; font-weight: 600; }
+  .filter { display: flex; align-items: center; gap: 8px; width: 240px; height: 34px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: 9px; background: var(--surface-2); color: var(--dim-2); font-size: 12.5px; }
+  .list { flex: 1; padding: 22px 26px; overflow: hidden; }
+  .group-h { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; color: var(--dim-2); margin-bottom: 10px; }
+  .card { background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 22px; }
+  .card:last-child { margin-bottom: 0; }
+  .row { position: relative; width: 100%; display: flex; align-items: center; gap: 14px; padding: 14px 16px; border: none; border-bottom: 1px solid #2a251e; background: none; color: var(--ink); text-align: left; font: inherit; }
+  .row:last-child { border-bottom: none; }
+  .row:first-child { border-radius: 12px 12px 0 0; }
+  .just-row { background: #241f17; }
+  .clickable { cursor: pointer; }
+  .clickable:hover { background: #262219; }
+  .status { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .status.done { background: var(--green); box-shadow: 0 0 0 3px rgba(116,192,141,0.2); }
+  .status.done.flat { box-shadow: none; }
+  .status.rec { background: var(--rec); box-shadow: 0 0 0 3px rgba(214,73,47,0.18); }
+  .row-title { font-size: 14.5px; font-weight: 600; }
+  .row-title.muted { color: var(--muted); }
+  .row-meta { font-size: 11.5px; color: var(--dim); margin-top: 3px; font-family: var(--mono); }
+  .row-meta.warm { color: #e08a52; }
+  .progress { width: 130px; height: 6px; border-radius: 4px; background: #2e2920; overflow: hidden; }
+  .progress div { height: 100%; background: linear-gradient(90deg, var(--red-2), var(--red)); }
+  .chip { padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .chip--blue { background: rgba(159,189,212,0.18); color: var(--blue); }
+  .chip--accent { background: rgba(227,147,107,0.16); color: var(--accent); }
+  .chip--green { background: rgba(143,192,155,0.18); color: var(--green-3); }
+
+  .detail-head { flex: none; padding: 16px 28px 0; }
+  .crumb { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--dim); margin-bottom: 10px; cursor: pointer; background: none; border: none; padding: 0; }
+  .detail-title-row { display: flex; align-items: flex-start; gap: 16px; }
+  .detail-title-row h3 { font-family: var(--serif); font-size: 24px; font-weight: 600; margin: 0; }
+  .detail-meta { display: flex; align-items: center; gap: 14px; margin-top: 8px; flex-wrap: wrap; font-size: 12px; color: #968d7e; }
+  .speakers { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+  .avatars { display: flex; }
+  .avatars span { width: 23px; height: 23px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 9.5px; font-weight: 600; border: 2px solid var(--surface); }
+  .avatars span + span { margin-left: -7px; }
+  .export { height: 32px; padding: 0 12px; border: 1px solid var(--line-2); background: var(--surface-2); border-radius: 8px; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .tabs { position: relative; flex: none; display: flex; align-items: center; gap: 4px; padding: 16px 28px 0; border-bottom: 1px solid var(--line); }
+  .tabs button { height: 36px; padding: 0 14px; border: none; background: none; font-size: 14px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; color: var(--dim); font-weight: 500; }
+  .tabs button[aria-selected="true"] { color: var(--ink); font-weight: 700; border-bottom-color: var(--red); }
+  .panes { flex: 1; position: relative; overflow: hidden; }
+  .pane { position: absolute; inset: 0; padding: 20px 28px; flex-direction: column; }
+  .summary { max-width: 620px; display: flex; flex-direction: column; gap: 18px; }
+  .sec-h { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; color: var(--accent); margin-bottom: 9px; }
+  .sec-h span { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--dim); }
+  .overview { font-family: var(--serif); font-size: 16.5px; line-height: 1.6; color: #ebe5d9; margin: 0; }
+  .points { list-style: none; margin: 0; padding: 0; font-size: 14px; line-height: 1.6; color: var(--ink-2); display: flex; flex-direction: column; gap: 7px; }
+  .points li { display: flex; gap: 10px; }
+  .points li::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #c0603a; flex: none; margin-top: 8px; }
+  .todos { font-size: 14px; line-height: 1.6; color: var(--ink-2); display: flex; flex-direction: column; gap: 8px; }
+  .todos div { display: flex; gap: 10px; align-items: flex-start; }
+  .todos s { color: var(--dim); }
+  .box { width: 16px; height: 16px; border: 1.5px solid var(--line-4); border-radius: 5px; flex: none; margin-top: 2px; display: flex; align-items: center; justify-content: center; }
+  .box.on { background: #574d40; border: none; }
+  .t-transcript { gap: 16px; }
+  .line { display: flex; gap: 14px; max-width: 680px; }
+  .ts { font-size: 11px; color: var(--dim-2); font-family: var(--mono); width: 42px; flex: none; padding-top: 3px; }
+  .who { font-size: 12px; font-weight: 700; color: #d68a5e; margin-bottom: 3px; }
+  .who.you { color: var(--teal); }
+  .who span { color: var(--dim-2); font-weight: 500; }
+  .said { font-size: 14px; line-height: 1.6; color: var(--ink-2); }
+  .chat { flex: 1; display: flex; flex-direction: column; gap: 14px; }
+  .q { align-self: flex-end; max-width: 60%; background: linear-gradient(165deg, #574d40, #3a342b); color: #fff; border-radius: 15px 15px 5px 15px; padding: 11px 15px; font-size: 13.5px; line-height: 1.5; }
+  .a { align-self: flex-start; max-width: 72%; background: var(--surface-2); border: 1px solid var(--line); color: var(--ink-2); border-radius: 15px 15px 15px 5px; padding: 13px 16px; font-size: 13.5px; line-height: 1.6; }
+  .a strong { color: var(--accent); }
+  .ask-input { flex: none; height: 46px; border: 1px solid var(--line-2); border-radius: 11px; background: var(--surface-2); display: flex; align-items: center; padding: 0 6px 0 16px; font-size: 13px; color: var(--dim-3); }
+  .ask-input > span:first-child { flex: 1; }
+  .send { width: 34px; height: 34px; border-radius: 9px; background: linear-gradient(165deg, #574d40, #3a342b); display: flex; align-items: center; justify-content: center; }
+
+  .v-live { align-items: center; justify-content: center; gap: 28px; background: radial-gradient(circle at 50% 38%, rgba(214,73,47,0.09), rgba(0,0,0,0) 58%); }
+  .live-pill { display: flex; align-items: center; gap: 9px; padding: 6px 15px; border-radius: 30px; background: rgba(224,86,59,0.2); color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
+  .live-pill span { width: 9px; height: 9px; border-radius: 50%; background: var(--rec); animation: recpulse 1.6s ease-in-out infinite; }
+  .timer { font-family: var(--mono); font-size: 84px; font-weight: 500; letter-spacing: -0.02em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .bars { display: flex; align-items: center; gap: 4px; height: 54px; }
+  .bars div { width: 4px; border-radius: 3px; }
+  .stop-btn { display: flex; align-items: center; gap: 11px; height: 50px; padding: 0 28px; border-radius: 30px; background: linear-gradient(180deg, var(--red-2), var(--red)); color: #fff; border: none; font-size: 15px; font-weight: 600; cursor: pointer; box-shadow: 0 8px 22px -4px rgba(200,63,37,0.5); }
+  .stop-btn span { width: 13px; height: 13px; border-radius: 3px; background: #fff; }
+  .live-note { max-width: 400px; text-align: center; font-size: 13px; line-height: 1.6; color: var(--dim); margin: 0; }
+</style>

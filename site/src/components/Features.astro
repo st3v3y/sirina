@@ -1,0 +1,47 @@
+---
+import Icon from "./Icon.astro";
+
+const features = [
+  { icon: "mic", color: "#e0563b", bg: "rgba(224,86,59,0.18)", title: "One-click recording", text: "Mic and system audio as separate tracks, captured natively — both sides of any call app. No meeting bot." },
+  { icon: "wave", color: "#9fbdd4", bg: "rgba(159,189,212,0.16)", title: "On-device transcription", text: "WhisperKit large-v3-turbo on the Neural Engine: 10 minutes of audio in about a minute. Detects the language and takes spelling hints for names." },
+  { icon: "captions", color: "#e3936b", bg: "rgba(227,147,107,0.16)", title: "Live captions & transcript", text: "Optional live captions while you talk (macOS 26+). The transcript is finished during the call, so it's ready minutes after you stop." },
+  { icon: "people", color: "#5fa48f", bg: "rgba(95,164,143,0.16)", title: "Speakers & people", beta: true, text: "Speaker splitting separates who spoke. Name a voice once and Sirina recognises it in later recordings." },
+  { icon: "sparkle", color: "#74c08d", bg: "rgba(116,192,141,0.16)", title: "Local AI summaries", text: "Overview, key points and action items, written by the model you run in Ollama." },
+  { icon: "chat", color: "#e3936b", bg: "rgba(227,147,107,0.16)", title: "Ask your recordings", text: "Chat with one meeting or all of them. Answers are grounded in your own transcripts." },
+  { icon: "doc", color: "#d2a85f", bg: "rgba(210,168,95,0.16)", title: "Summary templates", text: "Standard meeting, 1:1, standup — or write your own prompt structure and reuse it." },
+  { icon: "tag", color: "#9fbdd4", bg: "rgba(159,189,212,0.16)", title: "Tags & people", text: "Color-coded tags and a people directory keep every recording easy to find." },
+  { icon: "download", color: "#b4ac9d", bg: "#2a251e", title: "Open formats", text: "Export summaries and transcripts as Markdown or plain text. Your audio stays standard files." },
+] as const;
+---
+
+<section id="features" class="wrap features">
+  <div class="intro">
+    <div class="eyebrow">Features</div>
+    <h2 class="h2">Everything a meeting leaves behind, organized.</h2>
+  </div>
+  <div class="grid">
+    {
+      features.map((f) => (
+        <div class="cell">
+          <span class="ico" style={`background:${f.bg}`}><Icon name={f.icon} size={19} color={f.color} width={1.5} /></span>
+          <h3>
+            {f.title}
+            {"beta" in f && <span class="beta-pill">BETA</span>}
+          </h3>
+          <p>{f.text}</p>
+        </div>
+      ))
+    }
+  </div>
+</section>
+
+<style>
+  .features { padding-top: 112px; padding-bottom: 96px; }
+  .intro { max-width: 640px; margin-bottom: 52px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; }
+  .cell { background: var(--surface); padding: 28px 26px 30px; }
+  .ico { width: 40px; height: 40px; border-radius: 11px; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }
+  h3 { font-size: 16.5px; font-weight: 700; margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
+  h3 .beta-pill { font-size: 10px; padding: 2px 7px; }
+  p { font-size: 14.5px; line-height: 1.6; color: var(--muted-2); margin: 0; }
+</style>
