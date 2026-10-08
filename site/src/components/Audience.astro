@@ -1,0 +1,52 @@
+---
+const groups = [
+  { title: "Researchers & students", text: "Interview participants without sending their voices to a third party. Keep ethics boards and consent forms happy.", tags: ["User interviews", "Lectures", "Study groups"], tone: "blue" },
+  { title: "Non-profits & communities", text: "Minutes for board meetings, volunteer calls and member assemblies — without a per-seat SaaS bill.", tags: ["Board minutes", "Planning calls", "Workshops"], tone: "green" },
+  { title: "Privacy-minded individuals", text: "Remember what the doctor, the lawyer or your family actually said. Personal calls stay on your own disk.", tags: ["Appointments", "Family calls", "Voice notes"], tone: "accent" },
+  { title: "Tinkerers & self-hosters", text: "Pick your Ollama model, tune windows and threads, switch to faster-whisper — and read every line of the code.", tags: ["Ollama", "WhisperKit", "SpeakerKit"], tone: "gold" },
+];
+---
+
+<section id="who" class="band">
+  <div class="wrap who">
+    <div class="head">
+      <div class="title">
+        <div class="eyebrow">Who it's for</div>
+        <h2 class="h2">For conversations you'd rather not upload.</h2>
+      </div>
+      <p>Built for personal use, research, education and non-profits — the uses the PolyForm Noncommercial license welcomes.</p>
+    </div>
+    <div class="grid">
+      {
+        groups.map((g) => (
+          <div class="card">
+            <h3>{g.title}</h3>
+            <p>{g.text}</p>
+            <div class="tags">
+              {g.tags.map((t) => (
+                <span class={`tag tag--${g.tone}`}>{t}</span>
+              ))}
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<style>
+  .who { padding-top: 104px; padding-bottom: 104px; }
+  .head { display: flex; justify-content: space-between; align-items: flex-end; gap: 32px; flex-wrap: wrap; margin-bottom: 48px; }
+  .title { max-width: 620px; }
+  .head > p { max-width: 380px; font-size: 15px; line-height: 1.6; color: var(--muted-2); margin: 0; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 16px; }
+  .card { padding: 28px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 14px; }
+  h3 { font-family: var(--serif); font-size: 24px; font-weight: 500; margin: 0; }
+  .card p { font-size: 14.5px; line-height: 1.6; color: var(--muted-2); margin: 0; }
+  .tags { display: flex; gap: 7px; flex-wrap: wrap; margin-top: auto; }
+  .tag { padding: 4px 11px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .tag--blue { background: rgba(159,189,212,0.14); color: var(--blue); }
+  .tag--green { background: rgba(143,192,155,0.14); color: var(--green-3); }
+  .tag--accent { background: rgba(227,147,107,0.14); color: var(--accent); }
+  .tag--gold { background: rgba(210,168,95,0.14); color: var(--gold); }
+</style>

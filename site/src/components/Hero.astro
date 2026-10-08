@@ -1,0 +1,87 @@
+---
+import Icon from "./Icon.astro";
+import { site, downloadUrl, downloadLabel } from "../config";
+---
+
+<header id="top" class="hero wrap">
+  <div class="glow" aria-hidden="true"></div>
+  <div class="inner">
+    <div class="badge">
+      <span class="beta-pill">BETA</span>
+      Free for noncommercial use · v{site.version}
+    </div>
+    <h1>Every meeting, remembered.<br /><em>Nothing leaves your machine.</em></h1>
+    <p class="lead">
+      Sirina records your calls, transcribes them on your Mac's Neural Engine and summarizes them with a
+      local AI model — all on your own computer. No bots in the meeting, no uploads, no account.
+    </p>
+    <div class="ctas">
+      <a href={downloadUrl} class="btn btn--primary"><Icon name="download" width={1.7} />{downloadLabel}</a>
+      <a href={site.githubUrl} class="btn btn--ghost"><Icon name="github" size={17} />Star on GitHub</a>
+    </div>
+    <ul class="facts">
+      <li><span class="dot"></span>100% on-device</li>
+      <li><span class="dot"></span>Works offline</li>
+      <li><span class="dot"></span>Apple Silicon · macOS 14+</li>
+    </ul>
+  </div>
+</header>
+
+<style>
+  .hero { position: relative; padding-top: 72px; padding-bottom: 56px; text-align: center; }
+  .glow {
+    position: absolute;
+    left: 50%;
+    top: -40px;
+    width: 900px;
+    max-width: 120vw;
+    height: 520px;
+    transform: translateX(-50%);
+    background: radial-gradient(closest-side, rgba(214, 73, 47, 0.16), rgba(214, 73, 47, 0) 72%);
+    pointer-events: none;
+  }
+  .inner { position: relative; display: flex; flex-direction: column; align-items: center; gap: 26px; }
+  .badge {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 14px 6px 8px;
+    border-radius: 30px;
+    border: 1px solid var(--line-2);
+    background: var(--surface);
+    font-size: 13px;
+    color: var(--muted);
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: clamp(44px, 7.2vw, 88px);
+    line-height: 1.02;
+    letter-spacing: -0.025em;
+    margin: 0;
+    max-width: 960px;
+    text-wrap: balance;
+  }
+  h1 em { font-style: italic; color: var(--accent); }
+  .lead {
+    font-size: clamp(16px, 1.6vw, 19px);
+    line-height: 1.6;
+    color: var(--muted);
+    margin: 0;
+    max-width: 620px;
+    text-wrap: pretty;
+  }
+  .ctas { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 4px; }
+  .facts {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    gap: 10px 22px;
+    flex-wrap: wrap;
+    justify-content: center;
+    font-size: 13px;
+    color: var(--dim);
+  }
+  .facts li { display: flex; align-items: center; gap: 7px; }
+</style>
