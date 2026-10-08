@@ -11,8 +11,9 @@ Neural Engine with WhisperKit `large-v3-turbo`, and lets you summarise and ask q
 local AI model through [Ollama](https://ollama.com). By default, no audio or text leaves your
 computer.
 
-> **Status:** early and actively developed. There are no prebuilt releases yet; you build the
-> app from source (see [Installation](#installation)).
+> **Status:** early and actively developed.
+> [Download the latest release](https://github.com/st3v3y/sirina/releases/latest) for Apple
+> Silicon Macs, or build it from source (see [Installation](#installation)).
 
 ## Contents
 
@@ -83,15 +84,34 @@ mic + system audio (ScreenCaptureKit)    speech-engine helper (Swift)
 
 | | |
 | --- | --- |
-| **Mac** | Apple Silicon. Intel Macs and Linux fall back to CPU transcription and are untested. |
+| **Mac** | Apple Silicon. The release is built for Apple Silicon only. |
 | **macOS** | 14 or later. Live captions and the quick draft need macOS 26. |
 | **Disk** | ~250 MB for the app, plus ~0.7 GB for models and your recordings |
 | **AI (optional)** | [Ollama](https://ollama.com) with an instruct model, for summaries and chat |
-| **Build tools** | Xcode, [Rust](https://rustup.rs) + `cargo install tauri-cli --version '^2'`, Node 20+, [uv](https://docs.astral.sh/uv/) |
+| **Build tools** (only to build from source) | Xcode 26+, [Rust](https://rustup.rs) + `cargo install tauri-cli --version '^2'`, Node 20+, [uv](https://docs.astral.sh/uv/) |
+
+Sirina runs on macOS only. There are no Windows or Linux builds.
 
 ## Installation
 
-### 1. Build the app
+### 1. Download the app
+
+1. Download
+   [**Sirina-macOS-arm64.dmg**](https://github.com/st3v3y/sirina/releases/latest/download/Sirina-macOS-arm64.dmg)
+   from the [latest release](https://github.com/st3v3y/sirina/releases/latest).
+2. Open the DMG and drag **Sirina** into **Applications**.
+3. Open Sirina. The app isn't notarized by Apple, so macOS blocks it the first time. Open
+   **System Settings → Privacy & Security**, scroll down to the message about Sirina, and click
+   **Open Anyway**. You only need to do this once.
+
+If macOS says the app "is damaged" instead, remove the download quarantine flag:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Sirina.app
+```
+
+<details>
+<summary><strong>Or build the app from source</strong></summary>
 
 ```bash
 git clone https://github.com/st3v3y/sirina.git
@@ -103,9 +123,11 @@ cd frontend && npm install && cd ..
 
 The build script makes the UI, freezes the backend with PyInstaller, builds both Swift helpers
 and bundles everything. The result is
-`frontend/src-tauri/target/release/bundle/macos/Sirina.app` (plus a `.dmg`). The app is
-ad-hoc signed, so on first launch right-click it and choose **Open**. For details, see
+`frontend/src-tauri/target/release/bundle/macos/Sirina.app`, plus
+`bundle/dmg/Sirina-macOS-arm64.dmg`. The app is ad-hoc signed. For details, see
 [docs/PACKAGING.md](docs/PACKAGING.md).
+
+</details>
 
 ### 2. Set up the AI model (optional)
 
