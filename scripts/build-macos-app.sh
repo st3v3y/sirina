@@ -37,9 +37,9 @@ need cargo       "comes with Rust (rustup)"
 need uv          "install uv:    https://docs.astral.sh/uv/getting-started/installation/"
 need npm         "install Node >= 18 (e.g. nvm install 22 && nvm use 22)"
 # The Tauri CLI: `cargo tauri` if installed (cargo install tauri-cli --version '^2'),
-# else fetched with npx.
+# else the frontend's pinned @tauri-apps/cli (npm run tauri).
 tauri() {
-  if cargo tauri --version >/dev/null 2>&1; then cargo tauri "$@"; else npx --yes @tauri-apps/cli@^2 "$@"; fi
+  if cargo tauri --version >/dev/null 2>&1; then cargo tauri "$@"; else npm run --prefix "$ROOT/frontend" tauri "$@"; fi
 }
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
 if [ "$NODE_MAJOR" -lt 18 ]; then

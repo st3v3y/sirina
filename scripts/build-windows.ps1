@@ -2,7 +2,8 @@
 # system-audio helper, and bundle both into the Tauri app. No signing.
 #
 # Prereqs: Rust (MSVC toolchain), uv, Node >= 18, and the WebView2 runtime (preinstalled
-# on Windows 10/11). The Tauri CLI is used from `cargo tauri` if installed, else npx.
+# on Windows 10/11). The Tauri CLI is `cargo tauri` if installed, else the frontend's
+# pinned @tauri-apps/cli.
 $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 
@@ -22,10 +23,11 @@ Need npm "install Node >= 18"
 if ($missing) { throw "Install the items above and re-run." }
 
 function Invoke-Tauri {
-  # Check for the cargo subcommand's binary instead of running it: a failing native
-  # command with redirected stderr aborts the script under Windows PowerShell 5.1.
+  # `cargo tauri` if installed, else the frontend's pinned @tauri-apps/cli. Check for the
+  # binary instead of running it: a failing native command with redirected stderr aborts
+  # the script under Windows PowerShell 5.1.
   if (Get-Command cargo-tauri -ErrorAction SilentlyContinue) { cargo tauri @args }
-  else { npx --yes "@tauri-apps/cli@^2" @args }
+  else { npm run --prefix (Join-Path $Root "frontend") tauri @args }
 }
 
 Write-Host "==> Building frontend"

@@ -6,7 +6,7 @@
 #   - Rust (rustup), uv, Node >= 18
 #   - Tauri's Linux deps: libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf
 #   - libpulse-dev (helper) and libportaudio2 (bundled into the backend)
-# The Tauri CLI is used from `cargo tauri` if installed, else fetched with npx.
+# The Tauri CLI is `cargo tauri` if installed, else the frontend's pinned @tauri-apps/cli.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -34,7 +34,7 @@ fi
 [ "$missing" -eq 0 ] || { echo "Install the items above and re-run."; exit 1; }
 
 tauri() {
-  if cargo tauri --version >/dev/null 2>&1; then cargo tauri "$@"; else npx --yes @tauri-apps/cli@^2 "$@"; fi
+  if cargo tauri --version >/dev/null 2>&1; then cargo tauri "$@"; else npm run --prefix "$ROOT/frontend" tauri "$@"; fi
 }
 
 echo "==> Building frontend"
@@ -56,7 +56,12 @@ cp "$ROOT/native/system-audio-capture-rs/target/release/system-audio-capture" "$
 chmod +x "$RES_DIR/system-audio-capture"
 
 echo "==> Building the Tauri bundles"
-cd "$ROOT/frontend/src-tauri" && tauri build
+# linuxdeploy strips every library it finds in the AppDir, which fails on some of the
+# PyInstaller backend's prebuilt .so files; they are already stripped where it matters.
+export NO_STRIP="${NO_STRIP:-true}"
+# Run the linuxdeploy AppImage without FUSE (CI runners and containers lack it).
+export APPIMAGE_EXTRACT_AND_RUN="${APPIMAGE_EXTRACT_AND_RUN:-1}"
+cd "$ROOT/frontend/src-tauri" && tauri build --verbose
 
 BUNDLE="$ROOT/frontend/src-tauri/target/release/bundle"
 cat <<DONE

@@ -222,7 +222,7 @@ the options are off.
 Prerequisites: Rust, uv, Node ≥ 18. On Linux also Tauri's WebKitGTK deps
 (`libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf`), `libpulse-dev` for the capture
 helper and `libportaudio2`, which is bundled into the backend (a fresh desktop may not have
-it). The scripts use `cargo tauri` when installed, else `npx @tauri-apps/cli`. CI builds both
+it). The scripts use `cargo tauri` when installed, else the frontend's pinned `@tauri-apps/cli` (`npm run tauri`). CI builds both
 (plus macOS) on every pull request; download the bundles from the run's artifacts.
 
 ### First launch (unsigned)
