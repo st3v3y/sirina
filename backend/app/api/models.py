@@ -22,7 +22,7 @@ async def list_models() -> dict:
 
 @router.post("/{model_id:path}/install", status_code=202)
 async def install_model(model_id: str) -> dict:
-    if model_id not in speech_models.BY_ID:
+    if model_id not in speech_models.BY_ID or not speech_models.supported_here(speech_models.BY_ID[model_id]):
         raise HTTPException(404, "unknown model")
 
     async def _run() -> None:

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   api,
   type LlmProvider,
+  type Platform,
   type SettingField,
   type SettingSection,
   type SettingsResponse,
@@ -23,7 +24,7 @@ type SectionMeta = {
 const SECTIONS: SectionMeta[] = [
   { id: "ai", title: "AI model", icon: "sparkles", tint: "var(--color-signal)", badge: { tone: "ok", label: "Applies instantly" }, desc: "Used for summaries and the Ask assistant." },
   { id: "transcription", title: "Transcription", icon: "audio-lines", tint: "var(--color-cat-sky)", badge: { tone: "warn", label: "Restart required" }, desc: "Engine & model changes reload after restart." },
-  { id: "diarization", title: "Speaker splitting", icon: "users", tint: "var(--color-cat-teal)", badge: { tone: "ok", label: "Applies instantly" }, desc: "Separate & label who spoke, on your Mac. Off by default." },
+  { id: "diarization", title: "Speaker splitting", icon: "users", tint: "var(--color-cat-teal)", badge: { tone: "ok", label: "Applies instantly" }, desc: "Separate & label who spoke, on this computer. Off by default." },
   { id: "advanced", title: "Advanced", icon: "settings", tint: "var(--color-cat-amber)", badge: { tone: "neutral", label: "Mixed" }, desc: "Performance tuning & local storage." },
 ];
 
@@ -34,7 +35,7 @@ const INPUT =
 // who don't know the underlying ML knobs. Keyed by setting key (see settings_store.FIELDS).
 const HELP_HINTS: Record<string, string> = {
   transcription_engine:
-    "How transcription runs. “WhisperKit” runs the large-v3-turbo model on your Mac’s Neural Engine: fast, light on memory and battery. “faster-whisper” uses the CPU (slower, uses much more memory). “Auto” picks WhisperKit on Apple Silicon — leave it on Auto if unsure. Changing this needs a reload.",
+    "How transcription runs. On Apple Silicon Macs, “WhisperKit” runs the large-v3-turbo model on the Neural Engine: fast, light on memory and battery. “faster-whisper” uses the CPU (slower, uses much more memory) and works everywhere. “Auto” picks the best engine this computer has — leave it on Auto if unsure. Changing this needs a reload.",
   whisper_model:
     "The CPU engine’s model (faster-whisper only; WhisperKit always uses large-v3-turbo). Bigger models (medium, large) are more accurate but slower and use more memory; smaller ones (tiny, small) are faster. “medium” is a good balance; pick “large-v3” for best accuracy.",
   whisper_compute_type:
@@ -44,15 +45,21 @@ const HELP_HINTS: Record<string, string> = {
   whisper_initial_prompt:
     "Names, jargon, or product terms the model tends to mishear — list a few so it spells them right (e.g. “Sirina, BlackHole, pyannote”). Keep it short: long lists can make it repeat words.",
   whisper_cpu_threads:
-    "How many CPU cores transcription may use (faster-whisper only). 0 = one per performance core (recommended; the slower efficiency cores would hold the others back). Lower it only if you want to keep the Mac responsive for other work.",
+    "How many CPU cores transcription may use (faster-whisper only). 0 = one per performance core (recommended; the slower efficiency cores would hold the others back). Lower it only if you want to keep the computer responsive for other work.",
   transcribe_chunk_seconds:
     "Audio is finalized in windows of about this many seconds (cut at a pause), so the transcript turns final step by step and memory stays bounded. 180 (3 min) is a good default; 0 = one window for the whole recording.",
   silence_peak_threshold:
     "Audio quieter than this (0–1) is treated as silent and skipped, so the model doesn’t invent captions over silence (e.g. an empty system-audio track). 0.005 works well; 0 disables the check.",
   diarization_enabled:
-    "Splits the other participants’ audio into separate speakers (Speaker 1, Speaker 2, …) so you can tell who said what. Runs on your Mac; the small speaker model (~60 MB) downloads the first time. Adds about a minute per 2 hours of audio.",
+    "Splits the other participants’ audio into separate speakers (Speaker 1, Speaker 2, …) so you can tell who said what. Runs on-device; the small speaker model (~60 MB) downloads the first time. Adds about a minute per 2 hours of audio.",
   diarization_timing:
     "“after_stop” splits speakers once, when the recording ends (about a minute for 2 hours). “during_recording” also does it roughly every 10 minutes while you record, so names show up sooner, at a small extra load during the call.",
+};
+
+const REVEAL_LABEL: Record<Platform, string> = {
+  macos: "Open in Finder",
+  windows: "Show in Explorer",
+  linux: "Open folder",
 };
 
 function HelpTip({ text }: { text: string }) {
@@ -294,8 +301,8 @@ export default function Settings() {
 
                 {sec.id === "diarization" && !data.diarization_supported && (
                   <p className="text-xs text-warn-deep bg-warn/10 border border-warn/20 rounded-field px-3 py-2 mb-2">
-                    Speaker separation needs the on-device speech helper, which isn't available on
-                    this Mac (macOS 14+ on Apple Silicon). These settings are saved but won't take effect.
+                    {data.diarization_reason ?? "Speaker separation isn't available here."} These settings are
+                    saved but won't take effect.
                   </p>
                 )}
 
@@ -326,7 +333,7 @@ export default function Settings() {
                     ))}
                     {sec.id === "advanced" && (
                       <FieldRow label="Data folder" help={data.data_dir}>
-                        <Button onClick={reveal}>Open in Finder</Button>
+                        <Button onClick={reveal}>{REVEAL_LABEL[status?.platform ?? "macos"]}</Button>
                       </FieldRow>
                     )}
                   </div>

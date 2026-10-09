@@ -16,6 +16,8 @@ dependencies = [
     "httpx>=0.27",
     "sounddevice>=0.5",
     "keyring>=25.7.0",
+    "psutil>=5.9",
+    "av>=17,<18",
 ]
 
 [build-system]

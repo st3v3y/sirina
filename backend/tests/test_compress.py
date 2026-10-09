@@ -2,6 +2,7 @@
 import math
 import struct
 import wave
+from pathlib import Path
 
 import pytest
 from sqlmodel import Session, SQLModel, create_engine
@@ -10,9 +11,7 @@ from app.config import settings
 from app.models import Recording
 from app.processing import compress
 
-pytestmark = pytest.mark.skipif(
-    not compress.available(), reason="afconvert (macOS) not available"
-)
+FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def _write_wav(path, seconds=0.2, sr=16000):
@@ -117,3 +116,37 @@ def test_restore_fails_when_file_missing(eng, tmp_path, monkeypatch):
     assert compress.restore_wavs(rid, eng) is False
     with Session(eng) as s:  # path left as-is so the failure is visible, not hidden
         assert s.get(Recording, rid).mic_path.endswith(".m4a")
+
+
+def _peak_and_frames(path):
+    with wave.open(str(path)) as w:
+        n = w.getnframes()
+        data = w.readframes(n)
+    samples = struct.unpack(f"<{len(data) // 2}h", data)
+    return max(abs(x) for x in samples), n
+
+
+@pytest.mark.parametrize("sr", [16000, 48000])
+def test_round_trip_keeps_length_and_level(tmp_path, sr):
+    src = tmp_path / "t.wav"
+    _write_wav(src, seconds=1.0, sr=sr)
+    m4a = compress.encode_wav(src)
+    src.rename(tmp_path / "orig.wav")
+    back = compress.decode_m4a(m4a)
+    peak0, n0 = _peak_and_frames(tmp_path / "orig.wav")
+    peak1, n1 = _peak_and_frames(back)
+    with wave.open(str(back)) as w:
+        assert w.getframerate() == sr and w.getnchannels() == 1
+    assert abs(n1 - n0) <= sr * 0.05  # AAC priming/padding only
+    assert 0.8 * peak0 <= peak1 <= 1.2 * peak0
+
+
+def test_decodes_m4a_made_by_afconvert(tmp_path):
+    """Recordings compressed by earlier macOS builds (afconvert) stay re-processable."""
+    m4a = tmp_path / "old.m4a"
+    m4a.write_bytes((FIXTURES / "afconvert_440hz_48k.m4a").read_bytes())
+    wav = compress.decode_m4a(m4a)
+    peak, n = _peak_and_frames(wav)
+    with wave.open(str(wav)) as w:
+        assert w.getframerate() == 48000 and w.getnchannels() == 1
+    assert abs(n - 24000) <= 48000 * 0.05 and peak > 4000

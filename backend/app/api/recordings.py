@@ -128,6 +128,8 @@ class ActiveInfo(BaseModel):
     captions: dict = {}  # track name -> {settled: [...], provisional, failed}
     captions_available: bool = False
     live_transcribe_available: bool = False
+    captions_reason: str | None = None
+    live_transcribe_reason: str | None = None
 
 
 class LiveOptions(BaseModel):
@@ -164,13 +166,10 @@ async def start_recording(payload: StartRequest) -> dict[str, int]:
     source = (payload.system_source or ("device" if payload.system_device else "none")).lower()
     if source not in {"native", "device", "none"}:
         raise HTTPException(400, "system_source must be native, device, or none")
-    if source == "native" and not system_capture.native_available():
-        raise HTTPException(
-            400,
-            "Native system-audio capture is unavailable. Grant Screen Recording permission "
-            "(System Settings → Privacy & Security → Screen Recording), or pick a loopback "
-            "device (e.g. BlackHole) instead.",
-        )
+    if source == "native":
+        ok, reason = system_capture.native_available()
+        if not ok:
+            raise HTTPException(400, f"Native system-audio capture is unavailable. {reason}")
     if source == "device" and not payload.system_device:
         raise HTTPException(400, "system_source 'device' requires a system_device")
 

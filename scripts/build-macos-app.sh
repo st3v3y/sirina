@@ -36,10 +36,11 @@ need rustc       "install Rust:  curl https://sh.rustup.rs -sSf | sh   (then res
 need cargo       "comes with Rust (rustup)"
 need uv          "install uv:    https://docs.astral.sh/uv/getting-started/installation/"
 need npm         "install Node >= 18 (e.g. nvm install 22 && nvm use 22)"
-if ! cargo tauri --version >/dev/null 2>&1; then
-  echo "  ✗ cargo-tauri not found — install it:  cargo install tauri-cli --version '^2'"
-  missing=1
-fi
+# The Tauri CLI: `cargo tauri` if installed (cargo install tauri-cli --version '^2'),
+# else the frontend's pinned @tauri-apps/cli (npm run tauri).
+tauri() {
+  if cargo tauri --version >/dev/null 2>&1; then cargo tauri "$@"; else npm run --prefix "$ROOT/frontend" tauri -- "$@"; fi
+}
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
 if [ "$NODE_MAJOR" -lt 18 ]; then
   echo "  ✗ Node $NODE_MAJOR is too old (Vite needs >= 18) — run:  nvm use 22"
@@ -92,7 +93,7 @@ cp "$ROOT/native/speech-engine/build/speech-engine" "$RES_DIR/speech-engine"
 chmod +x "$RES_DIR/speech-engine"
 
 echo "==> Building the Tauri app"
-cd "$ROOT/frontend" && cargo tauri build
+cd "$ROOT/frontend/src-tauri" && tauri build
 
 APP="$ROOT/frontend/src-tauri/target/release/bundle/macos/Sirina.app"
 # Sign with a stable identity so macOS persists the Screen Recording (TCC) grant across

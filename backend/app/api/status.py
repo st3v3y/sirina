@@ -2,7 +2,8 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from ..config import settings
-from ..processing.diarize import diarization_supported
+from ..osinfo import platform_name
+from ..processing.diarize import diarization_reason, diarization_supported
 from ..runtime import runtime
 
 router = APIRouter(prefix="/api", tags=["status"])
@@ -22,6 +23,8 @@ class StatusResponse(BaseModel):
     # Whether pyannote exists in this build at all. False in the default packaged app —
     # the UI uses this to say "not in this build" instead of "turn it on in Settings".
     diarization_supported: bool = True
+    diarization_reason: str | None = None  # why speaker splitting can't run here
+    platform: str = "macos"  # macos | windows | linux — picks platform wording in the UI
 
 
 @router.get("/status", response_model=StatusResponse)
@@ -38,4 +41,6 @@ async def get_status() -> StatusResponse:
         llm_model=settings.llm_model,
         diarization=bool(runtime.diarizer and runtime.diarizer.is_available()),
         diarization_supported=diarization_supported(),
+        diarization_reason=diarization_reason(),
+        platform=platform_name(),
     )

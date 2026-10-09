@@ -635,6 +635,32 @@ def live_transcription_available() -> bool:
     return getattr(runtime.whisper, "name", "") == "whisperkit"
 
 
+def captions_reason() -> str | None:
+    """Why live captions can't run here (None when they can)."""
+    if captions_available():
+        return None
+    from ..osinfo import platform_label, platform_name
+
+    if platform_name() != "macos":
+        return f"Live captions aren't available on {platform_label()} yet."
+    from ..transcribe.speech_helper import helper_path
+
+    if not helper_path():
+        return "Needs the Sirina desktop app."
+    return "Needs macOS 26 or newer."
+
+
+def live_transcription_reason() -> str | None:
+    """Why transcription during recording can't run here (None when it can)."""
+    if live_transcription_available():
+        return None
+    from ..osinfo import platform_label, platform_name
+
+    if platform_name() != "macos":
+        return f"Not available on {platform_label()} yet — the transcript is made after the recording stops."
+    return "Needs the WhisperKit engine (Apple Silicon)."
+
+
 class Recorder:
     """Owns at most one active recording. State machine: idle -> recording -> finalizing -> idle."""
 
@@ -760,6 +786,8 @@ class Recorder:
             return None
         levels = {t.name: t.level for t in a.tracks}
         by_name = {t.name: t for t in a.tracks}
+        captions_why = captions_reason()
+        live_why = live_transcription_reason()
         sys_track = by_name.get("system")
         mic_track = by_name.get("mic")
         return {
@@ -775,8 +803,10 @@ class Recorder:
             "live_transcribe": self.live_finalizing(),
             "live": self._live.snapshot() if self._live is not None else None,
             "captions": {name: cs.snapshot() for name, cs in self._captions.items()},
-            "captions_available": captions_available(),
-            "live_transcribe_available": live_transcription_available(),
+            "captions_available": captions_why is None,
+            "live_transcribe_available": live_why is None,
+            "captions_reason": captions_why,
+            "live_transcribe_reason": live_why,
         }
 
     async def start(

@@ -37,6 +37,17 @@ def diarization_supported() -> bool:
     return bool(probe().get("speakerkit"))
 
 
+def diarization_reason() -> str | None:
+    """Why speaker splitting can't run here (None when it can)."""
+    if diarization_supported():
+        return None
+    from ..osinfo import platform_label, platform_name
+
+    if platform_name() == "macos":
+        return "Speaker separation needs the on-device speech helper (macOS 14+ on Apple Silicon)."
+    return f"Speaker separation isn't available on {platform_label()} yet."
+
+
 class Diarizer:
     """Speaker splitting via SpeakerKit in the speech helper."""
 

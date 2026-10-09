@@ -9,8 +9,12 @@ export type Status = {
   llm_provider: string;
   llm_model: string;
   diarization: boolean;
-  diarization_supported?: boolean; // false when pyannote isn't in this build at all
+  diarization_supported?: boolean; // false when speaker splitting can't run here
+  diarization_reason?: string | null; // why not, worded for this platform
+  platform?: Platform;
 };
+
+export type Platform = "macos" | "windows" | "linux";
 
 export type LlmProvider = {
   key: string;
@@ -78,6 +82,7 @@ export type AudioDevice = {
   name: string;
   channels: number;
   default_samplerate: number;
+  is_default?: boolean; // the host's default input
 };
 
 export type StartRecordingRequest = {
@@ -91,8 +96,12 @@ export type StartRecordingRequest = {
 
 export type AudioCapabilities = {
   native_system_audio: boolean;
+  native_system_audio_reason?: string | null; // why native capture is unavailable
   captions_available?: boolean;
+  captions_reason?: string | null;
   live_transcribe_available?: boolean;
+  live_transcribe_reason?: string | null;
+  diarization_reason?: string | null;
   live_captions_default?: boolean;
   live_transcribe_default?: boolean;
 };
@@ -115,6 +124,8 @@ export type ActiveInfo = {
   captions?: Record<string, TrackCaptions>; // track name (mic | system) -> captions
   captions_available?: boolean;
   live_transcribe_available?: boolean;
+  captions_reason?: string | null;
+  live_transcribe_reason?: string | null;
 };
 
 export type Segment = {
@@ -218,6 +229,7 @@ export type SettingsResponse = {
   fields: SettingField[];
   data_dir: string;
   diarization_supported: boolean;
+  diarization_reason?: string | null;
   reload_required: boolean;
 };
 

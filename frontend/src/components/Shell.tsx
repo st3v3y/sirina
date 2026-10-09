@@ -413,6 +413,9 @@ function DeviceModal({ rec }: { rec: ReturnType<typeof useRecorder> }) {
         ) : (
           <div>
             <label className="block text-xs text-muted mb-1">System audio</label>
+            {rec.caps?.native_system_audio_reason && (
+              <p className="text-[11px] text-label mb-1">{rec.caps.native_system_audio_reason}</p>
+            )}
             <select
               className={field}
               value={rec.systemDevice}
@@ -433,7 +436,7 @@ function DeviceModal({ rec }: { rec: ReturnType<typeof useRecorder> }) {
             hint={
               rec.caps?.live_transcribe_available
                 ? "Transcript is ready about a minute after the call. Uses the Neural Engine, barely any CPU."
-                : "Needs the WhisperKit engine (Apple Silicon)."
+                : rec.caps?.live_transcribe_reason ?? "Not available here."
             }
             checked={rec.liveTranscribe}
             disabled={!rec.caps?.live_transcribe_available}
@@ -444,7 +447,7 @@ function DeviceModal({ rec }: { rec: ReturnType<typeof useRecorder> }) {
             hint={
               rec.caps?.captions_available
                 ? "Shows what's said as it's said (on-device, ~2.5% of one CPU core)."
-                : "Needs macOS 26 or newer."
+                : rec.caps?.captions_reason ?? "Not available here."
             }
             checked={rec.liveCaptions}
             disabled={!rec.caps?.captions_available}

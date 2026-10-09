@@ -186,7 +186,6 @@ def _write_wav(path):
         w.writeframes(b"\x00\x01" * 1600)
 
 
-@pytest.mark.skipif(not compress.available(), reason="afconvert (macOS) not available")
 def test_compress_handles_aliased_paths(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "compress_audio", True)
     eng = create_engine(

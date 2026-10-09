@@ -12,6 +12,38 @@ use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 /// Holds the backend child so we can kill it when the app exits (no orphans).
 struct BackendChild(Mutex<Option<Child>>);
 
+/// Absolute path of a bundled resource executable (`.exe` added on Windows), or an empty
+/// string when this platform's bundle doesn't ship it — the backend treats empty as
+/// "absent" instead of trying a broken path.
+fn resource_exe(app: &tauri::App, name: &str) -> String {
+    let rel = format!("{name}{}", std::env::consts::EXE_SUFFIX);
+    match app.path().resolve(&rel, tauri::path::BaseDirectory::Resource) {
+        Ok(p) if p.exists() => {
+            ensure_executable(&p);
+            p.to_string_lossy().into_owned()
+        }
+        _ => String::new(),
+    }
+}
+
+/// Linux packages can drop the executable bit from resources.
+#[cfg(target_os = "linux")]
+fn ensure_executable(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    if let Ok(meta) = std::fs::metadata(path) {
+        let mut perms = meta.permissions();
+        if perms.mode() & 0o111 != 0o111 {
+            perms.set_mode(perms.mode() | 0o755);
+            if let Err(e) = std::fs::set_permissions(path, perms) {
+                eprintln!("[shell] could not make {} executable: {e}", path.display());
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn ensure_executable(_path: &std::path::Path) {}
+
 /// Ask the OS for an unused localhost port.
 fn free_port() -> u16 {
     TcpListener::bind("127.0.0.1:0")
@@ -40,40 +72,37 @@ pub fn run() {
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_default();
 
-            // The native system-audio capture helper is bundled as a resource; tell the
-            // backend where it is so native capture is available in the packaged app.
-            let capture_bin = app
-                .path()
-                .resolve("resources/system-audio-capture", tauri::path::BaseDirectory::Resource)
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_default();
+            // The native helpers are bundled as resources; tell the backend where they are.
+            // System-audio capture exists on every platform (Swift on macOS, Rust on
+            // Windows/Linux); the speech helper (WhisperKit/SpeakerKit/Apple speech) only
+            // on macOS.
+            let capture_bin = resource_exe(app, "resources/system-audio-capture");
+            let speech_bin = resource_exe(app, "resources/speech-engine");
 
-            // The speech helper (WhisperKit/SpeakerKit/Apple speech) is bundled the same way.
-            let speech_bin = app
-                .path()
-                .resolve("resources/speech-engine", tauri::path::BaseDirectory::Resource)
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_default();
-
-            // The onedir backend lives at Contents/Resources/resources/backend/backend, with
+            // The onedir backend lives at <resources>/resources/backend/backend[.exe], with
             // its `_internal/` libs alongside (found relative to the exe — no re-extraction).
-            let backend = app
-                .path()
-                .resolve("resources/backend/backend", tauri::path::BaseDirectory::Resource)
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_default();
+            let backend = resource_exe(app, "resources/backend/backend");
 
             // Spawn the backend directly, pointed at the per-user data dir for its DB + caches.
             // Spawn failures are logged (not a panic) — the webview's startup gate then surfaces
             // "backend unreachable" with a retry. The backend writes its own rotating log under
             // the data dir, so we don't need to pipe its output here.
-            match Command::new(&backend)
-                .env("APP_DATA_DIR", &data_dir)
+            let mut cmd = Command::new(&backend);
+            cmd.env("APP_DATA_DIR", &data_dir)
                 .env("SYSTEM_AUDIO_SIDECAR", &capture_bin)
                 .env("SPEECH_ENGINE_HELPER", &speech_bin)
-                .args(["--host", "127.0.0.1", "--port", &port.to_string()])
-                .spawn()
+                // The capture helper leaves this process tree's audio (our webview's
+                // playback) out of the system track.
+                .env("SIRINA_APP_PID", std::process::id().to_string())
+                .args(["--host", "127.0.0.1", "--port", &port.to_string()]);
+            // The PyInstaller backend is a console program: don't flash a console window.
+            #[cfg(windows)]
             {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+                cmd.creation_flags(CREATE_NO_WINDOW);
+            }
+            match cmd.spawn() {
                 Ok(child) => {
                     app.manage(BackendChild(Mutex::new(Some(child))));
                 }
