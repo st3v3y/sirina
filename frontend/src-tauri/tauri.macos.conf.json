@@ -1,0 +1,16 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "targets": [
+      "app"
+    ],
+    "resources": [
+      "resources/system-audio-capture",
+      "resources/speech-engine",
+      "resources/backend"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "13.0"
+    }
+  }
+}

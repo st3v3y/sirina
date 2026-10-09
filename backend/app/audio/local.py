@@ -30,6 +30,10 @@ def list_input_devices(refresh: bool = False) -> list[dict]:
     if refresh:
         refresh_devices()
     devices = sd.query_devices()
+    try:
+        default_in = int(sd.default.device[0])  # -1 when the host has no default input
+    except Exception:
+        default_in = -1
     out: list[dict] = []
     for i, d in enumerate(devices):
         if int(d.get("max_input_channels", 0) or 0) <= 0:
@@ -40,6 +44,7 @@ def list_input_devices(refresh: bool = False) -> list[dict]:
                 "name": d["name"],
                 "channels": int(d["max_input_channels"]),
                 "default_samplerate": float(d.get("default_samplerate") or 48000),
+                "is_default": i == default_in,
             }
         )
     return out

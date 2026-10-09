@@ -6,7 +6,9 @@
 #
 # Models are NOT bundled — they download to APP_DATA_DIR/models on first run (see the
 # model manager, app/speech_models.py).
+import glob
 import os
+import sys
 
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
@@ -35,9 +37,21 @@ for pkg in ("faster_whisper", "ctranslate2", "av"):
 # as a Tauri resource — so no torch / pyannote / MLX here. faster-whisper stays as the
 # CPU fallback engine.
 
-# sounddevice is a single module (not a package); its PortAudio dylib is handled by
-# PyInstaller's contrib hook. Just make sure it's imported.
-hiddenimports += ["sounddevice"]
+# sounddevice is a single module (not a package). On macOS and Windows its wheel ships
+# PortAudio, collected by PyInstaller's contrib hook. On Linux it uses the system
+# libportaudio.so.2, which a fresh desktop may not have, so bundle the build machine's
+# copy (entry.py points sounddevice at it).
+hiddenimports += ["sounddevice", "psutil"]
+if sys.platform.startswith("linux"):
+    import platform
+
+    # This architecture's copy only (a multiarch host may also have e.g. the i386 one).
+    _pa = glob.glob(f"/usr/lib/{platform.machine()}-linux-gnu/libportaudio.so.2") + glob.glob(
+        "/usr/lib/libportaudio.so.2"
+    )
+    if not _pa:
+        raise SystemExit("libportaudio.so.2 not found: install libportaudio2 before building")
+    binaries += [(_pa[0], ".")]
 
 hiddenimports += collect_submodules("uvicorn") + ["app.main"]
 
@@ -64,8 +78,9 @@ pyz = PYZ(a.pure)
 
 # onedir (not onefile): the libs live in a `_internal/` folder next to the exe and are
 # NOT re-extracted to a temp dir on every launch — onefile re-extraction was the ~20s
-# startup cost. The Tauri app bundles `dist/backend/` as a resource (see build-macos-app.sh
-# + tauri.conf.json) and spawns `…/resources/backend/backend` directly.
+# startup cost. The Tauri app bundles `dist/backend/` as a resource (see the
+# scripts/build-* scripts + tauri.<platform>.conf.json) and spawns
+# `…/resources/backend/backend[.exe]` directly.
 exe = EXE(
     pyz,
     a.scripts,
@@ -75,8 +90,9 @@ exe = EXE(
     debug=False,
     strip=False,
     upx=False,
-    console=True,
-    target_arch="arm64",  # Apple Silicon
+    console=True,  # the shell starts it without a console window on Windows
+    # macOS builds are Apple Silicon only; elsewhere (and when unset) the host architecture.
+    target_arch=os.environ.get("SIRINA_TARGET_ARCH") or ("arm64" if sys.platform == "darwin" else None),
 )
 coll = COLLECT(
     exe,

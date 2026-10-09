@@ -14,9 +14,9 @@ function fmt(seconds: number) {
 
 const BARS = 24;
 
-function LiveSwitch({ label, on, disabled, onChange }: { label: string; on: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
+function LiveSwitch({ label, on, disabled, hint, onChange }: { label: string; on: boolean; disabled?: boolean; hint?: string | null; onChange: (v: boolean) => void }) {
   return (
-    <label className={`flex items-center gap-2 ${disabled ? "opacity-50" : "cursor-pointer"}`}>
+    <label className={`flex items-center gap-2 ${disabled ? "opacity-50" : "cursor-pointer"}`} title={hint ?? undefined}>
       <input type="checkbox" checked={on} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
       {label}
     </label>
@@ -210,12 +210,14 @@ export default function RecordingScreen() {
             label="Transcribe as I go"
             on={Boolean(info?.live_transcribe)}
             disabled={toggling || !info?.live_transcribe_available}
+            hint={info?.live_transcribe_reason}
             onChange={(v) => setOption({ live_transcribe: v })}
           />
           <LiveSwitch
             label="Live captions"
             on={Boolean(info?.live_captions)}
             disabled={toggling || !info?.captions_available}
+            hint={info?.captions_reason}
             onChange={(v) => setOption({ live_captions: v })}
           />
         </div>

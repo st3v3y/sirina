@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     silence_trim_min_seconds: float = 60.0
 
     # Compress a recording's WAV tracks to AAC (.m4a, ~10-15× smaller) once processing
-    # finishes, via macOS's built-in `afconvert`. Re-processing transparently decodes
+    # finishes, via PyAV (bundled FFmpeg AAC encoder). Re-processing transparently decodes
     # them back to WAV first. Disable to keep the original PCM WAVs forever.
     compress_audio: bool = True
 

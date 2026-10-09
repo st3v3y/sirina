@@ -1,4 +1,6 @@
-# Packaging the macOS desktop app (Tauri)
+# Packaging the desktop app (Tauri)
+
+macOS is covered first; Windows and Linux are in [Windows and Linux](#windows-and-linux).
 
 The desktop app is a **Tauri 2** shell that bundles the built React UI and runs the
 FastAPI backend as a **sidecar** (a PyInstaller binary). It's a double-click `.app` —
@@ -16,13 +18,16 @@ Recording permission it will consume.)
 
 | Path | What |
 | --- | --- |
-| `frontend/src-tauri/tauri.conf.json` | Tauri config: dist dir, `externalBin` sidecar, dmg/app bundle, macOS min version 13 |
-| `frontend/src-tauri/src/lib.rs` | Picks a free port, spawns the backend sidecar with `APP_DATA_DIR`, injects `window.__BACKEND_URL__`, creates the window |
+| `frontend/src-tauri/tauri.conf.json` | Shared Tauri config (dist dir, icons) |
+| `frontend/src-tauri/tauri.{macos,windows,linux}.conf.json` | Per-platform bundle targets and resources (macOS `.app` + min version 13; Windows NSIS; Linux AppImage + deb) |
+| `frontend/src-tauri/src/lib.rs` | Picks a free port, spawns the bundled backend with `APP_DATA_DIR`, the helper paths and `SIRINA_APP_PID`, injects `window.__BACKEND_URL__`, creates the window |
 | `frontend/src-tauri/Info.plist` | `NSMicrophoneUsageDescription` (first-run mic prompt) |
-| `frontend/src-tauri/capabilities/default.json` | Allows running the `backend` sidecar |
+| `frontend/src-tauri/capabilities/default.json` | Default window permissions (the backend is started with `std::process`, not the shell plugin) |
 | `backend/packaging/entry.py` | Frozen entry: `uvicorn` with `--host/--port` |
 | `backend/packaging/backend.spec` | PyInstaller spec (transcription core; heavy ML extras commented) |
-| `scripts/build-macos-app.sh` | End-to-end build + ad-hoc sign |
+| `scripts/build-macos-app.sh` | End-to-end macOS build + ad-hoc sign |
+| `scripts/build-windows.ps1`, `scripts/build-linux.sh` | End-to-end Windows / Linux builds (unsigned) |
+| `.github/workflows/build.yml` | CI: tests and bundles for all three platforms, uploaded as run artifacts |
 
 ## How it fits together
 
@@ -164,3 +169,70 @@ require right-click → Open or clearing the quarantine attribute (see "First la
 `./dev.sh` still runs the two-server flow (FastAPI `:8000` + Vite `:5173`). The Tauri
 files are additive and don't affect it. Native capture is unavailable in dev (no sidecar
 path / no Screen Recording grant), so the device/BlackHole path is used.
+
+## Windows and Linux
+
+Preview builds. They record the microphone and the call audio as separate tracks, then
+transcribe with faster-whisper on the CPU after the recording stops. Transcription during
+recording, live captions and speaker splitting are macOS-only for now; the app shows why
+the options are off.
+
+### Build
+
+```bash
+./scripts/build-linux.sh          # Linux → bundle/appimage/*.AppImage, bundle/deb/*.deb
+```
+
+```powershell
+./scripts/build-windows.ps1       # Windows → bundle\nsis\Sirina_*_x64-setup.exe
+```
+
+Prerequisites: Rust, uv, Node ≥ 18. On Linux also Tauri's WebKitGTK deps
+(`libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf`), `libpulse-dev` for the capture
+helper and `libportaudio2`, which is bundled into the backend (a fresh desktop may not have
+it). The scripts use `cargo tauri` when installed, else `npx @tauri-apps/cli`. CI builds both
+(plus macOS) on every pull request; download the bundles from the run's artifacts.
+
+### First launch (unsigned)
+
+- **Windows:** SmartScreen says the app is unrecognized: choose **More info → Run anyway**.
+  Some antivirus tools flag PyInstaller binaries; that is a false positive of unsigned builds.
+- **Linux:** `chmod +x Sirina_*.AppImage && ./Sirina_*.AppImage`, or `sudo apt install
+  ./Sirina_*.deb`. The `.deb` depends on `libpulse0` and recommends `pipewire-pulse` or
+  `pulseaudio`. If the window stays blank or flickers (seen with some NVIDIA drivers), start
+  it with `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
+
+There are no permission prompts. On Windows, the microphone is silent (a flat level meter)
+if *Settings → Privacy & security → Microphone → Let desktop apps access your microphone* is
+off.
+
+### Call audio
+
+`native/system-audio-capture-rs/` (Rust) follows the same contract as the Swift helper:
+48 kHz mono s16le on stdout, `--probe` exit codes, a continuous stream (silence is filled in
+while nothing plays), and it exits when the backend goes away.
+
+| | Source | Sirina's own audio left out |
+| --- | --- | --- |
+| Windows 11 | WASAPI process loopback, excluding the app's process tree (`SIRINA_APP_PID`) | yes |
+| Windows 10 | WASAPI loopback of the default output device | no |
+| Linux | Monitor of the default PulseAudio/PipeWire sink | no |
+
+Sirina plays nothing while recording, so "no" only matters if you play back an old
+recording during a call. When the default output device changes (a headset is plugged in),
+the helper exits and the backend restarts it on the new device and fills the gap with
+silence. If no sound server or output device is found, the start dialog says so and
+offers the loopback-device fallback.
+
+### Development on Windows
+
+`dev.sh` needs bash. Run the two servers in separate terminals instead:
+
+```powershell
+cd backend; uv run uvicorn app.main:app --reload --port 8000
+cd frontend; npm run dev -- --port 5283
+```
+
+Build the capture helper once (`native/system-audio-capture-rs/build.ps1`); the backend
+finds the dev build and captures natively.
+

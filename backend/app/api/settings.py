@@ -45,6 +45,7 @@ class SettingsResponse(BaseModel):
     fields: list[SettingField]
     data_dir: str
     diarization_supported: bool  # whether speaker splitting can run here (speech helper)
+    diarization_reason: str | None = None  # why not, worded for this platform
     reload_required: bool = False
 
 
@@ -58,6 +59,12 @@ def _diarization_supported() -> bool:
     from ..processing.diarize import diarization_supported
 
     return diarization_supported()
+
+
+def _diarization_reason() -> str | None:
+    from ..processing.diarize import diarization_reason
+
+    return diarization_reason()
 
 
 def _render(reload_required: bool = False) -> SettingsResponse:
@@ -77,6 +84,7 @@ def _render(reload_required: bool = False) -> SettingsResponse:
         fields=fields,
         data_dir=str(settings.data_dir),
         diarization_supported=_diarization_supported(),
+        diarization_reason=_diarization_reason(),
         reload_required=reload_required,
     )
 

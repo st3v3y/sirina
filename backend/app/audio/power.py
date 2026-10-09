@@ -1,13 +1,20 @@
 """Best-effort idle-sleep prevention for the duration of a recording.
 
-On macOS we hold an IOKit power assertion (`PreventUserIdleSystemSleep`) so the machine
-can't idle-sleep mid-recording and silently cut capture. This is a thin ctypes shim — no
-new dependency — and a no-op on other platforms or if IOKit can't be loaded.
+The machine must not idle-sleep mid-recording (or mid-transcription) and silently cut
+capture. Each platform has its own blocker, picked by `make_sleep_blocker()`:
+
+- macOS: an IOKit power assertion (`PreventUserIdleSystemSleep`) via ctypes.
+- Windows: `SetThreadExecutionState`, held by a dedicated thread (the state is per thread).
+- Linux: a logind inhibitor, held by a `systemd-inhibit … sleep infinity` child process.
+
+Every blocker degrades to a logged no-op when its mechanism is missing.
 """
 from __future__ import annotations
 
 import ctypes
 import logging
+import shutil
+import subprocess
 import sys
 import threading
 
@@ -19,7 +26,8 @@ _kCFStringEncodingUTF8 = 0x08000100
 
 
 class SleepBlocker:
-    """Holds an idle-sleep assertion until released. Safe to acquire/release repeatedly."""
+    """macOS: holds an IOKit idle-sleep assertion until released. Safe to acquire/release
+    repeatedly."""
 
     def __init__(self) -> None:
         self._assertion_id: ctypes.c_uint32 | None = None
@@ -83,6 +91,117 @@ class SleepBlocker:
             self._iokit = None
 
 
+class WindowsSleepBlocker:
+    """Windows: a dedicated thread sets `ES_CONTINUOUS | ES_SYSTEM_REQUIRED |
+    ES_DISPLAY_REQUIRED` and keeps it until released (the flags belong to the thread that
+    set them, so it has to stay alive)."""
+
+    _ES_CONTINUOUS = 0x80000000
+    _ES_SYSTEM_REQUIRED = 0x00000001
+    _ES_DISPLAY_REQUIRED = 0x00000002
+
+    def __init__(self) -> None:
+        self._thread: threading.Thread | None = None
+        self._stop = threading.Event()
+
+    def acquire(self, reason: str = "Sirina is recording") -> None:
+        if self._thread is not None:
+            return
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._hold, args=(self._stop,), name="sleep-blocker", daemon=True)
+        self._thread.start()
+
+    def _hold(self, stop: threading.Event) -> None:
+        try:
+            set_state = ctypes.windll.kernel32.SetThreadExecutionState  # type: ignore[attr-defined]
+            set_state.restype = ctypes.c_uint32
+            set_state.argtypes = [ctypes.c_uint32]
+            if not set_state(self._ES_CONTINUOUS | self._ES_SYSTEM_REQUIRED | self._ES_DISPLAY_REQUIRED):
+                log.warning("SetThreadExecutionState failed; sleep is not prevented")
+                return
+            log.info("idle-sleep prevented")
+            stop.wait()
+            set_state(self._ES_CONTINUOUS)
+        except Exception:
+            log.warning("idle-sleep prevention unavailable", exc_info=True)
+
+    def release(self) -> None:
+        if self._thread is None:
+            return
+        self._stop.set()
+        self._thread.join(timeout=2)
+        self._thread = None
+
+
+class LinuxSleepBlocker:
+    """Linux: a logind idle/sleep inhibitor, held for as long as the `systemd-inhibit`
+    child process runs."""
+
+    def __init__(self) -> None:
+        self._proc: subprocess.Popen | None = None
+
+    def acquire(self, reason: str = "Sirina is recording") -> None:
+        if self._proc is not None:
+            return
+        exe = shutil.which("systemd-inhibit")
+        if not exe:
+            log.warning("systemd-inhibit not found; idle sleep can't be prevented")
+            return
+        try:
+            self._proc = subprocess.Popen(
+                [exe, "--what=idle:sleep", "--who=Sirina", f"--why={reason}", "--mode=block", "sleep", "infinity"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            try:
+                self._proc.wait(timeout=0.3)  # exits right away when logind refuses
+            except subprocess.TimeoutExpired:
+                if self._proc.stderr:
+                    self._proc.stderr.close()  # only needed to explain an early exit
+                log.info("idle-sleep prevented")
+                return
+            err = self._proc.stderr.read().decode(errors="replace").strip() if self._proc.stderr else ""
+            log.warning("systemd-inhibit exited (%s); idle sleep can't be prevented", err or self._proc.returncode)
+            self._proc = None
+        except Exception:
+            log.warning("idle-sleep prevention unavailable", exc_info=True)
+            self._proc = None
+
+    def release(self) -> None:
+        if self._proc is None:
+            return
+        try:
+            self._proc.terminate()
+            self._proc.wait(timeout=3)
+        except Exception:
+            try:
+                self._proc.kill()
+            except Exception:
+                pass
+        finally:
+            self._proc = None
+
+
+class NoopSleepBlocker:
+    def acquire(self, reason: str = "") -> None:
+        log.warning("idle-sleep prevention isn't supported on this platform")
+
+    def release(self) -> None:
+        pass
+
+
+def make_sleep_blocker(platform: str | None = None):
+    """The sleep blocker for this platform (`sys.platform` values)."""
+    platform = sys.platform if platform is None else platform
+    if platform == "darwin":
+        return SleepBlocker()
+    if platform == "win32":
+        return WindowsSleepBlocker()
+    if platform.startswith("linux"):
+        return LinuxSleepBlocker()
+    return NoopSleepBlocker()
+
+
 class PowerGuard:
     """Process-wide idle-sleep guard shared by recordings and processing jobs.
 
@@ -93,7 +212,7 @@ class PowerGuard:
     mid-transcription once the recording itself has stopped."""
 
     def __init__(self, blocker: SleepBlocker | None = None) -> None:
-        self._blocker = blocker or SleepBlocker()
+        self._blocker = blocker or make_sleep_blocker()
         self._holders: set[tuple[str, int]] = set()
         self._lock = threading.Lock()
 
@@ -125,8 +244,6 @@ _power_cache: tuple[float, dict] | None = None
 
 
 def _pmset(*args: str) -> str:
-    import subprocess
-
     return subprocess.run(["pmset", *args], capture_output=True, text=True, timeout=5).stdout
 
 
@@ -143,9 +260,20 @@ def parse_power_state(batt: str, settings_out: str) -> dict:
     return {"on_battery": on_battery, "low_power": low_power}
 
 
+def _battery_state() -> dict:
+    """Windows/Linux: on battery from psutil (False on desktops without a battery). Low
+    Power Mode is a macOS notion, so it is always False here."""
+    import psutil
+
+    batt = psutil.sensors_battery()
+    on_battery = batt is not None and batt.power_plugged is False
+    return {"on_battery": on_battery, "low_power": False}
+
+
 def power_state(now: float | None = None) -> dict:
-    """Current power source and Low Power Mode (macOS), cached for 30 s; all False
-    elsewhere or when pmset is unavailable."""
+    """Current power source and Low Power Mode, cached for 30 s. macOS reads `pmset`
+    (which also knows Low Power Mode); elsewhere psutil reports the power source. All
+    False when it can't be read."""
     import time
 
     global _power_cache
@@ -153,11 +281,13 @@ def power_state(now: float | None = None) -> dict:
     if _power_cache is not None and now - _power_cache[0] < _POWER_TTL_S:
         return _power_cache[1]
     state = {"on_battery": False, "low_power": False}
-    if sys.platform == "darwin":
-        try:
+    try:
+        if sys.platform == "darwin":
             state = parse_power_state(_pmset("-g", "batt"), _pmset("-g"))
-        except Exception:
-            log.debug("pmset unavailable", exc_info=True)
+        else:
+            state = _battery_state()
+    except Exception:
+        log.debug("power state unavailable", exc_info=True)
     _power_cache = (now, state)
     return state
 

@@ -68,13 +68,14 @@ FIELDS: list[FieldSpec] = [
     ),
     FieldSpec(
         "live_transcribe_default", "Transcribe during recording", "transcription", "bool",
-        help="Default for new recordings: finalize the transcript while you record (WhisperKit "
-             "only), so it's ready about a minute after the call. Can be changed per recording.",
+        help="Default for new recordings: finalize the transcript while you record, so it's ready "
+             "about a minute after the call. Only where the engine is light enough (WhisperKit); "
+             "the start dialog says when it isn't. Can be changed per recording.",
     ),
     FieldSpec(
         "live_captions_default", "Live captions", "transcription", "bool",
-        help="Default for new recordings: show live captions while recording (macOS 26+, on-device, "
-             "about 2.5% of one CPU core). Can be changed per recording.",
+        help="Default for new recordings: show live captions while recording (on-device, where "
+             "supported; the start dialog says when they aren't). Can be changed per recording.",
     ),
     FieldSpec(
         "whisper_model", "Whisper model", "transcription", "string",
@@ -124,7 +125,7 @@ FIELDS: list[FieldSpec] = [
     FieldSpec("silence_peak_threshold", "Silence threshold", "advanced", "float",
               help="Tracks peaking below this (0..1) are skipped as silent. 0 disables."),
     FieldSpec("whisper_cpu_threads", "CPU threads", "advanced", "int", restart="reload_engine",
-              help="0 = auto (one per performance core on Apple Silicon)."),
+              help="0 = auto (one per performance core on Apple Silicon, else one per core)."),
     FieldSpec("llm_think", "Let the AI think first", "advanced", "bool",
               help="For reasoning models on Ollama (e.g. Qwen 3.5). Off = answers in seconds; "
                    "on = the model reasons at length first (often minutes per answer)."),

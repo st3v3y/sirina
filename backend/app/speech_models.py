@@ -69,6 +69,16 @@ APPLE_SPEECH = ModelSpec(
 REGISTRY: tuple[ModelSpec, ...] = (WHISPERKIT_TURBO, SPEAKERKIT, FASTER_WHISPER_LARGE_V3, APPLE_SPEECH)
 BY_ID = {m.id: m for m in REGISTRY}
 
+# Engines that only exist on macOS (CoreML models and the Apple speech asset).
+MAC_ONLY_ENGINES = frozenset({"whisperkit", "speakerkit", "apple"})
+
+
+def supported_here(spec: ModelSpec) -> bool:
+    """Whether this platform can use the model at all."""
+    from .osinfo import platform_name
+
+    return spec.engine not in MAC_ONLY_ENGINES or platform_name() == "macos"
+
 
 def hub_dir() -> Path:
     from huggingface_hub import constants
@@ -150,6 +160,8 @@ def list_models(apple_installed: bool | None = None) -> list[dict]:
     out: list[dict] = []
     known_repos = set()
     for spec in REGISTRY:
+        if not supported_here(spec):
+            continue
         install = _installs.get(spec.id, {})
         if spec.repo is None:
             installed = bool(apple_installed)

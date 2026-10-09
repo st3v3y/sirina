@@ -53,7 +53,9 @@ export function useRecorder() {
           const savedMic = lsGet(LS_MIC);
           return (
             (savedMic && names.has(savedMic) && savedMic) ||
-            (d.find((x) => /microphone|mic/i.test(x.name)) ?? d[0])?.name ||
+            // A device named like a mic, else the host's default input (Linux lists ALSA
+            // devices plus "pulse"/"default"), else the first one.
+            (d.find((x) => /microphone|mic/i.test(x.name)) ?? d.find((x) => x.is_default) ?? d[0])?.name ||
             ""
           );
         });
@@ -123,7 +125,7 @@ export function useRecorder() {
   const confirmStart = useCallback(async () => {
     const systemSource = nativeAudio ? "native" : systemDevice ? "device" : "none";
     if (!device && systemSource !== "native") {
-      setError("Select a microphone (or, in the desktop app, system audio is automatic).");
+      setError("Select a microphone or a system-audio source.");
       return;
     }
     setStarting(true);

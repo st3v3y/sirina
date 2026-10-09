@@ -11,6 +11,9 @@ def hub(tmp_path, monkeypatch):
     monkeypatch.setattr(sm, "hub_dir", lambda: tmp_path)
     monkeypatch.setattr(sm, "in_use_ids", lambda: set())
     monkeypatch.setattr(sm, "busy", lambda: False)
+    from app import osinfo
+
+    monkeypatch.setattr(osinfo, "platform_name", lambda: "macos")
     sm._installs.clear()
     return tmp_path
 
@@ -70,3 +73,18 @@ async def test_failed_install_reports_error_and_not_installed(hub, monkeypatch):
     await sm.install(sm.SPEAKERKIT.id)
     row = next(m for m in sm.list_models() if m["id"] == sm.SPEAKERKIT.id)
     assert row["state"] == "failed" and "offline" in row["error"] and not row["installed"]
+
+
+@pytest.mark.parametrize("platform", ["windows", "linux"])
+def test_mac_only_models_hidden_elsewhere(hub, monkeypatch, platform):
+    from app import osinfo
+
+    monkeypatch.setattr(osinfo, "platform_name", lambda: platform)
+    ids = {m["id"] for m in sm.list_models()}
+    assert sm.FASTER_WHISPER_LARGE_V3.id in ids
+    assert not ids & {sm.WHISPERKIT_TURBO.id, sm.SPEAKERKIT.id, sm.APPLE_SPEECH.id}
+
+
+def test_mac_only_models_listed_on_macos(hub):
+    ids = {m["id"] for m in sm.list_models(apple_installed=False)}
+    assert {sm.WHISPERKIT_TURBO.id, sm.SPEAKERKIT.id, sm.APPLE_SPEECH.id} <= ids

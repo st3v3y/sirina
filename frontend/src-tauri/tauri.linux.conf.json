@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "targets": [
+      "appimage",
+      "deb"
+    ],
+    "resources": [
+      "resources/system-audio-capture",
+      "resources/backend"
+    ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "libpulse0"
+        ],
+        "recommends": [
+          "pipewire-pulse | pulseaudio"
+        ]
+      }
+    }
+  }
+}

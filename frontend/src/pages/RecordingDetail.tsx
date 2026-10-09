@@ -349,6 +349,7 @@ export default function RecordingDetail() {
   const [peopleNames, setPeopleNames] = useState<string[]>([]);
   const [diarOn, setDiarOn] = useState<boolean | null>(null);
   const [diarSupported, setDiarSupported] = useState<boolean>(true);
+  const [diarReason, setDiarReason] = useState<string | null>(null);
   // Share the sidebar's tag list so a tag created here shows up there immediately.
   const { tags: allTags, reloadTags } = useShell();
   const [tab, setTab] = useState<Tab>("summary");
@@ -381,6 +382,7 @@ export default function RecordingDetail() {
     api.status().then((s) => {
       setDiarOn(s.diarization);
       setDiarSupported(s.diarization_supported ?? true);
+      setDiarReason(s.diarization_reason ?? null);
     }).catch(() => {});
   }, [recordingId]);
 
@@ -812,9 +814,8 @@ export default function RecordingDetail() {
                     </span>
                   ) : (
                     <span>
-                      Everyone but you is grouped as one speaker — speaker separation needs the
-                      on-device speech helper, which isn't available on this Mac (macOS 14+ on
-                      Apple Silicon).
+                      Everyone but you is grouped as one speaker.{" "}
+                      {diarReason ?? "Speaker separation isn't available here."}
                     </span>
                   )}
                 </div>

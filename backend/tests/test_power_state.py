@@ -36,3 +36,24 @@ def test_power_state_is_cached(monkeypatch):
     assert len(calls) == 2  # second call served from cache
     power.power_state(now=200.0)
     assert len(calls) == 4
+
+
+def test_battery_state_off_macos(monkeypatch):
+    import psutil
+
+    monkeypatch.setattr(power, "_power_cache", None)
+    monkeypatch.setattr(power.sys, "platform", "win32")
+    Batt = type("Batt", (), {})
+    on_batt = Batt()
+    on_batt.power_plugged = False
+    monkeypatch.setattr(psutil, "sensors_battery", lambda: on_batt)
+    assert power.power_state(now=1.0) == {"on_battery": True, "low_power": False}
+
+
+def test_desktop_without_battery(monkeypatch):
+    import psutil
+
+    monkeypatch.setattr(power, "_power_cache", None)
+    monkeypatch.setattr(power.sys, "platform", "linux")
+    monkeypatch.setattr(psutil, "sensors_battery", lambda: None)
+    assert power.power_state(now=1.0) == {"on_battery": False, "low_power": False}

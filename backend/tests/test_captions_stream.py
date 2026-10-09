@@ -1,9 +1,9 @@
 """Live caption stream: feeds never block, times map onto the recording, failures are contained."""
-import sys
 import time
 from pathlib import Path
 
 import pytest
+from tests.conftest import exec_wrapper
 
 from app.recording import captions as cap_mod
 from app.recording.captions import CaptionStream
@@ -13,10 +13,7 @@ FAKE = str(Path(__file__).parent / "fixtures" / "fake_captions.py")
 
 @pytest.fixture()
 def helper(tmp_path):
-    w = tmp_path / "speech-engine"
-    w.write_text(f"#!/bin/sh\nshift\nexec {sys.executable} {FAKE}\n")  # drop the 'captions' arg
-    w.chmod(0o755)
-    return str(w)
+    return exec_wrapper(tmp_path, "speech-engine", FAKE)  # the fake ignores the 'captions' arg
 
 
 def test_settled_captions_with_offset(helper):

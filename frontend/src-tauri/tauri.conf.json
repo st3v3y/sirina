@@ -17,12 +17,13 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app"],
-    "icon": ["icons/icon.icns"],
-    "resources": ["resources/system-audio-capture", "resources/speech-engine", "resources/backend"],
-    "macOS": {
-      "minimumSystemVersion": "13.0"
-    }
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
   },
   "plugins": {}
 }

@@ -1,8 +1,8 @@
 """WhisperKit engine + speech helper client against a fake JSON-lines helper."""
-import sys
 from pathlib import Path
 
 import pytest
+from tests.conftest import exec_wrapper
 
 from app import speech_models
 from app.transcribe import engine as engine_mod
@@ -15,10 +15,7 @@ FAKE = str(Path(__file__).parent / "fixtures" / "fake_speech_engine.py")
 @pytest.fixture()
 def helper(tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_HELPER_STATE", str(tmp_path / "crashed"))
-    wrapper = tmp_path / "speech-engine"
-    wrapper.write_text(f"#!/bin/sh\nexec {sys.executable} {FAKE} \"$@\"\n")
-    wrapper.chmod(0o755)
-    h = SpeechHelper(str(wrapper), timeout_s=10)
+    h = SpeechHelper(exec_wrapper(tmp_path, "speech-engine", FAKE), timeout_s=10)
     yield h
 
 

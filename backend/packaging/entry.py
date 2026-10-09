@@ -8,12 +8,34 @@ from __future__ import annotations
 
 import argparse
 import faulthandler
+import multiprocessing
+import os
 import signal
+import sys
 
 import uvicorn
 
 
+def _use_bundled_portaudio() -> None:
+    """Linux: sounddevice finds PortAudio via `ctypes.util.find_library("portaudio")`,
+    which only searches the system. The frozen app bundles libportaudio.so.2 (see
+    backend.spec), so point that lookup at the bundled copy when it is there."""
+    if not (getattr(sys, "frozen", False) and sys.platform.startswith("linux")):
+        return
+    bundled = os.path.join(getattr(sys, "_MEIPASS", ""), "libportaudio.so.2")
+    if not os.path.exists(bundled):
+        return
+    import ctypes.util
+
+    system_find = ctypes.util.find_library
+    ctypes.util.find_library = lambda name: bundled if name == "portaudio" else system_find(name)
+
+
 def main() -> None:
+    # A dependency starts multiprocessing's resource tracker by re-running sys.executable
+    # (this binary) with Python flags; let PyInstaller's runtime hook handle those runs.
+    multiprocessing.freeze_support()
+    _use_bundled_portaudio()  # before anything imports sounddevice
     # Crash/hang diagnostics for the frozen app (its stdout is captured to a log by the
     # shell): fatal errors dump Python stacks, and `kill -USR1 <pid>` dumps the stacks
     # of a live process — the only practical way to debug a wedge in a bundle.

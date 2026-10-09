@@ -1,6 +1,8 @@
-"""Post-processing audio compression: WAV → AAC (.m4a) via macOS's built-in
-`afconvert` (no extra dependency). A finished recording's PCM WAVs are ~10-15×
-larger than 64 kbps AAC, so tracks are converted as the final stage of processing
+"""Post-processing audio compression: WAV → AAC (.m4a) via PyAV (FFmpeg's AAC
+encoder, bundled with the app on every platform). Earlier macOS builds used
+`afconvert`; their .m4a files are standard AAC-in-MP4 and decode the same way.
+
+A finished recording's PCM WAVs are ~10-15× larger than 64 kbps AAC, so tracks are converted as the final stage of processing
 (before the recording flips to `ready`) and the WAVs deleted. The transcription/
 diarization/trim stack only reads PCM WAV, so re-processing decodes the .m4a
 tracks back to WAV first (`restore_wavs`, run by the job itself) and re-compresses
@@ -17,8 +19,7 @@ paths valid (worst case: a leftover original alongside the converted file).
 from __future__ import annotations
 
 import logging
-import shutil
-import subprocess
+import wave
 from pathlib import Path
 
 from sqlmodel import Session
@@ -32,40 +33,94 @@ log = logging.getLogger(__name__)
 _TRACK_ATTRS = ("mic_path", "system_path", "audio_path")
 
 
+_BITRATE = 64_000  # plenty for speech
+
+
 def available() -> bool:
-    return shutil.which("afconvert") is not None
+    try:
+        import av  # noqa: F401
+    except Exception:
+        return False
+    return True
 
 
-def _afconvert(args: list[str]) -> None:
-    proc = subprocess.run(
-        ["afconvert", *args], capture_output=True, text=True, timeout=1800
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(f"afconvert failed: {(proc.stderr or proc.stdout).strip()[:300]}")
+def _layout(channels: int) -> str:
+    return "mono" if channels == 1 else "stereo"
+
+
+def _encode(wav: Path, out: Path, bit_rate: int | None) -> None:
+    import av
+
+    with wave.open(str(wav), "rb") as w:
+        rate, channels, width = w.getframerate(), w.getnchannels(), w.getsampwidth()
+        if width != 2 or channels not in (1, 2):
+            raise RuntimeError(f"{wav.name}: unsupported WAV ({width * 8}-bit, {channels} ch)")
+        with av.open(str(out), "w", format="ipod") as container:  # ipod = .m4a
+            stream = container.add_stream("aac", rate=rate, layout=_layout(channels))
+            if bit_rate:
+                stream.bit_rate = bit_rate
+            resampler = av.AudioResampler(format="fltp", layout=_layout(channels), rate=rate,
+                                          frame_size=stream.codec_context.frame_size or 1024)
+            pts = 0
+            while True:
+                raw = w.readframes(rate)  # ~1 s at a time; never the whole track in memory
+                if not raw:
+                    break
+                frame = av.AudioFrame(format="s16", layout=_layout(channels), samples=len(raw) // (2 * channels))
+                frame.planes[0].update(raw)
+                frame.rate = rate
+                frame.pts = pts
+                pts += frame.samples
+                for f in resampler.resample(frame):
+                    container.mux(stream.encode(f))
+            for f in resampler.resample(None):
+                container.mux(stream.encode(f))
+            container.mux(stream.encode(None))
 
 
 def encode_wav(wav: Path) -> Path:
     """WAV → AAC in an .m4a container (64 kbps, fine for speech). Raises on failure."""
     out = wav.with_suffix(".m4a")
     try:
-        _afconvert(["-f", "m4af", "-d", "aac", "-b", "65536", str(wav), str(out)])
-    except RuntimeError:
-        # 64 kbps is outside the codec's allowed range for some sample rates
-        # (e.g. 16 kHz mono) — retry letting the codec pick its default bitrate.
-        _afconvert(["-f", "m4af", "-d", "aac", str(wav), str(out)])
+        _encode(wav, out, _BITRATE)
+    except Exception as e:
+        # Mirror the old afconvert path: if 64 kbps is rejected for this sample rate,
+        # retry letting the encoder pick its default bitrate.
+        log.debug("AAC encode at %d bps failed for %s (%s); retrying", _BITRATE, wav.name, e)
+        out.unlink(missing_ok=True)
+        _encode(wav, out, None)
     if not out.exists() or out.stat().st_size == 0:
         out.unlink(missing_ok=True)
-        raise RuntimeError(f"afconvert produced no output for {wav.name}")
+        raise RuntimeError(f"AAC encode produced no output for {wav.name}")
     return out
 
 
 def decode_m4a(m4a: Path) -> Path:
     """AAC .m4a → 16-bit PCM WAV (source sample rate/channels kept). Raises on failure."""
+    import av
+
     out = m4a.with_suffix(".wav")
-    _afconvert(["-f", "WAVE", "-d", "LEI16", str(m4a), str(out)])
+    try:
+        with av.open(str(m4a)) as container:
+            stream = container.streams.audio[0]
+            rate = stream.codec_context.sample_rate
+            channels = min(stream.codec_context.channels, 2)
+            resampler = av.AudioResampler(format="s16", layout=_layout(channels), rate=rate)
+            with wave.open(str(out), "wb") as w:
+                w.setnchannels(channels)
+                w.setsampwidth(2)
+                w.setframerate(rate)
+                for frame in container.decode(stream):
+                    for f in resampler.resample(frame):
+                        w.writeframes(bytes(f.planes[0])[: f.samples * 2 * channels])
+                for f in resampler.resample(None):
+                    w.writeframes(bytes(f.planes[0])[: f.samples * 2 * channels])
+    except Exception:
+        out.unlink(missing_ok=True)
+        raise
     if not out.exists() or out.stat().st_size == 0:
         out.unlink(missing_ok=True)
-        raise RuntimeError(f"afconvert produced no output for {m4a.name}")
+        raise RuntimeError(f"AAC decode produced no output for {m4a.name}")
     return out
 
 

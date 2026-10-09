@@ -1,4 +1,7 @@
-# system-audio-capture
+# system-audio-capture (macOS)
+
+Windows and Linux use a Rust helper with the same contract:
+[`../system-audio-capture-rs/`](../system-audio-capture-rs/README.md).
 
 A tiny Swift sidecar that captures the macOS **system audio output mix** (everything you
 hear, including remote call participants) via **ScreenCaptureKit** and streams raw PCM to

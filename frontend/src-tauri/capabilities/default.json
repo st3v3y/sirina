@@ -1,19 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Allow the app to run the bundled backend sidecar.",
-  "windows": ["main"],
+  "description": "Default permissions for the main window. The backend is started by the shell itself (std::process), not through the shell plugin.",
+  "windows": [
+    "main"
+  ],
   "permissions": [
-    "core:default",
-    {
-      "identifier": "shell:allow-execute",
-      "allow": [
-        {
-          "name": "binaries/backend",
-          "sidecar": true,
-          "args": ["--host", { "validator": "\\S+" }, "--port", { "validator": "\\d+" }]
-        }
-      ]
-    }
+    "core:default"
   ]
 }

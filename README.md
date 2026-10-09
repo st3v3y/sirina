@@ -1,13 +1,13 @@
 # Sirina
 
-**A private meeting recorder for macOS that transcribes, splits speakers and summarises entirely on your Mac.**
+**A private meeting recorder that transcribes, splits speakers and summarises entirely on your computer.** Built for macOS on Apple Silicon; Windows and Linux builds are in preview.
 
 [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](LICENSE.md)
-![Platform: macOS on Apple Silicon](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Apple%20Silicon-lightgrey)
+![Platform: macOS on Apple Silicon · Windows · Linux (preview)](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux%20(preview)-lightgrey)
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/sirina.app)
 
-Sirina records your microphone and your call audio as separate tracks, transcribes them on the
-Neural Engine with WhisperKit `large-v3-turbo`, and lets you summarise and ask questions with a
+Sirina records your microphone and your call audio as separate tracks, transcribes them (on a
+Mac, on the Neural Engine with WhisperKit `large-v3-turbo`), and lets you summarise and ask questions with a
 local AI model through [Ollama](https://ollama.com). By default, no audio or text leaves your
 computer.
 
@@ -77,17 +77,29 @@ mic + system audio (ScreenCaptureKit)    speech-engine helper (Swift)
 - **`native/speech-engine/`** is a Swift helper that talks to the backend in JSON lines over
   stdio. It wraps WhisperKit, SpeakerKit and Apple's speech framework.
 - **`native/system-audio-capture/`** is a Swift helper that captures call audio with
-  ScreenCaptureKit.
+  ScreenCaptureKit. **`native/system-audio-capture-rs/`** does the same on Windows (WASAPI
+  loopback) and Linux (PulseAudio/PipeWire monitor), with the same output contract.
 
 ## Requirements
 
 | | |
 | --- | --- |
-| **Mac** | Apple Silicon. Intel Macs and Linux fall back to CPU transcription and are untested. |
-| **macOS** | 14 or later. Live captions and the quick draft need macOS 26. |
-| **Disk** | ~250 MB for the app, plus ~0.7 GB for models and your recordings |
+| **Mac** | Apple Silicon, macOS 14 or later. Live captions and the quick draft need macOS 26. |
+| **Windows** (preview) | Windows 10 or 11, x64. Windows 11 leaves Sirina's own audio out of the call track. |
+| **Linux** (preview) | x64, glibc-based, with WebKitGTK 4.1 and PulseAudio or PipeWire (pipewire-pulse). |
+| **Disk** | ~250 MB for the app, plus models (0.7–3 GB) and your recordings |
 | **AI (optional)** | [Ollama](https://ollama.com) with an instruct model, for summaries and chat |
-| **Build tools** | Xcode, [Rust](https://rustup.rs) + `cargo install tauri-cli --version '^2'`, Node 20+, [uv](https://docs.astral.sh/uv/) |
+| **Build tools** | [Rust](https://rustup.rs), Node 20+, [uv](https://docs.astral.sh/uv/); Xcode on macOS; `libpulse-dev` and `libportaudio2` on Linux |
+
+What works where:
+
+| | macOS (Apple Silicon) | Windows | Linux |
+| --- | --- | --- | --- |
+| Mic + call audio as separate tracks, no virtual device | ✓ | ✓ | ✓ |
+| Transcription | WhisperKit (Neural Engine) | faster-whisper (CPU) | faster-whisper (CPU) |
+| Transcribe during recording, live captions | ✓ (captions need macOS 26) | – | – |
+| Speaker splitting, voice fingerprints | ✓ | – (you vs. everyone else) | – (you vs. everyone else) |
+| Summaries and chat | ✓ | ✓ | ✓ |
 
 ## Installation
 
@@ -98,13 +110,23 @@ git clone https://github.com/st3v3y/sirina.git
 cd sirina
 cd backend && uv sync && cd ..
 cd frontend && npm install && cd ..
-./scripts/build-macos-app.sh
+./scripts/build-macos-app.sh      # macOS
+./scripts/build-linux.sh          # Linux
 ```
 
-The build script makes the UI, freezes the backend with PyInstaller, builds both Swift helpers
-and bundles everything. The result is
-`frontend/src-tauri/target/release/bundle/macos/Sirina.app` (plus a `.dmg`). The app is
-ad-hoc signed, so on first launch right-click it and choose **Open**. For details, see
+On Windows, run `./scripts/build-windows.ps1` in PowerShell.
+
+Each build script makes the UI, freezes the backend with PyInstaller, builds the native
+helpers and bundles everything:
+
+- **macOS:** `frontend/src-tauri/target/release/bundle/macos/Sirina.app`. It is ad-hoc signed,
+  so on first launch right-click it and choose **Open**.
+- **Windows:** an installer in `…/bundle/nsis/`. It is unsigned: in the SmartScreen prompt,
+  choose **More info → Run anyway**.
+- **Linux:** an AppImage in `…/bundle/appimage/` (`chmod +x` it, then run it) and a `.deb` in
+  `…/bundle/deb/`.
+
+Every pull request also builds all three in CI (GitHub Actions artifacts). For details, see
 [docs/PACKAGING.md](docs/PACKAGING.md).
 
 ### 2. Set up the AI model (optional)
@@ -118,9 +140,10 @@ it makes answers slow without making them better. You can turn it on in Settings
 
 ### 3. First launch
 
-Grant **Microphone** and, to record the other side of calls, **Screen Recording** when macOS
-asks. The first transcription downloads the WhisperKit model and prepares it for the Neural
-Engine. This happens once and takes a few minutes. To manage models, go to
+On macOS, grant **Microphone** and, to record the other side of calls, **Screen Recording**
+when asked. Windows and Linux don't ask; on Windows, check that *Let desktop apps access your
+microphone* is on in the privacy settings. The first transcription downloads the speech model
+(on a Mac it is then prepared for the Neural Engine). This happens once and takes a few minutes. To manage models, go to
 **Settings → Speech models**.
 
 ## Usage
@@ -164,32 +187,40 @@ defaults:
 | `ECHO_SPEAKER_OVERLAP` | `0.75` | Drops a "speaker" that is just your own voice echoed in the call audio |
 | `COMPRESS_AUDIO` | `true` | Compress finished recordings to AAC (`.m4a`, ~10–15× smaller) |
 
-API keys for cloud AI providers are stored in the macOS Keychain.
+API keys for cloud AI providers are stored in the system credential store (macOS Keychain, Windows Credential Manager or the Linux Secret Service).
 
 ## Privacy
 
 - **Local by default.** Recording, transcription, speaker splitting and the default AI provider
-  (Ollama) all run on your Mac.
+  (Ollama) all run on your computer.
 - **Network use.** Sirina only goes online to download models from Hugging Face when you first
   need them, and to call a cloud AI provider if you choose one in Settings. That provider then
   receives the transcript text you ask about.
 - **Where data lives.** Recordings, transcripts and voice fingerprints are stored under
-  `~/Library/Application Support/com.sirina.app/` (`backend/data/` in dev).
+  `~/Library/Application Support/com.sirina.app/` on macOS, `%APPDATA%\com.sirina.app\` on
+  Windows and `~/.local/share/com.sirina.app/` on Linux (`backend/data/` in dev).
 
 ## Development
 
 Run the backend and UI with hot reload, without building the app:
 
 ```bash
-./native/speech-engine/build.sh   # once; needs Xcode
+./native/speech-engine/build.sh   # once, macOS only; needs Xcode
 cp backend/.env.example backend/.env
 ./dev.sh                          # backend on :8000, UI on :5283
 ```
 
-Then open <http://localhost:5283>. In the browser, call audio can't be captured natively. To
-record the other side of a call in dev, route it through
-[BlackHole](https://github.com/ExistentialAudio/BlackHole) with a Multi-Output Device, and pick
-BlackHole as the system-audio device.
+Then open <http://localhost:5283>. `dev.sh` needs bash; on Windows run the two parts in
+separate terminals: `cd backend; uv run uvicorn app.main:app --reload --port 8000` and
+`cd frontend; npm run dev -- --port 5283`.
+
+Call audio in dev:
+
+- **Windows and Linux:** build `native/system-audio-capture-rs` (`./build.sh` or `./build.ps1`);
+  the backend finds the dev build and captures natively.
+- **macOS:** native capture needs the packaged app's Screen Recording grant, so route the call
+  through [BlackHole](https://github.com/ExistentialAudio/BlackHole) with a Multi-Output Device
+  and pick BlackHole as the system-audio device.
 
 Run the tests and the linter:
 
@@ -208,8 +239,9 @@ behaviour is described in `openspec/specs/`.
 backend/            FastAPI app, recorder, transcription job, AI provider, tests
 frontend/           React + Vite + Tailwind UI
 frontend/src-tauri/ Tauri 2 desktop shell (Rust)
-native/             Swift helpers: speech-engine, system-audio-capture
-scripts/            build-macos-app.sh
+native/             Swift helpers (speech-engine, system-audio-capture) and the
+                    Windows/Linux capture helper (system-audio-capture-rs, Rust)
+scripts/            build-macos-app.sh, build-windows.ps1, build-linux.sh
 site/               landing page (Astro, deployed on Vercel)
 docs/               packaging and design notes
 openspec/           specs and change proposals

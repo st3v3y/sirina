@@ -7,7 +7,7 @@ Thanks for your interest! Bug reports, ideas and pull requests are welcome.
 Open an [issue](https://github.com/st3v3y/sirina/issues) with:
 
 - what you did, what you expected and what happened;
-- your Mac model and macOS version;
+- your operating system and version (and, on a Mac, the model);
 - the transcription engine and AI provider in use (Settings);
 - relevant log lines, with transcript text or personal data removed.
 
@@ -26,7 +26,8 @@ Please don't attach recordings of other people.
    cd frontend && npm run lint && npm run build
    ```
 
-   If you change a Swift helper, run its `build.sh`, which also runs the smoke test.
+   If you change a Swift helper, run its `build.sh`, which also runs the smoke test. If you
+   change the Rust capture helper, run `cargo test` in `native/system-audio-capture-rs/`.
 4. Update the README or `docs/` if behaviour or setup changes.
 5. Use [Conventional Commit](https://www.conventionalcommits.org) messages, for example
    `fix(recording): …` or `feat(transcript): …`.
