@@ -34,7 +34,7 @@ fi
 [ "$missing" -eq 0 ] || { echo "Install the items above and re-run."; exit 1; }
 
 tauri() {
-  if cargo tauri --version >/dev/null 2>&1; then cargo tauri "$@"; else npm run --prefix "$ROOT/frontend" tauri "$@"; fi
+  if cargo tauri --version >/dev/null 2>&1; then cargo tauri "$@"; else npm run --prefix "$ROOT/frontend" tauri -- "$@"; fi
 }
 
 echo "==> Building frontend"

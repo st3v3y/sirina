@@ -39,7 +39,7 @@ need npm         "install Node >= 18 (e.g. nvm install 22 && nvm use 22)"
 # The Tauri CLI: `cargo tauri` if installed (cargo install tauri-cli --version '^2'),
 # else the frontend's pinned @tauri-apps/cli (npm run tauri).
 tauri() {
-  if cargo tauri --version >/dev/null 2>&1; then cargo tauri "$@"; else npm run --prefix "$ROOT/frontend" tauri "$@"; fi
+  if cargo tauri --version >/dev/null 2>&1; then cargo tauri "$@"; else npm run --prefix "$ROOT/frontend" tauri -- "$@"; fi
 }
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
 if [ "$NODE_MAJOR" -lt 18 ]; then

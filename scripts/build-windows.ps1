@@ -23,11 +23,13 @@ Need npm "install Node >= 18"
 if ($missing) { throw "Install the items above and re-run." }
 
 function Invoke-Tauri {
+  param([Parameter(ValueFromRemainingArguments = $true)][string[]]$TauriArgs)
   # `cargo tauri` if installed, else the frontend's pinned @tauri-apps/cli. Check for the
   # binary instead of running it: a failing native command with redirected stderr aborts
-  # the script under Windows PowerShell 5.1.
-  if (Get-Command cargo-tauri -ErrorAction SilentlyContinue) { cargo tauri @args }
-  else { npm run --prefix (Join-Path $Root "frontend") tauri @args }
+  # the script under Windows PowerShell 5.1. npm.cmd (not the npm.ps1 shim) and a quoted
+  # '--' make sure the arguments reach the CLI.
+  if (Get-Command cargo-tauri -ErrorAction SilentlyContinue) { & cargo tauri @TauriArgs }
+  else { & npm.cmd run --prefix (Join-Path $Root "frontend") tauri '--' @TauriArgs }
 }
 
 Write-Host "==> Building frontend"
