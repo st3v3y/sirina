@@ -19,7 +19,7 @@ Recording permission it will consume.)
 | Path | What |
 | --- | --- |
 | `frontend/src-tauri/tauri.conf.json` | Shared Tauri config (dist dir, icons) |
-| `frontend/src-tauri/tauri.{macos,windows,linux}.conf.json` | Per-platform bundle targets and resources (macOS `.app` + min version 13; Windows NSIS; Linux AppImage + deb) |
+| `frontend/src-tauri/tauri.{macos,windows,linux}.conf.json` | Per-platform bundle targets and resources (macOS `.app` + min version 13; Windows NSIS; Linux deb) |
 | `frontend/src-tauri/src/lib.rs` | Picks a free port, spawns the bundled backend with `APP_DATA_DIR`, the helper paths and `SIRINA_APP_PID`, injects `window.__BACKEND_URL__`, creates the window |
 | `frontend/src-tauri/Info.plist` | `NSMicrophoneUsageDescription` (first-run mic prompt) |
 | `frontend/src-tauri/capabilities/default.json` | Default window permissions (the backend is started with `std::process`, not the shell plugin) |
@@ -212,7 +212,7 @@ the options are off.
 ### Build
 
 ```bash
-./scripts/build-linux.sh          # Linux → bundle/appimage/*.AppImage, bundle/deb/*.deb
+./scripts/build-linux.sh          # Linux → bundle/deb/*.deb
 ```
 
 ```powershell
@@ -225,12 +225,15 @@ helper and `libportaudio2`, which is bundled into the backend (a fresh desktop m
 it). The scripts use `cargo tauri` when installed, else the frontend's pinned `@tauri-apps/cli` (`npm run tauri`). CI builds both
 (plus macOS) on every pull request; download the bundles from the run's artifacts.
 
+There is no AppImage yet: Tauri's AppImage step runs linuxdeploy over every library in the
+bundle, which fails on the PyInstaller backend's libraries (and would rewrite their
+rpaths). Packaging the backend so linuxdeploy leaves it alone is a follow-up.
+
 ### First launch (unsigned)
 
 - **Windows:** SmartScreen says the app is unrecognized: choose **More info → Run anyway**.
   Some antivirus tools flag PyInstaller binaries; that is a false positive of unsigned builds.
-- **Linux:** `chmod +x Sirina_*.AppImage && ./Sirina_*.AppImage`, or `sudo apt install
-  ./Sirina_*.deb`. The `.deb` depends on `libpulse0` and recommends `pipewire-pulse` or
+- **Linux:** `sudo apt install ./Sirina_*.deb`. The `.deb` depends on `libpulse0` and recommends `pipewire-pulse` or
   `pulseaudio`. If the window stays blank or flickers (seen with some NVIDIA drivers), start
   it with `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
 

@@ -15,7 +15,7 @@ Sirina only ships for macOS on Apple Silicon. The Tauri shell, the FastAPI backe
   - AAC compression and decompression use PyAV instead of `afconvert`, on every platform including macOS. That keeps one code path and lets `.m4a` recordings be re-processed anywhere.
 - **Platform-aware capabilities and copy**: `/api/audio/capabilities` and the helper status report which features exist on this platform, each with a reason when one doesn't. UI text that says "this Mac" or "managed by macOS" becomes platform-neutral, or is chosen per platform.
 - **Desktop packaging for Windows and Linux**:
-  - Tauri bundles an NSIS installer for Windows, and an AppImage plus a `.deb` for Linux.
+  - Tauri bundles an NSIS installer for Windows and a `.deb` for Linux (an AppImage is a follow-up: linuxdeploy can't process the PyInstaller backend's libraries).
   - Each OS bundles its own helper names (`.exe` on Windows), and the shell resolves them per platform.
   - The PyInstaller spec no longer hard-codes `arm64`.
 - **CI builds**: a GitHub Actions matrix (macOS arm64, Windows x64, Linux x64) builds the frontend, the backend, the native helpers and the Tauri bundle. It also runs the backend tests on every OS and uploads the bundles as artifacts. CI does not sign or release anything.
@@ -37,7 +37,7 @@ Sirina only ships for macOS on Apple Silicon. The Tauri shell, the FastAPI backe
   - The permission-failure rule is generalized to any helper start failure.
 - `desktop-app`:
   - The single launchable app covers macOS, Windows and Linux.
-  - Unsigned-distribution steps cover Windows SmartScreen and Linux AppImage.
+  - Unsigned-distribution steps cover Windows SmartScreen and installing the Linux `.deb`.
   - Permission prompts stay macOS-specific.
 
 ## Impact

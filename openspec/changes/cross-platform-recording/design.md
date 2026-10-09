@@ -114,7 +114,7 @@ Self-exclusion is not attempted. It would need a PipeWire graph that links every
 
 The PyInstaller backend is built with `console=True`. On Windows, `CREATE_NO_WINDOW` is set when starting it, so no console window appears. The `main.rs` `windows_subsystem` attribute already covers the shell itself.
 
-Tauri resources may lose their executable bit in the `.deb` or AppImage. On Linux, the shell checks the bundled backend and helper and runs `chmod +x` if needed before spawning them.
+Tauri resources may lose their executable bit in the `.deb`. On Linux, the shell checks the bundled backend and helper and runs `chmod +x` if needed before spawning them.
 
 ### D6. PyInstaller and builds
 
@@ -131,7 +131,7 @@ Tauri resources may lose their executable bit in the `.deb` or AppImage. On Linu
   5. Build the native helper: Swift on macOS, cargo elsewhere.
   6. Run `tauri build`.
   7. Upload the bundles as artifacts.
-- Linux builds on 22.04 so the AppImage's glibc floor stays low. They need the `libwebkit2gtk-4.1-dev`, `libpulse-dev` and `libportaudio2` packages.
+- Linux builds on 22.04 so the package's glibc floor stays low. Linux ships only a `.deb`: Tauri's AppImage step runs linuxdeploy over every library in the bundle, which fails on the PyInstaller backend's libraries (unresolvable `libgomp-<hash>` from ctranslate2) and would rewrite their rpaths. An AppImage needs the backend packaged so linuxdeploy leaves it alone; that is a follow-up. They need the `libwebkit2gtk-4.1-dev`, `libpulse-dev` and `libportaudio2` packages.
 - Two tests fake helpers with `#!/bin/sh` wrapper scripts, which can't run on Windows: `test_whisperkit_engine.py` and `test_captions_stream.py`. They switch to running the existing Python fixtures via `sys.executable`, which works on every platform.
 - The `.deb` declares `Depends: libwebkit2gtk-4.1-0, libpulse0` and `Recommends: pipewire-pulse | pulseaudio`. `libpulse0` is the client library and talks to pipewire-pulse too.
 - Development on Windows: `dev.sh` is bash-only. The docs give the two commands to run in separate terminals instead of adding a second script.
@@ -160,7 +160,7 @@ Because the backend owns the reasons, `parakeet-engine-captions` can change what
 - **Behaviour of WASAPI process loopback differs between Windows builds.** → Endpoint loopback as fallback, the self-exclusion status in the log, and the probe reporting the mode.
 - **The default device changes mid-call (headset plugged in).** → Helper exit, bounded restart and gap-fill already exist in `_SidecarTrack` (from `harden-system-audio-capture`). The manual tests cover it.
 - **Linux audio stacks vary** (pure ALSA, or PipeWire without pipewire-pulse). → Unsupported: the probe reports "no PulseAudio/PipeWire server" and the device path remains available.
-- **AppImage and WebKitGTK quirks** (e.g. GPU or DMA-BUF rendering bugs on NVIDIA). → Document `WEBKIT_DISABLE_DMABUF_RENDERER=1`. The shell may set it by default if testing shows it's needed.
+- **WebKitGTK quirks** (e.g. GPU or DMA-BUF rendering bugs on NVIDIA). → Document `WEBKIT_DISABLE_DMABUF_RENDERER=1`. The shell may set it by default if testing shows it's needed.
 - **Unsigned Windows installer.** SmartScreen warns, and some antivirus tools flag PyInstaller binaries. → Document it; signing is a later change.
 - **PyAV replacing `afconvert` on macOS** could change file size or quality slightly. → Same AAC bitrate. A round-trip test (WAV → m4a → WAV) checks length and level.
 - **Windows microphone privacy switch.** "Let desktop apps access your microphone" can be off. WASAPI then delivers silence and no error, and the level meter stays flat. → `docs/PACKAGING.md` documents it, and the manual checklist covers it. Detecting it automatically is left for later.
@@ -176,5 +176,5 @@ Because the backend owns the reasons, `parakeet-engine-captions` can change what
 
 ## Open Questions
 
-- Whether a Linux AppImage built on Ubuntu 22.04 runs on the distributions users actually have. Decide after the first preview feedback.
+- Whether a `.deb` built on Ubuntu 22.04 covers the distributions users actually have, or an AppImage/Flatpak is needed. Decide after the first preview feedback.
 - The `site/` landing page and download links are updated when Windows and Linux builds are first published, not in this change.

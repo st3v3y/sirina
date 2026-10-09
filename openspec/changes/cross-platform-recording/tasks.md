@@ -50,7 +50,7 @@
   - pass `SIRINA_APP_PID`
   - start the backend with `CREATE_NO_WINDOW` on Windows
   - on Linux, `chmod +x` the bundled backend and helper if they lost the bit
-- [x] 3.2 Split the Tauri config into the base config plus `tauri.macos.conf.json`, `tauri.windows.conf.json` (NSIS target, `icons/icon.ico`) and `tauri.linux.conf.json` (AppImage and deb targets, the existing PNG icons, `Depends: libwebkit2gtk-4.1-0, libpulse0`, `Recommends: pipewire-pulse | pulseaudio`); each lists that platform's resources
+- [x] 3.2 Split the Tauri config into the base config plus `tauri.macos.conf.json`, `tauri.windows.conf.json` (NSIS target, `icons/icon.ico`) and `tauri.linux.conf.json` (deb target; AppImage dropped because linuxdeploy fails on the PyInstaller backend's libraries, the existing PNG icons, `Depends: libwebkit2gtk-4.1-0, libpulse0`, `Recommends: pipewire-pulse | pulseaudio`); each lists that platform's resources
 - [x] 3.3 Remove the stale `binaries/backend` entry from `capabilities/default.json` (the `.ico` and PNG icons already exist)
 - [x] 3.4 `backend.spec`: read the target architecture from `SIRINA_TARGET_ARCH` (default: arm64 on macOS, the host elsewhere); PortAudio comes from the sounddevice wheel on macOS/Windows and is bundled from the build machine on Linux (`entry.py` points sounddevice at it); `multiprocessing.freeze_support()` in `entry.py`
 - [x] 3.5 Add `scripts/build-windows.ps1` and `scripts/build-linux.sh`, mirroring `build-macos-app.sh` without signing (frontend → PyInstaller → copy resources → helper → `tauri build`)
@@ -82,7 +82,7 @@
 - [x] 6.1 Docs:
   - README: platform badges, a support matrix (what each feature does on each OS), Windows and Linux requirements
   - `docs/PACKAGING.md`:
-    - Windows and Linux builds, plus the SmartScreen and AppImage steps
+    - Windows and Linux builds, plus the SmartScreen and `.deb` steps
     - the `WEBKIT_DISABLE_DMABUF_RENDERER` note and the Windows microphone privacy switch
     - self-exclusion on each platform, dev on Windows (two terminals)
     - fix the stale `externalBin`/dmg notes

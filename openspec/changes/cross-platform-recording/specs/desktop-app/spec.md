@@ -5,7 +5,7 @@
 The product SHALL be distributable as a single desktop application for each supported platform:
 - **macOS**: an `.app`
 - **Windows**: an NSIS installer
-- **Linux**: an AppImage and a `.deb`
+- **Linux**: a `.deb`
 
 When launched, the application starts the local backend and serves the UI without the user running any terminal commands.
 
@@ -31,9 +31,9 @@ When launched, the application starts the local backend and serves the UI withou
 The app SHALL be distributable without paid code-signing certificates, with documented steps for opening it on each platform:
 - **macOS**: past Gatekeeper.
 - **Windows**: past the SmartScreen "unrecognized app" prompt.
-- **Linux**: run as an AppImage (made executable) or installed from the `.deb`.
+- **Linux**: installed from the `.deb`.
 
 #### Scenario: Opening an unsigned build
 
 - **WHEN** the user opens an unsigned build for the first time
-- **THEN** documented steps allow it to run: right-click → Open or clearing quarantine on macOS, "More info → Run anyway" on Windows, `chmod +x` for the AppImage on Linux
+- **THEN** documented steps allow it to run: right-click → Open or clearing quarantine on macOS, "More info → Run anyway" on Windows, `sudo apt install ./Sirina_*.deb` on Linux

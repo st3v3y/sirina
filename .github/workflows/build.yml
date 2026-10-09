@@ -29,10 +29,9 @@ jobs:
             bundle: |
               frontend/src-tauri/target/release/bundle/nsis/*.exe
           - name: Linux (x64)
-            # The oldest supported runner keeps the AppImage's glibc floor low.
+            # The oldest supported runner keeps the package's glibc floor low.
             os: ubuntu-22.04
             bundle: |
-              frontend/src-tauri/target/release/bundle/appimage/*.AppImage
               frontend/src-tauri/target/release/bundle/deb/*.deb
     runs-on: ${{ matrix.os }}
     env:

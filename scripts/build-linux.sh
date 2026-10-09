@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the Sirina Linux bundles (AppImage + .deb): freeze the Python backend, build the
+# Build the Sirina Linux bundle (.deb): freeze the Python backend, build the
 # Rust system-audio helper, and bundle both into the Tauri app. No signing.
 #
 # Prereqs (Debian/Ubuntu names):
@@ -55,21 +55,17 @@ chmod +x "$RES_DIR/backend/backend"
 cp "$ROOT/native/system-audio-capture-rs/target/release/system-audio-capture" "$RES_DIR/system-audio-capture"
 chmod +x "$RES_DIR/system-audio-capture"
 
-echo "==> Building the Tauri bundles"
-# linuxdeploy strips every library it finds in the AppDir, which fails on some of the
-# PyInstaller backend's prebuilt .so files; they are already stripped where it matters.
-export NO_STRIP="${NO_STRIP:-true}"
-# Run the linuxdeploy AppImage without FUSE (CI runners and containers lack it).
-export APPIMAGE_EXTRACT_AND_RUN="${APPIMAGE_EXTRACT_AND_RUN:-1}"
-cd "$ROOT/frontend/src-tauri" && tauri build --verbose
+echo "==> Building the Tauri bundle"
+# Only a .deb for now: an AppImage runs linuxdeploy over every library in the bundle,
+# which fails on (and would rewrite the rpaths of) the PyInstaller backend's libraries.
+cd "$ROOT/frontend/src-tauri" && tauri build
 
 BUNDLE="$ROOT/frontend/src-tauri/target/release/bundle"
 cat <<DONE
 
 Done.
-AppImage: $(ls "$BUNDLE"/appimage/*.AppImage 2>/dev/null || echo "(none)")
 Debian:   $(ls "$BUNDLE"/deb/*.deb 2>/dev/null || echo "(none)")
 
-Run the AppImage with:  chmod +x Sirina_*.AppImage && ./Sirina_*.AppImage
+Install it with:  sudo apt install ./Sirina_*.deb
 The app needs a local Ollama (http://localhost:11434) or another AI provider set in Settings.
 DONE

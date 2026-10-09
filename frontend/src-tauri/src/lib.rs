@@ -26,7 +26,7 @@ fn resource_exe(app: &tauri::App, name: &str) -> String {
     }
 }
 
-/// Linux bundles (.deb, AppImage) can drop the executable bit from resources.
+/// Linux packages can drop the executable bit from resources.
 #[cfg(target_os = "linux")]
 fn ensure_executable(path: &std::path::Path) {
     use std::os::unix::fs::PermissionsExt;
