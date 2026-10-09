@@ -1,14 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { api, type RecordingDetail as TR, type Segment, type Speaker, type Summary, type QAMessage, type SummaryTemplate } from "../lib/api";
 import TranscriptChat from "../components/TranscriptChat";
 import Markdown from "../components/Markdown";
 import PromptBar from "../components/PromptBar";
-import { TagChip, AddTagButton, catColor } from "../components/TagUI";
+import { TagChip, AddTagButton } from "../components/TagUI";
+import { catColor } from "../lib/tagColors";
 import { Avatar, Button } from "../components/ui";
 import { Icon } from "../components/Icon";
 import { confirmDialog } from "../lib/confirm";
-import { useShell } from "../components/Shell";
+import { useShell } from "../lib/shell";
 
 const STAGE_LABEL: Record<string, string> = {
   queued: "Queued…",
@@ -365,7 +366,9 @@ export default function RecordingDetail() {
   // Guards against a stale response landing after navigation: a slow fetch for
   // recording A must not overwrite the view once the route points at B.
   const currentIdRef = useRef(recordingId);
-  currentIdRef.current = recordingId;
+  useLayoutEffect(() => {
+    currentIdRef.current = recordingId;
+  }, [recordingId]);
 
   async function load() {
     const r = await api.getRecording(recordingId);

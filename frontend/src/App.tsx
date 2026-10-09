@@ -60,8 +60,6 @@ function BackendGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     let alive = true;
     const t0 = Date.now();
-    setFailed(false);
-    setElapsed(0);
     const tick = async () => {
       try {
         await api.status();
@@ -89,6 +87,8 @@ function BackendGate({ children }: { children: ReactNode }) {
       elapsed={elapsed}
       onRetry={() => {
         setReady(false);
+        setFailed(false);
+        setElapsed(0);
         setAttempt((a) => a + 1);
       }}
     />

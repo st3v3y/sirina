@@ -1,9 +1,10 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { api, type Status, type Tag } from "../lib/api";
 import { useRecorder } from "../lib/useRecorder";
 import { confirmDialog } from "../lib/confirm";
-import { TAG_COLORS, catColor } from "./TagUI";
+import { TAG_COLORS, catColor } from "../lib/tagColors";
+import { ShellContext } from "../lib/shell";
 import { Icon } from "./Icon";
 import {
   getThemeChoice,
@@ -12,20 +13,6 @@ import {
   type ThemeChoice,
 } from "../theme";
 import mark from "../assets/sirina-mark.svg";
-
-// --- Shared shell state (tags + the recordings tag-filter, read by the dashboard) ---
-type ShellCtx = {
-  tags: Tag[];
-  reloadTags: () => Promise<void>;
-  filterTag: number | null;
-  setFilterTag: (id: number | null) => void;
-};
-const Ctx = createContext<ShellCtx | null>(null);
-export function useShell(): ShellCtx {
-  const v = useContext(Ctx);
-  if (!v) throw new Error("useShell must be used within <Shell>");
-  return v;
-}
 
 function fmtTimer(s: number) {
   const sec = Math.max(0, Math.floor(s));
@@ -55,7 +42,7 @@ export default function Shell({ children }: { children: ReactNode }) {
 
   const reloadTags = async () => setTags(await api.listTags());
   useEffect(() => {
-    reloadTags().catch(() => {});
+    api.listTags().then(setTags).catch(() => {});
   }, []);
 
   async function createTag() {
@@ -120,7 +107,7 @@ export default function Shell({ children }: { children: ReactNode }) {
     : `${rec.device || "No mic"}${rec.systemDevice ? ` · ${rec.systemDevice}` : ""}`;
 
   return (
-    <Ctx.Provider value={{ tags, reloadTags, filterTag, setFilterTag }}>
+    <ShellContext.Provider value={{ tags, reloadTags, filterTag, setFilterTag }}>
       <div className="flex h-screen overflow-hidden text-ink">
         <aside className="w-[252px] shrink-0 bg-sidebar border-r border-line flex flex-col px-3.5 py-[18px] overflow-y-auto">
           {/* logo */}
@@ -293,7 +280,7 @@ export default function Shell({ children }: { children: ReactNode }) {
       </div>
 
       {rec.picking && <DeviceModal rec={rec} />}
-    </Ctx.Provider>
+    </ShellContext.Provider>
   );
 }
 

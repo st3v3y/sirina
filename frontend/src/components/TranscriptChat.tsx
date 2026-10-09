@@ -1,6 +1,6 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Segment, QAMessage, Speaker } from "../lib/api";
-import { catColor } from "./TagUI";
+import { catColor } from "../lib/tagColors";
 import Markdown from "./Markdown";
 
 type ChatItem =
@@ -46,10 +46,13 @@ const SegmentRow = memo(
     seg, name, color, canRename, isEditing, peopleNames, onStartEdit, onCommit, onCancel,
   }: SegmentRowProps) {
     const [draft, setDraft] = useState(name);
-    useEffect(() => {
+    // Reset the draft to the current name whenever editing starts (adjusting state
+    // during render, rather than in an effect).
+    const [wasEditing, setWasEditing] = useState(isEditing);
+    if (isEditing !== wasEditing) {
+      setWasEditing(isEditing);
       if (isEditing) setDraft(name);
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isEditing]);
+    }
 
     const suggestions = (() => {
       if (!isEditing) return [];
@@ -149,9 +152,11 @@ export default function TranscriptChat({ items, speakers = {}, peopleNames = [],
   // Handlers passed to memoized rows read live props via refs (rows skip re-renders,
   // so a captured closure could otherwise act on stale speakers/onRename).
   const speakersRef = useRef(speakers);
-  speakersRef.current = speakers;
   const onRenameRef = useRef(onRename);
-  onRenameRef.current = onRename;
+  useLayoutEffect(() => {
+    speakersRef.current = speakers;
+    onRenameRef.current = onRename;
+  });
 
   function onScroll() {
     const el = ref.current;

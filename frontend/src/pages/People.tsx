@@ -12,7 +12,7 @@ export default function People() {
     setPeople(await api.listPeople());
   }
   useEffect(() => {
-    refresh();
+    api.listPeople().then(setPeople);
   }, []);
 
   async function rename(id: number) {
