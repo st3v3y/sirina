@@ -9,7 +9,7 @@ export const site = {
   showBetaBar: true,
   // Flip to true once a GitHub release with a .dmg exists: the download buttons then point
   // to the latest release instead of the build-from-source instructions.
-  hasRelease: false,
+  hasRelease: true,
 };
 
 export const issuesUrl = `${site.githubUrl}/issues`;

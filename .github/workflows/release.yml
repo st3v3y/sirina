@@ -1,0 +1,125 @@
+# Builds the macOS app and attaches the DMG to a GitHub release.
+#
+#   - Push a tag like v0.1.0 → builds and publishes the release (a tag with a "-", such as
+#     v0.2.0-rc.1, becomes a pre-release).
+#   - Pull requests that touch packaging, and manual runs → build only; the DMG is kept as
+#     a workflow artifact for 7 days.
+#
+# The app is ad-hoc signed (no Apple Developer ID), like a local ./scripts/build-macos-app.sh.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - scripts/build-macos-app.sh
+      - backend/packaging/**
+      - frontend/src-tauri/**
+      - native/**
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macOS (Apple Silicon)
+    # The speech helper uses SpeechTranscriber, which needs the macOS 26 SDK (Xcode 26+).
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check the tag matches the app version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          APP_VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' frontend/src-tauri/tauri.conf.json | head -1)"
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "${TAG_VERSION%%-*}" != "$APP_VERSION" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match the version $APP_VERSION in tauri.conf.json"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: astral-sh/setup-uv@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: frontend/src-tauri
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version '^2' --locked
+
+      - name: Install dependencies
+        run: |
+          (cd backend && uv sync --frozen)
+          (cd frontend && npm ci)
+
+      # Optional: sign with a stable self-signed "Code Signing" certificate, so macOS keeps
+      # the Screen Recording grant across launches and updates (see docs/PACKAGING.md).
+      # Without the secrets the app is ad-hoc signed.
+      - name: Import the signing certificate
+        id: cert
+        env:
+          CERT_P12: ${{ secrets.MACOS_SIGNING_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_SIGNING_CERT_PASSWORD }}
+        run: |
+          if [ -z "$CERT_P12" ]; then
+            echo "::warning::No MACOS_SIGNING_CERT_P12 secret; the app will be ad-hoc signed."
+            exit 0
+          fi
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          IDENTITY="$(security find-identity -p codesigning "$KEYCHAIN" | grep -oE '"[^"]+"' | head -1 | tr -d '"')"
+          echo "Signing with: $IDENTITY"
+          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+
+      - name: Build the app
+        env:
+          # The smoke test needs a voice for `say` and downloaded models; the runner has neither.
+          SKIP_SMOKE: "1"
+          CODESIGN_IDENTITY: ${{ steps.cert.outputs.identity }}
+        run: ./scripts/build-macos-app.sh
+
+      - name: Upload the DMG as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sirina-macOS-arm64
+          path: frontend/src-tauri/target/release/bundle/dmg/Sirina-macOS-arm64.dmg
+          retention-days: 7
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: frontend/src-tauri/target/release/bundle/dmg/Sirina-macOS-arm64.dmg
+          generate_release_notes: true
+          body: |
+            **Download:** `Sirina-macOS-arm64.dmg` below (Apple Silicon, macOS 14 or later).
+
+            Open the DMG and drag Sirina to Applications. The app is not notarized by Apple, so
+            the first launch is blocked: open **System Settings → Privacy & Security**, scroll
+            down and click **Open Anyway**. See the
+            [installation guide](https://github.com/st3v3y/sirina#installation) for details.
+          prerelease: ${{ contains(github.ref_name, '-') }}
