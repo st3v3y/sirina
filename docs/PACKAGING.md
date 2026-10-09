@@ -66,7 +66,8 @@ ad-hoc signs the app. Outputs land in `frontend/src-tauri/target/release/bundle/
 
 There's no paid Apple Developer signing, so Gatekeeper blocks the app the first time:
 
-- **Right-click the app → Open** (once), **or**
+- **System Settings → Privacy & Security → Open Anyway** (once; since macOS 15, right-click →
+  Open no longer bypasses Gatekeeper), **or**
 - `xattr -dr com.apple.quarantine "/path/to/Sirina.app"`
 
 Grant the **Microphone** prompt on first record. The app also expects a local **Ollama**
@@ -161,8 +162,39 @@ certificate** has only the name you choose and no org/team — and you don't nee
 3. Grant Screen Recording once on first launch; subsequent launches/rebuilds with the **same**
    identity keep the grant. Ad-hoc builds print a warning that permissions will re-prompt.
 
-This is still not Gatekeeper/notarization (that needs the paid program) — first launch may still
-require right-click → Open or clearing the quarantine attribute (see "First launch" above).
+This is still not Gatekeeper/notarization (that needs the paid program) — first launch still
+needs **Open Anyway** or clearing the quarantine attribute (see "First launch" above).
+
+## Releases
+
+`.github/workflows/release.yml` builds the app on a `macos-26` runner (the speech helper needs
+the macOS 26 SDK) and publishes `Sirina-macOS-arm64.dmg` to a GitHub release. The DMG name has
+no version, so `releases/latest/download/Sirina-macOS-arm64.dmg` always points at the newest
+one.
+
+To release:
+
+1. Bump `version` in `frontend/src-tauri/tauri.conf.json` (and `Cargo.toml`), and merge.
+2. Tag `main` and push the tag. The workflow fails if the tag and the version differ.
+   ```bash
+   git tag v0.2.0 && git push origin v0.2.0
+   ```
+   A tag with a `-` (e.g. `v0.2.0-rc.1`) is published as a pre-release.
+
+Pull requests that touch packaging also run the build (without publishing), and the DMG is
+kept as a workflow artifact for 7 days.
+
+**Signing in CI.** Without secrets, CI builds are ad-hoc signed. To sign with your stable
+self-signed certificate (so permission grants survive updates), export it once and add two
+repository secrets:
+
+```bash
+# Keychain Access → My Certificates → right-click "Sirina Dev" → Export… → sirina-dev.p12
+base64 -i sirina-dev.p12 | gh secret set MACOS_SIGNING_CERT_P12
+gh secret set MACOS_SIGNING_CERT_PASSWORD   # the export password
+```
+
+Every release signed with the same certificate keeps the user's grants.
 
 ## Dev is unchanged
 

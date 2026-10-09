@@ -136,10 +136,28 @@ find "$APP/Contents/Resources/resources/backend" -type f \( -name "*.so" -o -nam
 codesign --force --timestamp=none --sign "$IDENTITY" "$APP/Contents/Resources/resources/backend/backend"
 codesign --force --timestamp=none --sign "$IDENTITY" "$APP"
 
+# The DMG is made here, from the signed app (a Tauri-built DMG would hold the app before
+# signing). The name has no version so the README can link to releases/latest/download/.
+DMG_DIR="$ROOT/frontend/src-tauri/target/release/bundle/dmg"
+DMG="$DMG_DIR/Sirina-macOS-arm64.dmg"
+echo "==> Creating $DMG"
+STAGE="$(mktemp -d)"
+cp -R "$APP" "$STAGE/"
+ln -s /Applications "$STAGE/Applications"
+mkdir -p "$DMG_DIR"
+rm -f "$DMG"
+# hdiutil sometimes fails with "Resource busy" on CI runners; a retry is enough.
+for attempt in 1 2 3; do
+  hdiutil create -volname Sirina -srcfolder "$STAGE" -ov -format UDZO "$DMG" && break
+  [ "$attempt" = 3 ] && exit 1
+  sleep 5
+done
+rm -rf "$STAGE"
+
 cat <<EOF
 
 Done. App: $APP
-DMG:  $ROOT/frontend/src-tauri/target/release/bundle/dmg/
+DMG:  $DMG
 
 First launch (unsigned): right-click the app → Open (once), or:
     xattr -dr com.apple.quarantine "$APP"

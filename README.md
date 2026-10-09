@@ -11,8 +11,9 @@ Mac, on the Neural Engine with WhisperKit `large-v3-turbo`), and lets you summar
 local AI model through [Ollama](https://ollama.com). By default, no audio or text leaves your
 computer.
 
-> **Status:** early and actively developed. There are no prebuilt releases yet; you build the
-> app from source (see [Installation](#installation)).
+> **Status:** early and actively developed.
+> [Download the latest release](https://github.com/st3v3y/sirina/releases/latest) for Apple
+> Silicon Macs, or build it from source (see [Installation](#installation)).
 
 ## Contents
 
@@ -89,7 +90,10 @@ mic + system audio (ScreenCaptureKit)    speech-engine helper (Swift)
 | **Linux** (preview) | x64, glibc-based, with WebKitGTK 4.1 and PulseAudio or PipeWire (pipewire-pulse). |
 | **Disk** | ~250 MB for the app, plus models (0.7–3 GB) and your recordings |
 | **AI (optional)** | [Ollama](https://ollama.com) with an instruct model, for summaries and chat |
-| **Build tools** | [Rust](https://rustup.rs), Node 20+, [uv](https://docs.astral.sh/uv/); Xcode on macOS; `libpulse-dev` and `libportaudio2` on Linux |
+| **Build tools** (only to build from source) | [Rust](https://rustup.rs), Node 20+, [uv](https://docs.astral.sh/uv/); Xcode 26+ on macOS; `libpulse-dev` and `libportaudio2` on Linux |
+
+Releases are built for Apple Silicon Macs. Windows and Linux are in preview: build them from
+source, or download the bundles from a CI run's artifacts.
 
 What works where:
 
@@ -103,7 +107,24 @@ What works where:
 
 ## Installation
 
-### 1. Build the app
+### 1. Download the app
+
+1. Download
+   [**Sirina-macOS-arm64.dmg**](https://github.com/st3v3y/sirina/releases/latest/download/Sirina-macOS-arm64.dmg)
+   from the [latest release](https://github.com/st3v3y/sirina/releases/latest).
+2. Open the DMG and drag **Sirina** into **Applications**.
+3. Open Sirina. The app isn't notarized by Apple, so macOS blocks it the first time. Open
+   **System Settings → Privacy & Security**, scroll down to the message about Sirina, and click
+   **Open Anyway**. You only need to do this once.
+
+If macOS says the app "is damaged" instead, remove the download quarantine flag:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Sirina.app
+```
+
+<details>
+<summary><strong>Or build the app from source</strong></summary>
 
 ```bash
 git clone https://github.com/st3v3y/sirina.git
@@ -119,8 +140,8 @@ On Windows, run `./scripts/build-windows.ps1` in PowerShell.
 Each build script makes the UI, freezes the backend with PyInstaller, builds the native
 helpers and bundles everything:
 
-- **macOS:** `frontend/src-tauri/target/release/bundle/macos/Sirina.app`. It is ad-hoc signed,
-  so on first launch right-click it and choose **Open**.
+- **macOS:** `frontend/src-tauri/target/release/bundle/macos/Sirina.app`, plus
+  `bundle/dmg/Sirina-macOS-arm64.dmg`. The app is ad-hoc signed.
 - **Windows:** an installer in `…/bundle/nsis/`. It is unsigned: in the SmartScreen prompt,
   choose **More info → Run anyway**.
 - **Linux:** an AppImage in `…/bundle/appimage/` (`chmod +x` it, then run it) and a `.deb` in
@@ -128,6 +149,8 @@ helpers and bundles everything:
 
 Every pull request also builds all three in CI (GitHub Actions artifacts). For details, see
 [docs/PACKAGING.md](docs/PACKAGING.md).
+
+</details>
 
 ### 2. Set up the AI model (optional)
 
