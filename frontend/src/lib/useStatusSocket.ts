@@ -1,9 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useEffectEvent } from "react";
 import type { Status } from "./api";
 
 export function useStatusSocket(onStatus: (s: Status) => void) {
-  const onStatusRef = useRef(onStatus);
-  onStatusRef.current = onStatus;
+  const onStatusEvent = useEffectEvent(onStatus);
 
   useEffect(() => {
     const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -11,7 +10,7 @@ export function useStatusSocket(onStatus: (s: Status) => void) {
     ws.onmessage = (ev) => {
       try {
         const data = JSON.parse(ev.data);
-        if (data?.type === "status") onStatusRef.current(data.payload);
+        if (data?.type === "status") onStatusEvent(data.payload);
       } catch {
         // ignore
       }

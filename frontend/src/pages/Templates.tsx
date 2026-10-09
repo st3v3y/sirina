@@ -17,7 +17,11 @@ export default function Templates() {
     setQaBody(qa?.body ?? "");
   }
   useEffect(() => {
-    refresh();
+    api.listSummaryTemplates().then(async (list) => {
+      setItems(list);
+      const qa = await api.getQaTemplate();
+      setQaBody(qa?.body ?? "");
+    });
   }, []);
 
   function startNew() {

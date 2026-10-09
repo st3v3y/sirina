@@ -415,7 +415,6 @@ function AiSection({
 }) {
   const [providers, setProviders] = useState<LlmProvider[]>([]);
   const [models, setModels] = useState<string[]>([]);
-  const [loadingModels, setLoadingModels] = useState(false);
   const [customModel, setCustomModel] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -437,21 +436,27 @@ function AiSection({
     api.getLlmProviders().then(setProviders).catch(() => setProviders([]));
   }, []);
 
-  async function loadModels() {
-    setLoadingModels(true);
-    try {
-      const r = await api.listLlmModels({ provider, base_url: baseUrl || undefined, api_key: apiKey || undefined });
-      setModels(r.models);
-    } catch {
-      setModels([]);
-    } finally {
-      setLoadingModels(false);
-    }
-  }
+  // Model list for the current provider/endpoint. "Loading" is derived: it's true until a
+  // response for the current key has landed, so no setState is needed to start a load.
+  const modelsKey = providers.length ? `${provider}\n${effBase}` : null;
+  const [loadedModelsKey, setLoadedModelsKey] = useState<string | null>(null);
+  const loadingModels = modelsKey != null && loadedModelsKey !== modelsKey;
   useEffect(() => {
-    if (providers.length) loadModels();
+    if (modelsKey == null) return;
+    let alive = true;
+    api
+      .listLlmModels({ provider, base_url: baseUrl || undefined, api_key: apiKey || undefined })
+      .then((r) => r.models, () => [])
+      .then((m) => {
+        if (!alive) return;
+        setModels(m);
+        setLoadedModelsKey(modelsKey);
+      });
+    return () => {
+      alive = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [provider, effBase, providers.length]);
+  }, [modelsKey]);
 
   async function test() {
     setTesting(true);

@@ -22,7 +22,10 @@ export default function Ask() {
   }
 
   useEffect(() => {
-    refresh();
+    api.listChatSessions().then((list) => {
+      setSessions(list);
+      if (list.length > 0) setActiveId((id) => id ?? list[0].id);
+    });
   }, []);
 
   async function newSession() {

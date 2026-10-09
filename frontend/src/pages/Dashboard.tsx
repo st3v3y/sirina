@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api, type Recording, type RecordingStatus } from "../lib/api";
 import { TagChip, AddTagButton } from "../components/TagUI";
 import { Icon } from "../components/Icon";
-import { useShell } from "../components/Shell";
+import { useShell } from "../lib/shell";
 
 const DOT: Record<RecordingStatus, string> = {
   ready: "bg-ok",
@@ -61,8 +61,7 @@ export default function Dashboard() {
   }
 
   useEffect(() => {
-    refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    api.listRecordings(filterTag ?? undefined).then(setRecordings).catch(() => {});
   }, [filterTag]);
 
   const anyProcessing = recordings.some((r) => r.status === "processing");
