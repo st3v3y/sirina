@@ -18,7 +18,8 @@ computer.
 
 > **Status:** early and actively developed.
 > [Download the latest release](https://github.com/st3v3y/sirina/releases/latest) for Apple
-> Silicon Macs, or build it from source (see [Installation](#installation)).
+> Silicon Macs (Windows and Linux: untested preview builds), or build it from source (see
+> [Installation](#installation)).
 
 ## Contents
 
@@ -100,8 +101,7 @@ mic + system audio (ScreenCaptureKit)    speech-engine helper (Swift)
 | **AI (optional)** | [Ollama](https://ollama.com) with an instruct model, for summaries and chat |
 | **Build tools** (only to build from source) | [Rust](https://rustup.rs), Node 20+, [uv](https://docs.astral.sh/uv/); Xcode 26+ on macOS; `libpulse-dev` and `libportaudio2` on Linux |
 
-Releases are built for Apple Silicon Macs. Windows and Linux are in preview: build them from
-source, or download the bundles from a CI run's artifacts.
+Each release has a Mac build and untested preview builds for Windows and Linux.
 
 What works where:
 
@@ -130,6 +130,16 @@ If macOS says the app "is damaged" instead, remove the download quarantine flag:
 ```bash
 xattr -dr com.apple.quarantine /Applications/Sirina.app
 ```
+
+**Windows and Linux (untested preview).** These builds come straight from CI and haven't been
+tried on a real machine yet. Please [report what works and what doesn't](https://github.com/st3v3y/sirina/issues).
+
+- **Windows 10/11 (x64):** download
+  [**Sirina-Windows-x64-setup.exe**](https://github.com/st3v3y/sirina/releases/latest/download/Sirina-Windows-x64-setup.exe) and run it. It is
+  unsigned, so in the SmartScreen prompt choose **More info → Run anyway**.
+- **Linux (x64, Debian/Ubuntu):** download
+  [**Sirina-Linux-x64.deb**](https://github.com/st3v3y/sirina/releases/latest/download/Sirina-Linux-x64.deb) and install it with
+  `sudo apt install ./Sirina-Linux-x64.deb`. It needs PulseAudio or PipeWire.
 
 <details>
 <summary><strong>Or build the app from source</strong></summary>

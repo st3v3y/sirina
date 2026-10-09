@@ -5,7 +5,7 @@ export const site = {
   githubUrl: "https://github.com/st3v3y/sirina",
   coffeeUrl: "https://buymeacoffee.com/sirina.app",
   licenseUrl: "https://polyformproject.org/licenses/noncommercial/1.0.0/",
-  version: "0.1",
+  version: "0.2",
   showBetaBar: true,
   // Flip to true once a GitHub release with a .dmg exists: the download buttons then point
   // to the latest release instead of the build-from-source instructions.
