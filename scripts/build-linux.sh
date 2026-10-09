@@ -73,7 +73,8 @@ rm -f "$BUNDLE"/appimage/*.AppImage
 export NO_STRIP="${NO_STRIP:-true}"
 # Run linuxdeploy (itself an AppImage) without FUSE, for CI runners and containers.
 export APPIMAGE_EXTRACT_AND_RUN="${APPIMAGE_EXTRACT_AND_RUN:-1}"
-tauri bundle --bundles appimage --config tauri.appimage.conf.json --verbose
+# Absolute: the npm fallback runs the CLI from frontend/, not src-tauri/.
+tauri bundle --bundles appimage --config "$ROOT/frontend/src-tauri/tauri.appimage.conf.json" --verbose
 unset APPIMAGE_EXTRACT_AND_RUN
 
 echo "==> Adding the backend to the AppImage"
