@@ -61,8 +61,9 @@ mkdir -p "$WORK/data1"
 setsid env APP_DATA_DIR="$WORK/data1" "$BACKEND" --host 127.0.0.1 --port "$PORT" \
   >"$WORK/backend.log" 2>&1 &
 PIDS+=($!)
-wait_status "$PORT" "$!" "$WORK/backend.log"
+wait_status "$PORT" "${PIDS[-1]}" "$WORK/backend.log"
 kill -- "-${PIDS[-1]}" 2>/dev/null || true
+wait "${PIDS[-1]}" 2>/dev/null || true  # gone before the launch test looks for a backend
 
 if [ "${SKIP_LAUNCH:-0}" = 1 ]; then
   echo "==> Skipping the AppImage launch (SKIP_LAUNCH=1)"
@@ -82,18 +83,17 @@ PIDS+=("$APP_PID")
 # The shell picks a free port; find the backend it spawned from the AppImage's mount.
 bpid=""
 for _ in $(seq 60); do
-  bpid="$(pgrep -f '/resources/backend/backend --host 127.0.0.1 --port' | head -1 || true)"
+  for pid in $(pgrep -f '/resources/backend/backend --host 127.0.0.1 --port' || true); do
+    case "$(readlink "/proc/$pid/exe" 2>/dev/null)" in
+      */.mount_*/resources/backend/backend) bpid=$pid; break ;;
+    esac
+  done
   [ -n "$bpid" ] && break
   kill -0 "$APP_PID" 2>/dev/null || { echo "  ✗ the AppImage exited; log:" >&2; tail -50 "$WORK/app.log" >&2; exit 1; }
   sleep 1
 done
-[ -n "$bpid" ] || { echo "  ✗ the shell didn't start the backend; log:" >&2; tail -50 "$WORK/app.log" >&2; exit 1; }
-exe="$(readlink "/proc/$bpid/exe" || true)"
+[ -n "$bpid" ] || { echo "  ✗ no backend running from the AppImage's mount; log:" >&2; tail -50 "$WORK/app.log" >&2; exit 1; }
 port="$(tr '\0' '\n' <"/proc/$bpid/cmdline" | sed -n '/^--port$/{n;p;}')"
-echo "    backend pid $bpid on :$port ($exe)"
-case "$exe" in
-  */.mount_*/resources/backend/backend) ;;
-  *) echo "  ✗ the backend isn't running from the AppImage's mount" >&2; exit 1 ;;
-esac
+echo "    backend pid $bpid on :$port ($(readlink "/proc/$bpid/exe"))"
 wait_status "$port" "$bpid" "$WORK/app.log"
 echo "==> AppImage OK"
