@@ -26,7 +26,8 @@ if ! pkg-config --exists libpulse-simple 2>/dev/null; then
   echo "  ✗ libpulse-simple not found — apt install libpulse-dev"
   missing=1
 fi
-if ! ls /usr/lib/*/libportaudio.so.2 /usr/lib/libportaudio.so.2 >/dev/null 2>&1; then
+# The same lookup backend.spec bundles from (this architecture's copy only).
+if [ ! -e "/usr/lib/$(uname -m)-linux-gnu/libportaudio.so.2" ] && [ ! -e /usr/lib/libportaudio.so.2 ]; then
   echo "  ✗ libportaudio.so.2 not found — apt install libportaudio2"
   missing=1
 fi

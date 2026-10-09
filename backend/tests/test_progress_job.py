@@ -1,5 +1,6 @@
 """The processing job: windowed two-track finalization, drafts, resume, stop, fallback."""
 import asyncio
+import os
 import wave
 
 import numpy as np
@@ -36,7 +37,7 @@ class FakeEngine:
     async def transcribe_window(self, path, start_s, end_s, *, language=None):
         if self.fail_after is not None and len(self.calls) >= self.fail_after:
             raise HelperError("speech helper exited")
-        self.calls.append((path.rsplit("/", 1)[-1], start_s, end_s))
+        self.calls.append((os.path.basename(path), start_s, end_s))
         a = start_s + 0.5
         return [TLine(a, a + 1.0, f"hello {start_s:.0f}", [(a, a + 0.5, "hello"), (a + 0.5, a + 1.0, f"{start_s:.0f}")])], "en"
 
@@ -244,6 +245,7 @@ def test_estimated_fraction_and_elapsed():
 
     proc._started[7] = _t.monotonic() - 10.0
     proc._set_progress(7, "transcribing", None, est_total=100.0)
+    proc._progress[7]["stage_started"] -= 5.0  # Windows' clock may not tick between two calls
     p = proc.progress_for(7)
     assert p["estimated"] is True and 0.0 < p["fraction"] <= 0.95 and p["elapsed_s"] >= 10.0
     proc._set_progress(7, "transcribing", 0.4)
