@@ -7,8 +7,9 @@ const rows = [
   { name: "System audio capture", state: "native", tone: "ok" },
   { name: "Speaker splitting", state: "beta", tone: "warn" },
   { name: "Live captions", state: "macOS 26+", tone: "warn" },
+  { name: "Windows & Linux: recording, transcription, summaries", state: "preview", tone: "warn" },
   ...(site.hasRelease ? [] : [{ name: "Signed download (.dmg)", state: "build from source", tone: "warn" }]),
-  { name: "Windows & Linux builds", state: "planned", tone: "todo" },
+  { name: "Windows & Linux: live captions, speaker splitting, downloads", state: "planned", tone: "todo" },
 ];
 ---
 

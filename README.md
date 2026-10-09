@@ -11,6 +11,11 @@ Mac, on the Neural Engine with WhisperKit `large-v3-turbo`), and lets you summar
 local AI model through [Ollama](https://ollama.com). By default, no audio or text leaves your
 computer.
 
+![Sirina showing a meeting summary with overview, key points and follow-ups](docs/images/sirina-summary.png)
+
+<sub>Sample data from the [website demo](https://sirina.app/#demo). Recording screen:
+[docs/images/sirina-recording.png](docs/images/sirina-recording.png).</sub>
+
 > **Status:** early and actively developed.
 > [Download the latest release](https://github.com/st3v3y/sirina/releases/latest) for Apple
 > Silicon Macs, or build it from source (see [Installation](#installation)).
@@ -34,15 +39,18 @@ computer.
 ## Features
 
 - **Two-track recording.** Your mic is "You", call audio is "Others". The packaged app captures
-  system audio natively (ScreenCaptureKit), so you don't need a virtual audio device.
+  system audio natively (ScreenCaptureKit on macOS, WASAPI on Windows, PulseAudio/PipeWire on
+  Linux), so you don't need a virtual audio device.
 - **Fast on-device transcription.** WhisperKit `large-v3-turbo` runs mostly on the Neural
   Engine. In benchmarks on an M1 Pro, 10 minutes of audio took about a minute. On machines
-  without WhisperKit, [faster-whisper](https://github.com/SYSTRAN/faster-whisper) runs on the
-  CPU instead.
+  without WhisperKit (Windows, Linux, Intel Macs), [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
+  runs on the CPU instead.
 - **Transcription during the recording** (on by default). The transcript is finalised in
   ~3-minute windows while you talk, so only the last few minutes remain after you press stop.
-- **Live captions** (optional, macOS 26+). Uses Apple's on-device speech recognition, with
-  about one second of delay and very low CPU use.
+- **Live captions** (optional, macOS 26+). See what's being said while you record, labelled
+  "You" and "Others". Uses Apple's on-device speech recognition, with about one second of delay
+  and very low CPU use. Turn them on per recording in the start dialog, or by default in
+  Settings. Not yet on Windows or Linux.
 - **Draft, then final.** A quick draft appears right after stop. Window by window, it's
   replaced by the final text.
 - **Speaker splitting** (optional). [SpeakerKit](https://github.com/argmaxinc/argmax-oss-swift)
