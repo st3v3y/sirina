@@ -19,7 +19,8 @@ Recording permission it will consume.)
 | Path | What |
 | --- | --- |
 | `frontend/src-tauri/tauri.conf.json` | Shared Tauri config (dist dir, icons) |
-| `frontend/src-tauri/tauri.{macos,windows,linux}.conf.json` | Per-platform bundle targets and resources (macOS `.app` + min version 13; Windows NSIS; Linux deb) |
+| `frontend/src-tauri/tauri.{macos,windows,linux}.conf.json` | Per-platform bundle targets and resources (macOS `.app` + min version 13; Windows NSIS; Linux deb + AppImage) |
+| `frontend/src-tauri/tauri.appimage.conf.json` | Linux resources for the AppImage pass: the helper only (the backend is added afterwards, see [AppImage](#appimage)) |
 | `frontend/src-tauri/src/lib.rs` | Picks a free port, spawns the bundled backend with `APP_DATA_DIR`, the helper paths and `SIRINA_APP_PID`, injects `window.__BACKEND_URL__`, creates the window |
 | `frontend/src-tauri/Info.plist` | `NSMicrophoneUsageDescription` (first-run mic prompt) |
 | `frontend/src-tauri/capabilities/default.json` | Default window permissions (the backend is started with `std::process`, not the shell plugin) |
@@ -27,6 +28,7 @@ Recording permission it will consume.)
 | `backend/packaging/backend.spec` | PyInstaller spec (transcription core; heavy ML extras commented) |
 | `scripts/build-macos-app.sh` | End-to-end macOS build + ad-hoc sign |
 | `scripts/build-windows.ps1`, `scripts/build-linux.sh` | End-to-end Windows / Linux builds (unsigned) |
+| `scripts/appimage-add-backend.sh`, `scripts/smoke-linux-appimage.sh` | Add the frozen backend to the AppImage; smoke-test the AppImage (CI) |
 | `.github/workflows/build.yml` | CI: tests and bundles for all three platforms, uploaded as run artifacts |
 
 ## How it fits together
@@ -212,7 +214,7 @@ the options are off.
 ### Build
 
 ```bash
-./scripts/build-linux.sh          # Linux → bundle/deb/*.deb
+./scripts/build-linux.sh          # Linux → bundle/deb/*.deb, bundle/appimage/*.AppImage
 ```
 
 ```powershell
@@ -221,20 +223,43 @@ the options are off.
 
 Prerequisites: Rust, uv, Node ≥ 18. On Linux also Tauri's WebKitGTK deps
 (`libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf`), `libpulse-dev` for the capture
-helper and `libportaudio2`, which is bundled into the backend (a fresh desktop may not have
-it). The scripts use `cargo tauri` when installed, else the frontend's pinned `@tauri-apps/cli` (`npm run tauri`). CI builds both
+helper, `libportaudio2`, which is bundled into the backend (a fresh desktop may not have
+it), and `squashfs-tools` for the AppImage. The scripts use `cargo tauri` when installed, else the frontend's pinned `@tauri-apps/cli` (`npm run tauri`). CI builds both
 (plus macOS) on every pull request; download the bundles from the run's artifacts.
 
-There is no AppImage yet: Tauri's AppImage step runs linuxdeploy over every library in the
-bundle, which fails on the PyInstaller backend's libraries (and would rewrite their
-rpaths). Packaging the backend so linuxdeploy leaves it alone is a follow-up.
+#### AppImage
+
+Tauri's AppImage step runs linuxdeploy over every ELF file in the AppDir. On the PyInstaller
+backend that fails (it can't resolve ctranslate2's vendored `libgomp-<hash>.so.1.0.0`), and
+if it succeeded it would rewrite the rpaths of the backend's libraries. So the backend never
+goes through linuxdeploy:
+
+1. `tauri build --bundles deb` builds the app and the `.deb` with every resource.
+2. `tauri bundle --bundles appimage --config tauri.appimage.conf.json` bundles the same
+   binary as an AppImage whose resources are only the capture helper. linuxdeploy bundles
+   WebKitGTK, GTK and libpulse as usual.
+3. `scripts/appimage-add-backend.sh` unpacks the AppImage's squashfs, copies the frozen
+   backend to `usr/lib/Sirina/resources/backend/` unchanged, and repacks it behind the
+   same runtime with the same compression.
+
+The shell finds the backend at run time as it does in the `.deb`
+(`<resource dir>/resources/backend/backend`), and it runs straight from the AppImage's
+read-only mount. Don't run a bare `tauri build` on Linux: with both targets it fails at the
+AppImage step; use the script, or `--bundles deb`.
+
+CI then runs `scripts/smoke-linux-appimage.sh`: it unpacks the AppImage, checks the bundled
+backend is byte-identical to the build's, starts it and waits for `/api/status`, and
+finally launches the AppImage under Xvfb and checks the shell started the backend from the
+AppImage's mount and that it answers.
 
 ### First launch (unsigned)
 
 - **Windows:** SmartScreen says the app is unrecognized: choose **More info → Run anyway**.
   Some antivirus tools flag PyInstaller binaries; that is a false positive of unsigned builds.
-- **Linux:** `sudo apt install ./Sirina_*.deb`. The `.deb` depends on `libpulse0` and recommends `pipewire-pulse` or
-  `pulseaudio`. If the window stays blank or flickers (seen with some NVIDIA drivers), start
+- **Linux:** `chmod +x Sirina_*.AppImage && ./Sirina_*.AppImage`, or `sudo apt install
+  ./Sirina_*.deb`. The AppImage needs FUSE to mount itself; without it, run it with
+  `--appimage-extract-and-run`. The `.deb` depends on `libpulse0` and recommends
+  `pipewire-pulse` or `pulseaudio`. If the window stays blank or flickers (seen with some NVIDIA drivers), start
   it with `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
 
 There are no permission prompts. On Windows, the microphone is silent (a flat level meter)
