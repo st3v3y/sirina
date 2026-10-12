@@ -87,10 +87,10 @@ mic + system audio (ScreenCaptureKit)    speech-engine helper (Swift)
 | --- | --- |
 | **Mac** | Apple Silicon, macOS 14 or later. Live captions and the quick draft need macOS 26. |
 | **Windows** (preview) | Windows 10 or 11, x64. Windows 11 leaves Sirina's own audio out of the call track. |
-| **Linux** (preview) | x64 Debian/Ubuntu (a `.deb`) with WebKitGTK 4.1 and PulseAudio or PipeWire (pipewire-pulse). |
+| **Linux** (preview) | x64, glibc 2.35 or later (Ubuntu 22.04+): an AppImage for any such distribution, or a `.deb` for Debian/Ubuntu with WebKitGTK 4.1. PulseAudio or PipeWire (pipewire-pulse). |
 | **Disk** | ~250 MB for the app, plus models (0.7–3 GB) and your recordings |
 | **AI (optional)** | [Ollama](https://ollama.com) with an instruct model, for summaries and chat |
-| **Build tools** (only to build from source) | [Rust](https://rustup.rs), Node 20+, [uv](https://docs.astral.sh/uv/); Xcode 26+ on macOS; `libpulse-dev` and `libportaudio2` on Linux |
+| **Build tools** (only to build from source) | [Rust](https://rustup.rs), Node 20+, [uv](https://docs.astral.sh/uv/); Xcode 26+ on macOS; `libpulse-dev`, `libportaudio2` and `squashfs-tools` on Linux |
 
 Releases are built for Apple Silicon Macs. Windows and Linux are in preview: build them from
 source, or download the bundles from a CI run's artifacts.
@@ -144,8 +144,8 @@ helpers and bundles everything:
   `bundle/dmg/Sirina-macOS-arm64.dmg`. The app is ad-hoc signed.
 - **Windows:** an installer in `…/bundle/nsis/`. It is unsigned: in the SmartScreen prompt,
   choose **More info → Run anyway**.
-- **Linux:** a `.deb` in `…/bundle/deb/` (`sudo apt install ./Sirina_*.deb`). An AppImage
-  is planned.
+- **Linux:** an AppImage in `…/bundle/appimage/` (`chmod +x Sirina_*.AppImage`, then run
+  it) and a `.deb` in `…/bundle/deb/` (`sudo apt install ./Sirina_*.deb`).
 
 Every pull request also builds all three in CI (GitHub Actions artifacts). For details, see
 [docs/PACKAGING.md](docs/PACKAGING.md).
